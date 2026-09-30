@@ -4359,39 +4359,82 @@ function netSend(m){ if (!NET.peer) return; if (NET.host) netBroadcast(m); else 
 function netBroadcast(m, except){ NET.conns.forEach(c => { if (c.open && c !== except) c.send(m); }); }
 function lobbyList(){ return Object.values(NET.players); }
 function broadcastLobby(){ netBroadcast({t:'lobby', players:lobbyList(), host:NET.myId}); renderLobby(); }
-function hostGame(wanted){
+/* STUN lets two browsers find a direct route to each other. On strict networks (mobile data, school/work Wi-Fi,
+   some VPNs) there is none and a TURN relay has to carry the traffic. PeerJS's free TURN servers are gone (their
+   hostnames no longer resolve), so relays from a TURN provider account go in TURN_SERVERS, e.g.
+   {urls:['turn:host:3478', 'turns:host:443?transport=tcp'], username:'...', credential:'...'}.
+   Without one, players on such networks can't connect and get told why. */
+const TURN_SERVERS = [];
+const PEER_OPTS = {config:{iceServers:[{urls:'stun:stun.l.google.com:19302'}, {urls:'stun:stun.cloudflare.com:3478'}, ...TURN_SERVERS]}};
+const NET_BLOCKED = 'your two networks won’t let a direct connection through. This happens on mobile data, school/work Wi-Fi and with VPNs. Try both being on home Wi-Fi, turn off any VPN, or let the other person host.';
+const SERVER_DOWN = 'Can’t reach the matchmaking server. Check your internet. An ad-blocker, antivirus or school/work firewall may be blocking 0.peerjs.com.';
+const SERVER_ERRS = ['network', 'server-error', 'socket-error', 'socket-closed'];
+function resetPeer(){
+  clearTimeout(NET.retryT);
+  if (NET.peer && !NET.started) { try { NET.peer.destroy(); } catch (e) {} }
+  if (!NET.started) { NET.peer = null; NET.hostConn = null; NET.conns = []; }
+}
+function hostGame(wanted, tries = 0){
   if (typeof Peer === 'undefined') { lobbyMsg('Online play is not available here. Open the game from its own website link.'); return; }
   const custom = cleanCode(wanted);
   if (custom && custom.length < 4) { lobbyMsg('Room codes need 4 to 6 letters or numbers. Or leave the box empty for a random code.'); return; }
-  const me = myInfo(); NET.host = true; NET.code = custom || newCode(); lobbyMsg('Creating match…');
-  const peer = new Peer(PEER_PREFIX + NET.code); NET.peer = peer;
-  peer.on('open', id => { NET.myId = id; me.id = id; NET.players = {[id]:me}; showLobby(); });
+  resetPeer();
+  const me = myInfo(); NET.host = true; NET.code = custom || newCode(); if (!tries) lobbyMsg('Creating match…');
+  const peer = new Peer(PEER_PREFIX + NET.code, PEER_OPTS); NET.peer = peer; let registered = false;
+  peer.on('open', id => { if (NET.peer !== peer) return; registered = true; NET.myId = id; me.id = id; NET.players = {[id]:me}; showLobby(); });
   peer.on('connection', c => {
     NET.conns.push(c);
     c.on('data', m => hostHandle(c, m));
     c.on('close', () => { NET.conns = NET.conns.filter(x => x !== c); const p = NET.players[c.peer]; if (p) { delete NET.players[c.peer]; netBroadcast({t:'left', id:c.peer}); removePlayer(c.peer); broadcastLobby(); killFeedText(`${p.name} left`); } });
+    // a join that never opens means the networks blocked it (with no relay the browser may never even report 'failed')
+    const tell = () => { if (!c.open && !NET.started && NET.peer === peer) { lobbyMsg(`Someone tried to join, but ${NET_BLOCKED}`); try { c.close(); } catch (e) {} } };
+    const t = setTimeout(tell, 15000); c.on('open', () => clearTimeout(t));
+    c.on('iceStateChanged', st => { if (st === 'failed') { clearTimeout(t); tell(); } });
   });
+  // the link to the matchmaking server can drop (sleep, Wi-Fi blip); re-register so new players can still find the room
+  peer.on('disconnected', () => setTimeout(() => { if (NET.peer === peer && !peer.destroyed && peer.disconnected) peer.reconnect(); }, 1500));
   peer.on('error', e => {
-    if (e.type !== 'unavailable-id') { lobbyMsg('Connection problem: ' + e.type); return; }
-    peer.destroy(); NET.peer = null;
-    if (custom) { NET.host = false; lobbyMsg(`Someone is already hosting room ${custom}. Pick another code, or leave the box empty for a random one.`); }
-    else hostGame();
+    if (NET.peer !== peer) return;
+    if (e.type === 'unavailable-id') {
+      peer.destroy(); NET.peer = null;
+      if (!custom) { hostGame(); return; }
+      // a room that was just closed stays registered on the server for up to a minute
+      if (tries < 8) { lobbyMsg(`Room ${custom} is taken right now. If you just closed it, it frees up within a minute. Retrying… (${tries + 1}/8)`); NET.retryT = setTimeout(() => hostGame(custom, tries + 1), 5000); return; }
+      NET.host = false; lobbyMsg(`Someone is already hosting room ${custom}. Pick another code, or leave the box empty for a random one.`); return;
+    }
+    if (SERVER_ERRS.includes(e.type)) { if (!registered) lobbyMsg(SERVER_DOWN); return; }   // once registered, 'disconnected' reconnects
+    lobbyMsg('Connection problem: ' + e.type);
   });
 }
 function joinGame(code){
   if (typeof Peer === 'undefined') { lobbyMsg('Online play is not available here. Open the game from its own website link.'); return; }
   code = cleanCode(code); if (code.length < 4) { lobbyMsg('Type the room code your friend gave you.'); return; }
+  resetPeer();
   const me = myInfo(); NET.host = false; NET.code = code; lobbyMsg('Connecting…');
-  const peer = new Peer(); NET.peer = peer;
-  const to = setTimeout(() => { if (!NET.hostConn || !NET.hostConn.open) lobbyMsg('Could not reach that match. Check the code and try again.'); }, 12000);
+  const peer = new Peer(PEER_OPTS); NET.peer = peer;
+  let ice = '', opened = false, reached = false, answered = false;
+  const fail = t => { clearTimeout(to); if (NET.peer !== peer || opened) return; lobbyMsg(t); try { peer.destroy(); } catch (e) {} NET.peer = null; NET.hostConn = null; };
+  const blocked = () => `Found room ${code}, but ${NET_BLOCKED}`;
+  const to = setTimeout(() => fail(!reached ? SERVER_DOWN : ice || answered ? blocked() : `Could not reach room ${code}. Check the code, and that the host still has the room open.`), 15000);
   peer.on('open', id => {
-    NET.myId = id; me.id = id;
+    if (NET.peer !== peer) return;
+    reached = true; NET.myId = id; me.id = id; lobbyMsg(`Looking for room ${code}…`);
     const c = peer.connect(PEER_PREFIX + code, {reliable:true}); NET.hostConn = c;
-    c.on('open', () => { clearTimeout(to); c.send({t:'hello', name:me.name, team:me.team, look:me.look}); lobbyMsg('Connected! Waiting for the host…'); });
+    // the host's answer arriving proves the room exists; anything failing after that is the network path
+    const pc = c.peerConnection; if (pc) pc.addEventListener('signalingstatechange', () => { if (pc.remoteDescription && !answered) { answered = true; lobbyMsg(`Found room ${code}! Connecting to the host…`); } });
+    // 'checking' means the host answered, so the room exists and only the network path is left
+    c.on('iceStateChanged', st => { ice = st; if (st === 'checking') lobbyMsg(`Found room ${code}! Connecting to the host…`); if (st === 'failed') fail(blocked()); });
+    c.on('error', () => fail(blocked()));
+    c.on('open', () => { opened = true; clearTimeout(to); c.send({t:'hello', name:me.name, team:me.team, look:me.look}); lobbyMsg('Connected! Waiting for the host…'); });
     c.on('data', clientHandle);
-    c.on('close', () => { if (G.pvp) { G.phase = 'end'; releaseLock(); showMatchEnd(null, 'The host left the match.'); } else lobbyMsg('The host closed the match.'); });
+    c.on('close', () => { if (!opened) return; if (G.pvp) { G.phase = 'end'; releaseLock(); showMatchEnd(null, 'The host left the match.'); } else lobbyMsg('The host closed the match.'); });
   });
-  peer.on('error', e => { clearTimeout(to); lobbyMsg(e.type === 'peer-unavailable' ? 'No match with that code. Check it and try again.' : 'Connection problem: ' + e.type); });
+  peer.on('error', e => {
+    if (e.type === 'peer-unavailable') fail(`No room with code ${code} right now. Check the code, and that the host still has the room open.`);
+    else if (SERVER_ERRS.includes(e.type)) fail(SERVER_DOWN);
+    else if (e.type === 'negotiation-failed' || e.type === 'webrtc') fail(blocked());
+    else fail('Connection problem: ' + e.type);
+  });
 }
 function hostHandle(c, m){
   switch (m.t) {

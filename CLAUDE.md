@@ -78,8 +78,13 @@ PeerJS 1.5.4 is inlined in a `<script>` block near the top.
    ~0.5 s. The earlier 0–0 reading came from the mock BroadcastChannel test. Note that
    paused/throttled tabs stop the game loop, so a dead player won't respawn (and can't be
    knocked out again) until their tab is visible.
-2. Never tested over the real internet or with more than 2 players. Some strict networks
-   (school/office NAT) may fail to connect without a TURN server.
+2. **Confirmed 2026-10-01: no TURN relay.** PeerJS's free TURN servers (`eu-0/us-0.turn.peerjs.com`)
+   no longer resolve, and the free no-signup relays (openrelay.metered.ca, freestun.net,
+   anyfirewall, numb.viagenie) are all dead. Players whose network needs a relay (mobile data,
+   school/office Wi-Fi, VPNs, symmetric NAT) can't connect. Fix: add credentials from a TURN
+   provider account to `TURN_SERVERS` in index.html. The user's own home network is cone NAT
+   (direct P2P works). Join/host now report the real reason (wrong code / blocked network /
+   matchmaking server unreachable) instead of "check the code".
 3. Friendly fire is on for explosions; may want team-safe damage by tracking the owner of
    each blast.
 4. Cooldowns (`CD`) and damage numbers are first guesses — tune after playtesting.
