@@ -2887,12 +2887,17 @@ function endFlip(){ world.bodies.forEach(b => { if (b.mass > 0 && b.wakeUp) b.wa
 function slowTime(){ G.warp = 8; G.warpOwner = attacker(); updateFilter(); sfx('grav'); toast('🐢 Time slowed down. You still move at full speed.'); }
 function endWarp(){ updateFilter(); toast('Time is back to normal speed.'); }
 function freezeTime(){
-  G.freeze = 6; updateFilter(); frozen = [];
-  const A = chars[attacker()] && chars[attacker()].body;
+  // A second freeze while one is running extends it. Keep the existing `frozen` list, or
+  // everything the first freeze caught is never thawed and players stay stuck for good.
+  const already = G.freeze > 0;
+  G.freeze = 6; updateFilter(); if (!already) frozen = [];
+  const C = chars[attacker()], A = C && C.body;
+  if (A && A._frozen) { thawBody(A); frozen = frozen.filter(b => b !== A); }
   world.bodies.forEach(b => freezeBody(b, A));
-  world.bodies.forEach(b => { if (b.type === CANNON.Body.KINEMATIC && b.tag !== 'golem' && b.tag !== 'drone') { b._kv = b.velocity.clone(); b.velocity.set(0,0,0); } });
+  world.bodies.forEach(b => { if (b.type === CANNON.Body.KINEMATIC && b.tag !== 'golem' && b.tag !== 'drone' && !b._kv) { b._kv = b.velocity.clone(); b.velocity.set(0,0,0); } });
   sfx('crack'); sfx('grav');
-  toast('⏸️ Time stopped. Only you can move. Shots you fire hang in the air until time resumes.');
+  if (!G.pvp || attacker() === G.localKey) toast('⏸️ Time stopped. Only you can move. Shots you fire hang in the air until time resumes.');
+  else toast(`⏸️ ${C ? C.name : 'Someone'} stopped time! You're frozen for 6 seconds.`);
 }
 function freezeBody(b, A){
   if (b._frozen || b.mass === 0 || b === A) return;
@@ -2903,8 +2908,9 @@ function freezeNew(){
   const A = chars[attacker()] && chars[attacker()].body;
   for (const b of world.bodies) { if (b._frozen || b.mass === 0 || b === A) continue; const o = bodyObj.get(b); if (o && G.t - (o.spawnT || 0) < .25) continue; freezeBody(b, A); }
 }
+function thawBody(b){ delete b.wakeUp; b._frozen = false; b.wakeUp(); b.velocity.x += b._fv.x; b.velocity.y += b._fv.y; b.velocity.z += b._fv.z; b.angularVelocity.copy(b._fw); }
 function endFreeze(){
-  for (const b of frozen) { delete b.wakeUp; b._frozen = false; b.wakeUp(); b.velocity.x += b._fv.x; b.velocity.y += b._fv.y; b.velocity.z += b._fv.z; b.angularVelocity.copy(b._fw); }
+  for (const b of frozen) thawBody(b);
   world.bodies.forEach(b => { if (b._kv) { b.velocity.copy(b._kv); b._kv = null; } });
   frozen = []; updateFilter(); sfx('fire'); toast('▶️ Time resumes!');
 }
