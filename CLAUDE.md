@@ -83,8 +83,14 @@ PeerJS 1.5.4 is inlined in a `<script>` block near the top.
 3. Friendly fire is on for explosions; may want team-safe damage by tracking the owner of
    each blast.
 4. Cooldowns (`CD`) and damage numbers are first guesses — tune after playtesting.
-5. Performance: many dynamic boxes on the heightfield are expensive in cannon 0.6.2. Debris
-   is capped at ~60 objects and physics sub-steps are capped at 4 per frame.
+5. Performance (profiled 2026-10-01): the big fight lag was cannon's heightfield pillar cache
+   being wiped by every crater (`syncTerrain` now clears only nearby pillars, full reset only
+   when the field's min/max height changes) plus a debug `console.error` in
+   `ConvexPolyhedron.computeNormals` (overridden without the check). Render resolution is capped
+   at 1.5x and `perfTune()` lowers it when GPU-bound. Particles are capped (`FX_MAX`) and don't
+   cast shadows; knives have no outlines. The local player + camera are interpolated between the
+   60 Hz physics steps so 120/144 Hz screens look smooth. An FPS counter is always shown (`#fps`).
+   Debris is capped at ~60 objects and physics sub-steps are capped at 4 per frame.
 
 ## Deploying (first task)
 

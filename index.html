@@ -174,6 +174,8 @@ body.touch #toast{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 180px)}
 #hpBar{position:fixed;left:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 150px);width:min(260px,40vw);height:26px;border:3px solid var(--edge);border-radius:999px;background:var(--panel);overflow:hidden;box-shadow:3px 3px 0 var(--edge);z-index:5}
 #hpFill{height:100%;width:100%;background:#6CB24A;transition:width .15s}
 #hpText{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:15px;color:#1E2A38;text-shadow:0 1px 0 #fff}
+#fps{position:fixed;left:12px;top:calc(env(safe-area-inset-top,0px) + 58px);z-index:5;pointer-events:none;font:800 12px/1 var(--display,system-ui),system-ui,sans-serif;padding:4px 8px;border-radius:999px;background:rgba(5,9,13,.72);color:#8BE28B;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+#fps.mid{color:#FFD84D}#fps.low{color:#FF7A6B}
 #killfeed{position:fixed;right:12px;top:calc(env(safe-area-inset-top,0px) + 66px);display:flex;flex-direction:column;gap:4px;align-items:flex-end;z-index:5;pointer-events:none}
 #killfeed div{background:rgba(20,30,45,.82);color:#fff;padding:4px 10px;border-radius:999px;font-size:13px;animation:pop .2s ease-out}
 #dmgFlash{position:fixed;inset:0;pointer-events:none;z-index:3;opacity:0;background:radial-gradient(ellipse at center, rgba(255,40,30,0) 45%, rgba(255,40,30,.75) 100%)}
@@ -185,6 +187,7 @@ body.touch #hpBar{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 58px);left
 </head>
 <body>
 <canvas id="c" tabindex="0" aria-label="Game view"></canvas>
+<div id="fps" aria-hidden="true">-- FPS</div>
 <header id="top">
   <div class="score" aria-label="Score"><span class="blue">Blue <b id="sBlue">0</b></span><span class="red"><b id="sRed">0</b> Red</span></div>
   <div id="phase" class="sticker">Chaos Arena</div>
@@ -319,7 +322,9 @@ $('mute').addEventListener('click', () => { muted = !muted; $('mute').textConten
 /* ---------------- three ---------------- */
 const canvas = $('c');
 const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+// 2x resolution costs about 3x the GPU time of 1.5x for a barely visible difference; perfTune() lowers it further on slow GPUs
+const MAX_PR = Math.min(window.devicePixelRatio||1, 1.5), MIN_PR = .6;
+renderer.setPixelRatio(MAX_PR);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
@@ -373,7 +378,17 @@ function syncTerrain(i0 = 0, i1 = TN-1, j0 = 0, j1 = TN-1){
     hfShape.data[i][TN - 1 - j] = terrH[v];
   }
   pos.needsUpdate = true; col.needsUpdate = true; terrGeo.computeBoundingSphere();
-  hfShape.update(); hfShape.updateMinValue(); hfShape.updateMaxValue(); hfShape.updateBoundingSphereRadius(); hfBody.aabbNeedsUpdate = true;
+  // hfShape.update() throws away every cached collision pillar, and rebuilding them was ~40% of all CPU
+  // time in big fights (every crater did it). Only forget the pillars around the cells that changed.
+  // Every pillar reaches down to the field's minValue, so a new lowest/highest point still needs a full reset.
+  const lo = hfShape.minValue, hi = hfShape.maxValue;
+  hfShape.updateMinValue(); hfShape.updateMaxValue();
+  if ((i0 === 0 && i1 === TN-1 && j0 === 0 && j1 === TN-1) || hfShape.minValue !== lo || hfShape.maxValue !== hi) hfShape.update();
+  else {
+    const x0 = Math.max(0, i0 - 1), x1 = Math.min(TN - 2, i1), y0 = Math.max(0, TN - 2 - j1), y1 = Math.min(TN - 2, TN - 1 - j0);
+    for (let xi = x0; xi <= x1; xi++) for (let yi = y0; yi <= y1; yi++) { hfShape.clearCachedConvexTrianglePillar(xi, yi, true); hfShape.clearCachedConvexTrianglePillar(xi, yi, false); }
+  }
+  hfShape.updateBoundingSphereRadius(); hfBody.aabbNeedsUpdate = true;
 }
 function genTerrain(seed){
   terrSeed = (seed % 997) * .137;
@@ -396,6 +411,12 @@ const zoneRing = new THREE.Mesh(new THREE.RingGeometry(10.7, 11.1, 96), new THRE
 zoneRing.rotation.x = -Math.PI/2; zoneRing.position.y = 0.02; scene.add(zoneRing);
 
 /* ---------------- physics ---------------- */
+// cannon 0.6.2's computeNormals runs a debug check that console.error()s for nearly every terrain collision
+// pillar it builds; logging was a big share of physics time. Same normals, no check.
+CANNON.ConvexPolyhedron.prototype.computeNormals = function(){
+  this.faceNormals.length = this.faces.length;
+  for (let i=0;i<this.faces.length;i++){ const n = this.faceNormals[i] || new CANNON.Vec3(); this.getFaceNormal(i, n); n.negate(n); this.faceNormals[i] = n; }
+};
 const world = new CANNON.World();
 world.gravity.set(0,-9.82,0);
 world.broadphase = new CANNON.SAPBroadphase(world);
@@ -2096,7 +2117,8 @@ let storms = [], stuck = [];
 const KN = {steel:new THREE.MeshStandardMaterial({color:0xD7DDE3, metalness:.85, roughness:.25, flatShading:true}), blade:new THREE.BoxGeometry(.05,.62,.16), tip:new THREE.ConeGeometry(.08,.2,4), guard:new THREE.BoxGeometry(.12,.05,.3), handle:new THREE.BoxGeometry(.08,.34,.1)};
 function makeKnifeMesh(){
   const g = new THREE.Group();
-  const add = (geo, mat, y, rx) => { const m = new THREE.Mesh(geo, mat); m.position.y = y; if (rx) { m.rotation.x = rx; m.scale.set(1,1,.5); } m.castShadow = true; g.add(m); };
+  // knives rain down by the hundred: no outline pass (invisible on a thin blade) and only the blade casts a shadow
+  const add = (geo, mat, y, rx) => { const m = new THREE.Mesh(geo, mat); m.position.y = y; if (rx) { m.rotation.x = rx; m.scale.set(1,1,.5); } m.castShadow = geo === KN.blade; m.userData.noOutline = true; g.add(m); };
   add(KN.blade, KN.steel, -.36); add(KN.tip, KN.steel, -.76, Math.PI); add(KN.guard, M3(0x7A7F86), -.03); add(KN.handle, M3(0x3A2A20), .16);
   return g;
 }
@@ -2124,7 +2146,7 @@ function stickKnife(o){
   const m = o.mesh; removeObj(o);
   m.position.set(p.x, p.y - .3, p.z); m.quaternion.set(q.x, q.y, q.z, q.w); m.rotateX(rr(-.25,.25)); m.rotateZ(rr(-.25,.25));
   m.userData.noRay = true; roundGroup.add(m); stuck.push(m);
-  if (stuck.length > 140) roundGroup.remove(stuck.shift());
+  if (stuck.length > 40) roundGroup.remove(stuck.shift());   // each stuck knife is 4 meshes; 140 of them was ~1000 draw calls
   if (rand() < .3) sfx('thunk');
 }
 function updateStorms(dt){
@@ -4168,10 +4190,49 @@ function nameTag(P){
   const s = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c), transparent:true, depthWrite:false}));
   s.scale.set(2.4, .6, 1); s.position.y = 2.95; s.userData.noRay = true; s.userData.isOutline = true; P.root.add(s); P.tag = s;
 }
+/* enemy finder: an arrow floating over your head that points at the nearest enemy,
+   and a bobbing marker over every enemy that shows through hills and walls */
+const TEAM_COL = {blue:0x2F6BFF, red:0xFF4B3E};
+const seekArrow = (() => {
+  const s = new THREE.Shape(); s.moveTo(0,.62); s.lineTo(.46,.08); s.lineTo(.17,.08); s.lineTo(.17,-.5); s.lineTo(-.17,-.5); s.lineTo(-.17,.08); s.lineTo(-.46,.08); s.lineTo(0,.62);
+  const geo = new THREE.ExtrudeGeometry(s, {depth:.1, bevelEnabled:false}); geo.translate(0, 0, -.05); geo.rotateX(Math.PI/2);   // lies flat, tip along +z
+  const g = new THREE.Group(), m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({color:0xFF4B3E}));
+  const o = new THREE.Mesh(geo, OUTLINE_MAT); o.scale.setScalar(1.18);
+  g.add(o); g.add(m); g.userData.noRay = true; g.traverse(c => c.userData.noRay = true); g.visible = false; scene.add(g);
+  g.userData.fill = m.material; return g;
+})();
+function enemyMark(P){
+  const geo = new THREE.ConeGeometry(.26, .5, 4);
+  const onTop = c => new THREE.MeshBasicMaterial({color:c, depthTest:false, depthWrite:false, transparent:true});
+  const g = new THREE.Group(), edge = new THREE.Mesh(geo, onTop(0x050505)), fill = new THREE.Mesh(geo, onTop(TEAM_COL[P.team] || 0xFF4B3E));
+  edge.scale.setScalar(1.35); edge.renderOrder = 30; fill.renderOrder = 31;
+  g.add(edge); g.add(fill); g.rotation.x = Math.PI; g.position.y = 3.6; g.visible = false;
+  g.traverse(c => c.userData.noRay = true); P.root.add(g); P.enemyMark = g;
+}
+function updateEnemyFinder(){
+  const me = localP();
+  const on = G.pvp && G.phase === 'attack' && !G.matchOver && me && me.alive !== false;
+  let best = null, bd = Infinity;
+  for (const k in chars) {
+    const P = chars[k]; if (!P || !P.enemyMark) continue;
+    const enemy = on && P.team !== me.team && P.alive !== false;
+    P.enemyMark.visible = enemy; if (!enemy) continue;
+    const dx = P.body.position.x - me.body.position.x, dz = P.body.position.z - me.body.position.z, d = Math.hypot(dx, dz);
+    // grow with distance so far-away enemies stay easy to spot; bob gently
+    P.enemyMark.scale.setScalar(clamp(d/13, 1, 8)); P.enemyMark.position.y = 3.6 + Math.sin(G.t*4 + P.body.position.x)*.12;
+    if (d < bd) { bd = d; best = P; }
+  }
+  seekArrow.visible = !!best; if (!best) return;
+  const b = me.root.position, t = best.body.position;   // root: follows the smoothed (interpolated) position
+  seekArrow.position.set(b.x, b.y + 2.75 + Math.sin(G.t*5)*.06, b.z);
+  seekArrow.rotation.set(0, Math.atan2(t.x - b.x, t.z - b.z), 0);
+  seekArrow.userData.fill.color.setHex(TEAM_COL[best.team] || 0xFF4B3E);
+  seekArrow.scale.setScalar(bd < 6 ? .75 : 1);
+}
 function addPlayer(info, isLocal){
   const P = makePlayer(info.team, CHARS[(info.look || 0) % LOOK_COUNT], teamSpawn(info.team));
   P.key = info.id; P.name = info.name || 'Player'; P.hp = 100; P.alive = true;
-  if (!isLocal) { const b = P.body; b.type = CANNON.Body.KINEMATIC; b.mass = 0; b.updateMassProperties(); P.remote = true; P.mark.visible = false; nameTag(P); }
+  if (!isLocal) { const b = P.body; b.type = CANNON.Body.KINEMATIC; b.mass = 0; b.updateMassProperties(); P.remote = true; P.mark.visible = false; nameTag(P); enemyMark(P); }
   chars[info.id] = P; return P;
 }
 function removePlayer(id){ const P = chars[id]; if (!P) return; roundGroup.remove(P.root); if (P.body.world) world.removeBody(P.body); delete chars[id]; }
@@ -4450,7 +4511,7 @@ function pvpFrame(rdt){
   for (const k in G.cd) G.cd[k] = Math.max(0, G.cd[k] - rdt);
   G.kiCd = Math.max(0, (G.kiCd || 0) - rdt); G.spawnShield = Math.max(0, (G.spawnShield || 0) - rdt);
   G.cdUiT = (G.cdUiT || 0) - rdt; if (G.cdUiT <= 0) { G.cdUiT = .1; updateCooldownUI(); }
-  updateRemotes(rdt); netTick(rdt);
+  updateRemotes(rdt); netTick(rdt); updateEnemyFinder();
   const P = localP();
   if (P && P.alive === false && G.phase === 'attack') { P.deadT -= rdt; $('respawnT').textContent = Math.max(1, Math.ceil(P.deadT)); if (P.deadT <= 0) respawn(P); }
   if (P && P.alive && P.hp < 100 && G.phase === 'attack') { P.regenWait = (P.regenWait || 0) + rdt; }
@@ -4639,7 +4700,7 @@ function resize(){ const w = innerWidth, h = innerHeight; renderer.setSize(w, h,
 addEventListener('resize', resize); resize();
 
 const camPos = new THREE.Vector3(0, 30, 40), camLook = new THREE.Vector3(), tmpV = new THREE.Vector3(), tmpL = new THREE.Vector3();
-const FIXED = 1/60; let acc = 0, last = performance.now();
+const FIXED = 1/60, FX_MAX = 200; let acc = 0, last = performance.now();
 
 function applyForces(){
   const wind = G.wind, ag = G.atkChar ? (G.atkChar.atk.antigrav || 0) : 0;
@@ -4662,8 +4723,34 @@ function groundCheck(){
   }
 }
 
+/* adaptive resolution: when frames are slow and the time isn't going into our own JS (so the GPU is the
+   bottleneck), render fewer pixels; after a run of fast seconds, step back up towards MAX_PR */
+const perf = {pr:MAX_PR, n:0, sum:0, work:0, good:0, need:4};
+function perfTune(workMs, rdt){
+  const ms = rdt*1000; if (ms >= 100) return;   // hitch or tab coming back from the background
+  perf.n++; perf.sum += ms; perf.work += workMs; if (perf.sum < 1000) return;
+  const avg = perf.sum/perf.n, work = perf.work/perf.n; perf.n = perf.sum = perf.work = 0;
+  let pr = perf.pr;
+  if (avg > 22 && work < avg*.6 && pr > MIN_PR) { pr = Math.max(MIN_PR, pr - .15); perf.good = 0; perf.need = Math.min(30, perf.need*2); }
+  else if (avg < 18 && pr < MAX_PR) { if (++perf.good >= perf.need) { pr = Math.min(MAX_PR, pr + .1); perf.good = 0; } }
+  else perf.good = 0;
+  if (pr !== perf.pr) { perf.pr = pr; renderer.setPixelRatio(pr); resize(); }
+}
+
+/* FPS counter (always on). The browser caps frames at the screen's refresh rate (60/120/144 Hz); the game adds no cap. */
+const fpsEl = $('fps'), fpsC = {n:0, t:performance.now()};
+function countFps(now){
+  fpsC.n++; const el = now - fpsC.t; if (el < 500) return;
+  const f = Math.round(fpsC.n*1000/el); fpsC.n = 0; fpsC.t = now;
+  fpsEl.textContent = f + ' FPS'; fpsEl.className = f >= 50 ? '' : f >= 30 ? 'mid' : 'low';
+}
+/* physics runs at a fixed 60 Hz; on 120/144 Hz screens draw the local player and camera between the last two
+   physics steps, otherwise extra frames just repeat the same position and look no smoother */
+const interpPrev = new THREE.Vector3(), interpPos = new THREE.Vector3();
+
 function frame(now){
   requestAnimationFrame(frame);
+  const t0 = performance.now(); countFps(t0);
   const rdt = Math.min(.1, (now - last)/1000); last = now; G.t += rdt;
   if (G.slowmo > 0) G.slowmo -= rdt;
   if (G.warp > 0) { G.warp -= rdt; if (G.warp <= 0) endWarp(); }
@@ -4682,6 +4769,7 @@ function frame(now){
 
   acc += rdt; let n = 0;
   while (acc >= FIXED && n < 4) {
+    if (act) interpPrev.set(act.body.position.x, act.body.position.y, act.body.position.z);
     for (const t of Object.keys(chars)) { const P = chars[t]; if (!P) continue; controlPlayer(P, FIXED, P === act ? input : null); keepInBounds(P); }
     // attackers can't enter the ring
     if (G.phase === 'attack' && act && !G.pvp) {
@@ -4695,6 +4783,12 @@ function frame(now){
     for (const t of Object.keys(chars)) { const P = chars[t]; if (P && P.pendingStun) { stunPlayer(P, P.pendingStun); P.pendingStun = 0; } }
   }
   if (n === 4) acc = 0;
+  let interpOn = false;
+  if (act) {
+    const b = act.body.position; interpPos.set(b.x, b.y, b.z);
+    if (interpPrev.distanceToSquared(interpPos) < 16) interpPos.lerpVectors(interpPrev, interpPos, clamp(acc/FIXED, 0, 1));   // big jumps (respawn, teleport) snap
+    interpOn = true;
+  }
 
   if (egg && egg.alive) {
     egg.grace -= rdt; egg.crackCd -= rdt;
@@ -4714,8 +4808,11 @@ function frame(now){
     if (o.body.position.y < -14) removeObj(o);
   }
   if (objs.length > 80) objs = objs.filter(o => !o.dead);
+  // keep only the newest FX_MAX particles; big fights spawned 700+ and each one cost draw calls
+  for (let i = fx.length - 1, alive = 0; i >= 0; i--) { const f = fx[i]; if (f.life > 0 && ++alive > FX_MAX) { f.life = 0; roundGroup.remove(f.mesh); } }
   for (const f of fx) {
     if (f.life <= 0) continue;
+    if (f.mesh.castShadow) f.mesh.castShadow = false;   // tiny flying chips: a shadow is a second draw call nobody sees
     const d = rdt * G.fxScale; f.life -= rdt * (G.freeze > 0 ? 0 : 1);
     f.v.y -= 12*d; f.mesh.position.addScaledVector(f.v, d);
     f.mesh.rotation.x += f.r.x*d; f.mesh.rotation.y += f.r.y*d;
@@ -4729,6 +4826,7 @@ function frame(now){
   for (const t of Object.keys(chars)) {
     const P = chars[t]; if (!P) continue;
     animatePlayer(P, rdt, P === act);
+    if (P === act && interpOn) P.root.position.copy(interpPos);
     if (P.body.position.y < -9) {
       if (P.carry) { const c = P.carry; P.carry = null; if (c === egg) breakEgg('sea'); else removeObj(c); }
       P.body.position.set(P.spawn.x, 3, P.spawn.z); P.body.velocity.set(0,0,0); sfx('splash');
@@ -4755,7 +4853,7 @@ function frame(now){
   // camera
   const cross = $('cross');
   if (inPlay() && act) {
-    const bp = act.body.position;
+    const bp = interpOn ? interpPos : act.body.position;
     const cp = Math.cos(G.pitch), f3 = tmpA.set(Math.sin(G.yaw)*cp, Math.sin(G.pitch), Math.cos(G.yaw)*cp);
     const right = tmpB.set(-Math.cos(G.yaw), 0, Math.sin(G.yaw));
     const piv = tmpL.set(bp.x, bp.y + 1.75, bp.z).addScaledVector(right, .75);
@@ -4806,6 +4904,7 @@ function frame(now){
   $('lockHint').style.display = (inPlay() && !isTouch && !G.locked && !G.fallback && !G.eggCam) ? 'block' : 'none';
   updateVisuals(rdt); updateEdge(); pvpFrame(rdt);
   renderer.render(scene, camera);
+  perfTune(performance.now() - t0, rdt);
 }
 requestAnimationFrame(frame);
 
