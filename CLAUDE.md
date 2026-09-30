@@ -82,9 +82,13 @@ PeerJS 1.5.4 is inlined in a `<script>` block near the top.
    no longer resolve, and the free no-signup relays (openrelay.metered.ca, freestun.net,
    anyfirewall, numb.viagenie) are all dead. Players whose network needs a relay (mobile data,
    school/office Wi-Fi, VPNs, symmetric NAT) can't connect. Fix: add credentials from a TURN
-   provider account to `TURN_SERVERS` in index.html. The user's own home network is cone NAT
-   (direct P2P works). Join/host now report the real reason (wrong code / blocked network /
-   matchmaking server unreachable) instead of "check the code".
+   provider account to `TURN_SERVERS` in index.html (not done: publishing relay credentials in the
+   public page was declined). **Backup relay (2026-10-01):** when the direct link is blocked the
+   joiner falls back to public MQTT brokers over wss (`relayConn`, `RELAY_BROKERS`: HiveMQ,
+   Mosquitto, EMQX; mqtt.js loaded lazily from jsdelivr with SRI). The joiner's random 128-bit
+   topic reaches the host via PeerJS connection metadata; the host listens on every broker. Adds
+   ~40 ms each way; tested: fallback in ~7 s, movement/casts/scoring/leave all work. The user's
+   home network is cone NAT (direct P2P works). Join/host report the real reason on failure.
 3. Friendly fire is on for explosions; may want team-safe damage by tracking the owner of
    each blast.
 4. Cooldowns (`CD`) and damage numbers are first guesses — tune after playtesting.

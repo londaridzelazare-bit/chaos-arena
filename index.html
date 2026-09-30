@@ -4360,19 +4360,97 @@ function netBroadcast(m, except){ NET.conns.forEach(c => { if (c.open && c !== e
 function lobbyList(){ return Object.values(NET.players); }
 function broadcastLobby(){ netBroadcast({t:'lobby', players:lobbyList(), host:NET.myId}); renderLobby(); }
 /* STUN lets two browsers find a direct route to each other. On strict networks (mobile data, school/work Wi-Fi,
-   some VPNs) there is none and a TURN relay has to carry the traffic. PeerJS's free TURN servers are gone (their
-   hostnames no longer resolve), so relays from a TURN provider account go in TURN_SERVERS, e.g.
-   {urls:['turn:host:3478', 'turns:host:443?transport=tcp'], username:'...', credential:'...'}.
-   Without one, players on such networks can't connect and get told why. */
+   some VPNs) there is none. PeerJS's free TURN relays are gone (their hostnames no longer resolve), so when the
+   direct route is blocked the game falls back to a public MQTT message broker over secure WebSockets (see
+   relayConn below). A TURN account can still be added here and is tried first:
+   {urls:['turn:host:3478', 'turn:host:3478?transport=tcp'], username:'...', credential:'...'} */
 const TURN_SERVERS = [];
 const PEER_OPTS = {config:{iceServers:[{urls:'stun:stun.l.google.com:19302'}, {urls:'stun:stun.cloudflare.com:3478'}, ...TURN_SERVERS]}};
-const NET_BLOCKED = 'your two networks won’t let a direct connection through. This happens on mobile data, school/work Wi-Fi and with VPNs. Try both being on home Wi-Fi, turn off any VPN, or let the other person host.';
+const NET_BLOCKED = 'your two networks won’t let a direct connection through, and the backup relay couldn’t be reached either. Try both being on home Wi-Fi, turn off any VPN, or let the other person host.';
 const SERVER_DOWN = 'Can’t reach the matchmaking server. Check your internet. An ad-blocker, antivirus or school/work firewall may be blocking 0.peerjs.com.';
 const SERVER_ERRS = ['network', 'server-error', 'socket-error', 'socket-closed'];
+
+/* backup relay: free public MQTT brokers (fastest first). The joiner picks a random 128-bit topic and hands it to
+   the host through the PeerJS matchmaking server, so nobody else knows where the game's messages go. The host
+   listens on every broker, the joiner uses the first one it can reach, so they meet even if one is blocked. */
+const RELAY_BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081/mqtt', 'wss://broker.emqx.io:8084/mqtt'];
+const RELAY_NS = 'chaosarena-v1/r/';
+const relayNonce = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+let mqttLib = null;
+function loadMqtt(){
+  return mqttLib || (mqttLib = new Promise((res, rej) => {
+    if (window.mqtt) { res(window.mqtt); return; }
+    const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js';
+    sc.integrity = 'sha384-u4uqeACkFcoKl57rBQJHVGDd1pqhW4w8X3WjTu1ZksPdxoLqdt34jpoNkJisE25W'; sc.crossOrigin = 'anonymous';
+    sc.onload = () => window.mqtt ? res(window.mqtt) : rej(new Error('mqtt'));
+    sc.onerror = () => { mqttLib = null; rej(new Error('mqtt')); };
+    document.head.appendChild(sc);
+  }));
+}
+function connectBroker(url){
+  return loadMqtt().then(m => new Promise((res, rej) => {
+    const cl = m.connect(url, {connectTimeout:5000, reconnectPeriod:0, clean:true, keepalive:20});
+    const t = setTimeout(() => { cl.end(true); rej(new Error('timeout')); }, 6000);
+    cl.once('connect', () => { clearTimeout(t); cl.options.reconnectPeriod = 2000; if (cl.setMaxListeners) cl.setMaxListeners(200); res(cl); });
+    cl.once('error', e => { clearTimeout(t); cl.end(true); rej(e); });
+  }));
+}
+const relayClients = {};
+function relayClient(url){
+  const c = relayClients[url]; if (c) return c;
+  return (relayClients[url] = connectBroker(url).catch(e => { delete relayClients[url]; throw e; }));
+}
+// joiner: first broker that answers
+function anyRelay(){ return RELAY_BROKERS.reduce((p, url) => p.catch(() => relayClient(url)), Promise.reject(new Error('start'))); }
+// a connection-shaped object (open, peer, send, close, on open/data/close) over MQTT, so the game code can't tell it apart
+function relayConn(client, nonce, side, peerId){
+  const base = RELAY_NS + nonce + '/', inT = base + side, outT = base + (side === 'h' ? 'j' : 'h');
+  const ev = {}, emit = (n, a) => (ev[n] || []).slice().forEach(f => f(a));
+  let lastIn = 0, dead = false, hiT = 0;
+  const pub = m => { try { client.publish(outT, JSON.stringify(m)); } catch (e) {} };
+  const rc = {peer:peerId, open:false, relay:true,
+    on(n, f){ (ev[n] = ev[n] || []).push(f); return rc; },
+    send(m){ if (rc.open) pub(m); },
+    close(){ if (dead) return; if (rc.open) pub({t:'~bye'}); end(); }};
+  const end = () => { if (dead) return; dead = true; const was = rc.open; rc.open = false; clearInterval(hb); clearInterval(hiT); client.removeListener('message', onMsg); try { client.unsubscribe(inT); } catch (e) {} if (was) emit('close'); };
+  const opened = () => { if (rc.open || dead) return; rc.open = true; lastIn = performance.now(); clearInterval(hiT); emit('open'); };
+  const onMsg = (topic, buf) => {
+    if (topic !== inT || dead) return; let m; try { m = JSON.parse(String(buf)); } catch (e) { return; }
+    lastIn = performance.now();
+    if (m.t === '~hi') { pub({t:'~ack'}); opened(); return; }   // host end
+    if (m.t === '~ack') { opened(); return; }                    // joiner end
+    if (m.t === '~ping') return;
+    if (m.t === '~bye') { end(); return; }
+    if (rc.open) emit('data', m);
+  };
+  client.on('message', onMsg); client.subscribe(inT);
+  // the joiner keeps saying hi until the host answers (messages sent before a subscription lands are lost)
+  if (side === 'j') { const hi = () => pub({t:'~hi'}); hi(); hiT = setInterval(hi, 1000); }
+  const hb = setInterval(() => { if (!rc.open) return; pub({t:'~ping'}); if (performance.now() - lastIn > 10000) end(); }, 2000);
+  return rc;
+}
+// host: listen for one joiner's relay on every broker; the first to open wins
+function relayListen(nonce, peerId, onOpen){
+  const rcs = []; let done = false;
+  const stop = () => { done = true; clearTimeout(t); rcs.forEach(r => { if (!r.open) r.close(); }); };
+  const t = setTimeout(stop, 60000);
+  RELAY_BROKERS.forEach(url => relayClient(url).then(cl => {
+    if (done) return;
+    const rc = relayConn(cl, nonce, 'h', peerId); rcs.push(rc);
+    rc.on('open', () => { if (done) { rc.close(); return; } done = true; clearTimeout(t); rcs.forEach(r => { if (r !== rc) r.close(); }); onOpen(rc); });
+  }).catch(() => {}));
+  return stop;
+}
+
 function resetPeer(){
   clearTimeout(NET.retryT);
   if (NET.peer && !NET.started) { try { NET.peer.destroy(); } catch (e) {} }
-  if (!NET.started) { NET.peer = null; NET.hostConn = null; NET.conns = []; }
+  if (!NET.started) { if (NET.hostConn && NET.hostConn.relay) NET.hostConn.close(); NET.peer = null; NET.hostConn = null; NET.conns = []; }
+}
+function adoptConn(c){
+  NET.conns.push(c);
+  c.on('data', m => hostHandle(c, m));
+  c.on('close', () => { if (c.superseded) return; NET.conns = NET.conns.filter(x => x !== c); const p = NET.players[c.peer]; if (p) { delete NET.players[c.peer]; netBroadcast({t:'left', id:c.peer}); removePlayer(c.peer); broadcastLobby(); killFeedText(`${p.name} left`); } });
 }
 function hostGame(wanted, tries = 0){
   if (typeof Peer === 'undefined') { lobbyMsg('Online play is not available here. Open the game from its own website link.'); return; }
@@ -4383,13 +4461,19 @@ function hostGame(wanted, tries = 0){
   const peer = new Peer(PEER_PREFIX + NET.code, PEER_OPTS); NET.peer = peer; let registered = false;
   peer.on('open', id => { if (NET.peer !== peer) return; registered = true; NET.myId = id; me.id = id; NET.players = {[id]:me}; showLobby(); });
   peer.on('connection', c => {
-    NET.conns.push(c);
-    c.on('data', m => hostHandle(c, m));
-    c.on('close', () => { NET.conns = NET.conns.filter(x => x !== c); const p = NET.players[c.peer]; if (p) { delete NET.players[c.peer]; netBroadcast({t:'left', id:c.peer}); removePlayer(c.peer); broadcastLobby(); killFeedText(`${p.name} left`); } });
-    // a join that never opens means the networks blocked it (with no relay the browser may never even report 'failed')
-    const tell = () => { if (!c.open && !NET.started && NET.peer === peer) { lobbyMsg(`Someone tried to join, but ${NET_BLOCKED}`); try { c.close(); } catch (e) {} } };
-    const t = setTimeout(tell, 15000); c.on('open', () => clearTimeout(t));
-    c.on('iceStateChanged', st => { if (st === 'failed') { clearTimeout(t); tell(); } });
+    adoptConn(c);
+    let viaRelay = false, stopRelay = null;
+    const nonce = c.metadata && /^[0-9a-f]{32}$/.test(c.metadata.r || '') ? c.metadata.r : null;
+    if (nonce) stopRelay = relayListen(nonce, c.peer, rc => {
+      if (c.open || NET.peer !== peer) { rc.close(); return; }
+      // the direct link never opened: drop it quietly and use the relay instead
+      viaRelay = true; clearTimeout(t); c.superseded = true; NET.conns = NET.conns.filter(x => x !== c); try { c.close(); } catch (e) {}
+      adoptConn(rc);
+    });
+    // a join that never opens (directly or via the relay) means the networks blocked it
+    const tell = () => { if (!c.open && !viaRelay && !NET.started && NET.peer === peer) { lobbyMsg(`Someone tried to join, but ${NET_BLOCKED}`); if (stopRelay) stopRelay(); try { c.close(); } catch (e) {} } };
+    const t = setTimeout(tell, 30000);
+    c.on('open', () => { clearTimeout(t); if (stopRelay) stopRelay(); });
   });
   // the link to the matchmaking server can drop (sleep, Wi-Fi blip); re-register so new players can still find the room
   peer.on('disconnected', () => setTimeout(() => { if (NET.peer === peer && !peer.destroyed && peer.disconnected) peer.reconnect(); }, 1500));
@@ -4412,27 +4496,44 @@ function joinGame(code){
   resetPeer();
   const me = myInfo(); NET.host = false; NET.code = code; lobbyMsg('Connecting…');
   const peer = new Peer(PEER_OPTS); NET.peer = peer;
-  let ice = '', opened = false, reached = false, answered = false;
-  const fail = t => { clearTimeout(to); if (NET.peer !== peer || opened) return; lobbyMsg(t); try { peer.destroy(); } catch (e) {} NET.peer = null; NET.hostConn = null; };
+  const nonce = relayNonce();
+  let ice = '', opened = false, reached = false, answered = false, relaying = false, rtc = null, fbT = 0;
+  const fail = t => { clearTimeout(to); clearTimeout(fbT); if (NET.peer !== peer || opened) return; lobbyMsg(t); if (NET.hostConn && NET.hostConn.relay) NET.hostConn.close(); try { peer.destroy(); } catch (e) {} NET.peer = null; NET.hostConn = null; };
   const blocked = () => `Found room ${code}, but ${NET_BLOCKED}`;
-  const to = setTimeout(() => fail(!reached ? SERVER_DOWN : ice || answered ? blocked() : `Could not reach room ${code}. Check the code, and that the host still has the room open.`), 15000);
+  let to = setTimeout(() => fail(!reached ? SERVER_DOWN : ice || answered ? blocked() : `Could not reach room ${code}. Check the code, and that the host still has the room open.`), 15000);
+  // the same handlers for the direct link and the relay; whichever opens first becomes NET.hostConn
+  const wire = c => {
+    c.on('open', () => {
+      if (opened || NET.peer !== peer) { if (c.relay) c.close(); return; }
+      opened = true; clearTimeout(to); clearTimeout(fbT); NET.hostConn = c;
+      if (c !== rtc && rtc) try { rtc.close(); } catch (e) {}
+      c.send({t:'hello', name:me.name, team:me.team, look:me.look});
+      lobbyMsg(c.relay ? 'Connected through the backup relay! Waiting for the host…' : 'Connected! Waiting for the host…');
+    });
+    c.on('data', m => { if (NET.hostConn === c) clientHandle(m); });
+    c.on('close', () => { if (!opened || NET.hostConn !== c) return; if (G.pvp) { G.phase = 'end'; releaseLock(); showMatchEnd(null, 'The host left the match.'); } else lobbyMsg('The host closed the match.'); });
+  };
+  // direct route blocked: carry the game over the backup relay instead
+  const fallback = () => {
+    if (relaying || opened || NET.peer !== peer || (!answered && !ice)) return; relaying = true; clearTimeout(fbT);
+    lobbyMsg(`Found room ${code}. Direct connection blocked, trying the backup relay…`);
+    clearTimeout(to); to = setTimeout(() => fail(blocked()), 15000);
+    anyRelay().then(cl => { if (NET.peer === peer && !opened) wire(relayConn(cl, nonce, 'j', PEER_PREFIX + code)); }).catch(() => fail(blocked()));
+  };
   peer.on('open', id => {
     if (NET.peer !== peer) return;
     reached = true; NET.myId = id; me.id = id; lobbyMsg(`Looking for room ${code}…`);
-    const c = peer.connect(PEER_PREFIX + code, {reliable:true}); NET.hostConn = c;
-    // the host's answer arriving proves the room exists; anything failing after that is the network path
-    const pc = c.peerConnection; if (pc) pc.addEventListener('signalingstatechange', () => { if (pc.remoteDescription && !answered) { answered = true; lobbyMsg(`Found room ${code}! Connecting to the host…`); } });
-    // 'checking' means the host answered, so the room exists and only the network path is left
-    c.on('iceStateChanged', st => { ice = st; if (st === 'checking') lobbyMsg(`Found room ${code}! Connecting to the host…`); if (st === 'failed') fail(blocked()); });
-    c.on('error', () => fail(blocked()));
-    c.on('open', () => { opened = true; clearTimeout(to); c.send({t:'hello', name:me.name, team:me.team, look:me.look}); lobbyMsg('Connected! Waiting for the host…'); });
-    c.on('data', clientHandle);
-    c.on('close', () => { if (!opened) return; if (G.pvp) { G.phase = 'end'; releaseLock(); showMatchEnd(null, 'The host left the match.'); } else lobbyMsg('The host closed the match.'); });
+    const c = peer.connect(PEER_PREFIX + code, {reliable:true, metadata:{r:nonce}}); rtc = c; NET.hostConn = c;
+    // the host's answer arriving proves the room exists; if the direct link isn't up a few seconds later, use the relay
+    const pc = c.peerConnection; if (pc) pc.addEventListener('signalingstatechange', () => { if (pc.remoteDescription && !answered) { answered = true; lobbyMsg(`Found room ${code}! Connecting to the host…`); fbT = setTimeout(fallback, 6000); } });
+    c.on('iceStateChanged', st => { ice = st; if (st === 'failed') fallback(); });
+    c.on('error', () => fallback());
+    wire(c);
   });
   peer.on('error', e => {
     if (e.type === 'peer-unavailable') fail(`No room with code ${code} right now. Check the code, and that the host still has the room open.`);
-    else if (SERVER_ERRS.includes(e.type)) fail(SERVER_DOWN);
-    else if (e.type === 'negotiation-failed' || e.type === 'webrtc') fail(blocked());
+    else if (SERVER_ERRS.includes(e.type)) { if (!relaying) fail(SERVER_DOWN); }
+    else if (e.type === 'negotiation-failed' || e.type === 'webrtc') fallback();
     else fail('Connection problem: ' + e.type);
   });
 }
