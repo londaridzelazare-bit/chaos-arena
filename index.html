@@ -4283,13 +4283,16 @@ const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const newCode = () => Array.from({length:5}, () => CODE_CHARS[Math.floor(Math.random()*CODE_CHARS.length)]).join('');
 const PEER_PREFIX = 'chaosarena-v1-';
 const clean = s => String(s || '').replace(/[<>&"']/g, '').slice(0, 14) || 'Player';
+const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
 function netSend(m){ if (!NET.peer) return; if (NET.host) netBroadcast(m); else if (NET.hostConn && NET.hostConn.open) NET.hostConn.send(m); }
 function netBroadcast(m, except){ NET.conns.forEach(c => { if (c.open && c !== except) c.send(m); }); }
 function lobbyList(){ return Object.values(NET.players); }
 function broadcastLobby(){ netBroadcast({t:'lobby', players:lobbyList(), host:NET.myId}); renderLobby(); }
-function hostGame(){
+function hostGame(wanted){
   if (typeof Peer === 'undefined') { lobbyMsg('Online play is not available here. Open the game from its own website link.'); return; }
-  const me = myInfo(); NET.host = true; NET.code = newCode(); lobbyMsg('Creating match…');
+  const custom = cleanCode(wanted);
+  if (custom && custom.length < 4) { lobbyMsg('Room codes need 4 to 6 letters or numbers. Or leave the box empty for a random code.'); return; }
+  const me = myInfo(); NET.host = true; NET.code = custom || newCode(); lobbyMsg('Creating match…');
   const peer = new Peer(PEER_PREFIX + NET.code); NET.peer = peer;
   peer.on('open', id => { NET.myId = id; me.id = id; NET.players = {[id]:me}; showLobby(); });
   peer.on('connection', c => {
@@ -4297,11 +4300,16 @@ function hostGame(){
     c.on('data', m => hostHandle(c, m));
     c.on('close', () => { NET.conns = NET.conns.filter(x => x !== c); const p = NET.players[c.peer]; if (p) { delete NET.players[c.peer]; netBroadcast({t:'left', id:c.peer}); removePlayer(c.peer); broadcastLobby(); killFeedText(`${p.name} left`); } });
   });
-  peer.on('error', e => { if (e.type === 'unavailable-id') { peer.destroy(); NET.peer = null; hostGame(); } else lobbyMsg('Connection problem: ' + e.type); });
+  peer.on('error', e => {
+    if (e.type !== 'unavailable-id') { lobbyMsg('Connection problem: ' + e.type); return; }
+    peer.destroy(); NET.peer = null;
+    if (custom) { NET.host = false; lobbyMsg(`Someone is already hosting room ${custom}. Pick another code, or leave the box empty for a random one.`); }
+    else hostGame();
+  });
 }
 function joinGame(code){
   if (typeof Peer === 'undefined') { lobbyMsg('Online play is not available here. Open the game from its own website link.'); return; }
-  code = String(code || '').trim().toUpperCase(); if (code.length < 4) { lobbyMsg('Type the room code your friend gave you.'); return; }
+  code = cleanCode(code); if (code.length < 4) { lobbyMsg('Type the room code your friend gave you.'); return; }
   const me = myInfo(); NET.host = false; NET.code = code; lobbyMsg('Connecting…');
   const peer = new Peer(); NET.peer = peer;
   const to = setTimeout(() => { if (!NET.hostConn || !NET.hostConn.open) lobbyMsg('Could not reach that match. Check the code and try again.'); }, 12000);
@@ -4381,13 +4389,13 @@ function showPvPTitle(){
       <button class="btn" id="joinB" ${online ? '' : 'disabled'}>Join</button>
     </div>
     <div class="actions"><button class="btn" id="soloB">Practice alone</button></div>
-    <p class="muted" id="lobbyMsg">${online ? 'Host a match and send your friends this page’s link plus the room code.' : 'Online play works when the game is opened from its own website link. Practice works anywhere.'}</p>
+    <p class="muted" id="lobbyMsg">${online ? 'Host a match (type a code first to pick your own) and send your friends this page’s link plus the room code.' : 'Online play works when the game is opened from its own website link. Practice works anywhere.'}</p>
     <div class="keys"><kbd>WASD</kbd><span>Move, Shift to Naruto run, Shift×2 to dash</span><kbd>Space</kbd><span>Jump, press again to double jump</span><kbd>Click</kbd><span>Energy blast, or cast the selected skill</span><kbd>Keys</kbd><span>Pick a skill (shown in the Skills bar), right-click to put it away</span></div>
   </div>`);
   const setTeam = t => { ME.team = t; $('tBlue').style.outline = t === 'blue' ? '4px solid var(--yolk)' : 'none'; $('tRed').style.outline = t === 'red' ? '4px solid var(--yolk)' : 'none'; };
   setTeam(ME.team);
   $('tBlue').onclick = () => setTeam('blue'); $('tRed').onclick = () => setTeam('red');
-  $('hostB').onclick = () => { ensureAudio(); hostGame(); };
+  $('hostB').onclick = () => { ensureAudio(); hostGame($('codeIn').value); };
   $('joinB').onclick = () => { ensureAudio(); joinGame($('codeIn').value); };
   $('codeIn').onkeydown = e => { if (e.key === 'Enter') { ensureAudio(); joinGame($('codeIn').value); } };
   $('soloB').onclick = () => { ensureAudio(); const me = myInfo(); me.id = 'me'; NET.peer = null; NET.myId = 'me'; startMatch(Math.floor(Math.random()*90000) + 10000, [me]); };
