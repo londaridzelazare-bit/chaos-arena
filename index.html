@@ -176,6 +176,10 @@ body.touch #toast{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 180px)}
 #hpText{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:15px;color:#1E2A38;text-shadow:0 1px 0 #fff}
 #fps{position:fixed;left:12px;top:calc(env(safe-area-inset-top,0px) + 58px);z-index:5;pointer-events:none;font:800 12px/1 var(--display,system-ui),system-ui,sans-serif;padding:4px 8px;border-radius:999px;background:rgba(5,9,13,.72);color:#8BE28B;font-variant-numeric:tabular-nums;letter-spacing:.02em}
 #fps.mid{color:#FFD84D}#fps.low{color:#FF7A6B}
+#fps small{font-size:10px;font-weight:700;color:#C9D3DD;margin-left:6px}
+#gpuWarn{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 12px);transform:translateX(-50%);z-index:20;width:min(560px,calc(100vw - 32px));padding:10px 38px 10px 14px;border:3px solid var(--edge);border-radius:14px;background:#FFE9A8;color:#2A1E05;box-shadow:3px 3px 0 var(--edge);font-size:14px;line-height:1.4}
+#gpuWarn b{display:block;font-family:var(--display);font-size:15px;margin-bottom:2px}
+#gpuWarn button{position:absolute;right:8px;top:6px;border:0;background:none;font:900 18px/1 system-ui;color:#2A1E05;cursor:pointer;padding:4px}
 #killfeed{position:fixed;right:12px;top:calc(env(safe-area-inset-top,0px) + 66px);display:flex;flex-direction:column;gap:4px;align-items:flex-end;z-index:5;pointer-events:none}
 #killfeed div{background:rgba(20,30,45,.82);color:#fff;padding:4px 10px;border-radius:999px;font-size:13px;animation:pop .2s ease-out}
 #dmgFlash{position:fixed;inset:0;pointer-events:none;z-index:3;opacity:0;background:radial-gradient(ellipse at center, rgba(255,40,30,0) 45%, rgba(255,40,30,.75) 100%)}
@@ -4737,12 +4741,29 @@ function perfTune(workMs, rdt){
   if (pr !== perf.pr) { perf.pr = pr; renderer.setPixelRatio(pr); resize(); }
 }
 
-/* FPS counter (always on). The browser caps frames at the screen's refresh rate (60/120/144 Hz); the game adds no cap. */
+/* which graphics chip draws the game. With hardware acceleration off (or the GPU blocklisted) the browser renders
+   WebGL on the CPU, which caps the game around 30 FPS even on a gaming PC, so tell the player how to fix it. */
+const GPU = (() => {
+  let raw = '';
+  try { const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info'); raw = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : ''; } catch (e) {}
+  let soft = /swiftshader|software|llvmpipe|basic render/i.test(raw);
+  if (!soft) try { const c = document.createElement('canvas'), t = c.getContext('webgl', {failIfMajorPerformanceCaveat:true}); if (!t) soft = true; else { const l = t.getExtension('WEBGL_lose_context'); if (l) l.loseContext(); } } catch (e) {}
+  // "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Laptop GPU (0x...) Direct3D11 ...)" -> "NVIDIA GeForce RTX 4070 Laptop GPU"
+  const plain = raw.replace(/\(TM\)|\(R\)/g, ''), m = plain.match(/ANGLE \([^,]*,\s*([^,]+?)\s*(\(0x|Direct3D|OpenGL|Vulkan|,|\))/);
+  const name = soft ? 'no graphics card' : (m ? m[1] : plain).replace(/[<>&]/g, '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  return {raw, soft, name};
+})();
+if (GPU.soft) {
+  const w = document.createElement('div'); w.id = 'gpuWarn'; w.setAttribute('role', 'alert');
+  w.innerHTML = `<b>⚠️ Your browser isn't using your graphics card</b>So the game is stuck at low FPS. In Chrome open <b style="display:inline;font:inherit;font-weight:800">Settings → System</b>, turn on <i>Use graphics acceleration when available</i> and press Relaunch. (Edge: Settings → System and performance.)<button aria-label="Dismiss">✕</button>`;
+  w.querySelector('button').onclick = () => w.remove(); document.body.appendChild(w);
+}
+/* FPS counter (always on). The browser caps frames at the screen's refresh rate (60/120/144/240 Hz); the game adds no cap. */
 const fpsEl = $('fps'), fpsC = {n:0, t:performance.now()};
 function countFps(now){
   fpsC.n++; const el = now - fpsC.t; if (el < 500) return;
   const f = Math.round(fpsC.n*1000/el); fpsC.n = 0; fpsC.t = now;
-  fpsEl.textContent = f + ' FPS'; fpsEl.className = f >= 50 ? '' : f >= 30 ? 'mid' : 'low';
+  fpsEl.innerHTML = `${f} FPS<small>${GPU.name}</small>`; fpsEl.className = f >= 50 ? '' : f >= 30 ? 'mid' : 'low';
 }
 /* physics runs at a fixed 60 Hz; on 120/144 Hz screens draw the local player and camera between the last two
    physics steps, otherwise extra frames just repeat the same position and look no smoother */

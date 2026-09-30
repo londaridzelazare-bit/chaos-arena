@@ -90,6 +90,8 @@ PeerJS 1.5.4 is inlined in a `<script>` block near the top.
    at 1.5x and `perfTune()` lowers it when GPU-bound. Particles are capped (`FX_MAX`) and don't
    cast shadows; knives have no outlines. The local player + camera are interpolated between the
    60 Hz physics steps so 120/144 Hz screens look smooth. An FPS counter is always shown (`#fps`).
+   The counter also shows which GPU draws the game (`GPU`); if the browser renders WebGL in
+   software (hardware acceleration off: ~9-30 FPS even on gaming PCs) a `#gpuWarn` banner explains the fix.
    Debris is capped at ~60 objects and physics sub-steps are capped at 4 per frame.
 
 ## Deploying (first task)
