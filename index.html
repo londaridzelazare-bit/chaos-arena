@@ -4742,15 +4742,32 @@ function toast(msg){
 /* ---------------- input ---------------- */
 const keys = {};
 const inPlay = () => G.phase === 'build' || G.phase === 'attack';
+/* Browsers refuse pointer lock routinely: without a click (a joiner's match starts from a network message),
+   for about a second after the player pressed Esc, or before the window has focus. One refusal used to switch the
+   game to right-drag look for good, so mouse look "broke" until reload. Now only repeated refusals fall back, the
+   next click always retries, and a successful lock turns the fallback off again. */
+let lockFails = 0, lastUnlock = -9;
+function lockFailed(){
+  if (performance.now()/1000 - lastUnlock < 1.5) { toast('Click again to grab the mouse.'); return; }   // Esc cooldown, not a real block
+  if (++lockFails >= 3 && !G.fallback) { G.fallback = true; toast('Mouse lock keeps failing here. Hold the right mouse button to look around (clicking still retries).'); }
+}
 function requestLock(){
-  if (isTouch || G.fallback) return;
-  try { const r = canvas.requestPointerLock && canvas.requestPointerLock(); if (r && r.catch) r.catch(() => { G.fallback = true; }); } catch(e) { G.fallback = true; }
+  if (isTouch || !canvas.requestPointerLock || document.pointerLockElement === canvas) return;
+  if (navigator.userActivation && !navigator.userActivation.isActive) return;   // no click behind this: it would only be refused
+  // raw mouse input avoids Chrome-on-Windows jumps and OS acceleration; older browsers reject the option, so retry plain
+  const plain = () => { try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(lockFailed); } catch (e) { lockFailed(); } };
+  let r; try { r = canvas.requestPointerLock({unadjustedMovement:true}); } catch (e) { plain(); return; }
+  if (r && r.catch) r.catch(err => { if (err && err.name === 'NotSupportedError') plain(); else lockFailed(); });
 }
 function releaseLock(){ if (document.pointerLockElement) try { document.exitPointerLock(); } catch(e) {} }
-document.addEventListener('pointerlockchange', () => { G.locked = document.pointerLockElement === canvas; });
-document.addEventListener('pointerlockerror', () => { G.fallback = true; toast('Mouse lock is blocked here. Hold the right mouse button to look around.'); });
+document.addEventListener('pointerlockchange', () => {
+  const was = G.locked; G.locked = document.pointerLockElement === canvas;
+  if (G.locked) { lockFails = 0; G.fallback = false; } else if (was) lastUnlock = performance.now()/1000;
+});
+document.addEventListener('pointerlockerror', lockFailed);
 function look(dx, dy, s){ G.yaw -= dx*s; G.pitch = clamp(G.pitch - dy*s, -.75, 1.15); }
-document.addEventListener('mousemove', e => { if (G.locked && inPlay()) look(e.movementX, e.movementY, .0026); });
+// Chrome on Windows sometimes reports one huge bogus jump while locked; a real flick is never this big in one event
+document.addEventListener('mousemove', e => { if (G.locked && inPlay() && Math.abs(e.movementX) < 400 && Math.abs(e.movementY) < 400) look(e.movementX, e.movementY, .0026); });
 
 function actionDown(){
   ensureAudio();
@@ -4779,7 +4796,7 @@ canvas.addEventListener('pointerdown', e => {
   if (!inPlay()) return;
   if (e.button === 2) { if (G.targeting) { G.targeting = null; renderTray(); toast('Skill put away.'); } rdrag = {x:e.clientX, y:e.clientY}; return; }
   if (e.button !== 0) return;
-  if (!G.locked && !G.fallback) { requestLock(); return; }
+  if (!G.locked) { requestLock(); if (!G.fallback) return; }   // fallback mode still retries the lock on every click
   actionDown();
 });
 canvas.addEventListener('pointermove', e => {
