@@ -72,10 +72,12 @@ PeerJS 1.5.4 is inlined in a `<script>` block near the top.
 
 ## Status / known issues (please check these first)
 
-1. **Unverified:** in a local two-tab test (mock connection over BroadcastChannel), after a
-   knockout the host's score and kill feed updated, but the knocked-out player's screen still
-   showed 0–0 when checked ~2 s later. Probably test timing, but verify that `kf` and `score`
-   messages reach every client and update their HUD.
+1. **Verified, not a bug (2026-10-01):** the knocked-out player's score/kill feed. Tested
+   with two visible game instances over the real PeerJS broker: client knocked out, host
+   knocked out, and repeat knockouts all updated `kf` + `score` on both screens within
+   ~0.5 s. The earlier 0–0 reading came from the mock BroadcastChannel test. Note that
+   paused/throttled tabs stop the game loop, so a dead player won't respawn (and can't be
+   knocked out again) until their tab is visible.
 2. Never tested over the real internet or with more than 2 players. Some strict networks
    (school/office NAT) may fail to connect without a TURN server.
 3. Friendly fire is on for explosions; may want team-safe damage by tracking the owner of
@@ -85,6 +87,10 @@ PeerJS 1.5.4 is inlined in a `<script>` block near the top.
    is capped at ~60 objects and physics sub-steps are capped at 4 per frame.
 
 ## Deploying (first task)
+
+**Live:** https://londaridzelazare-bit.github.io/chaos-arena/ — GitHub Pages from `main` /
+(root) of `github.com/londaridzelazare-bit/chaos-arena`. To redeploy, commit and
+`git push` to `main`; Pages rebuilds in about a minute at the same URL.
 
 The user wants a public link to send to friends. Deploy `index.html` as a static site:
 - Preferred: whatever the user has used before (check their GitHub repos / Netlify sites).
