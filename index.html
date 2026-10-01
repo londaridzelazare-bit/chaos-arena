@@ -182,6 +182,10 @@ body.touch #toast{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 180px)}
 #gpuWarn b{display:block;font-family:var(--display);font-size:15px;margin-bottom:2px}
 #gpuWarn button{position:absolute;right:8px;top:6px;border:0;background:none;font:900 18px/1 system-ui;color:#2A1E05;cursor:pointer;padding:4px}
 #killfeed{position:fixed;right:12px;top:calc(env(safe-area-inset-top,0px) + 66px);display:flex;flex-direction:column;gap:4px;align-items:flex-end;z-index:5;pointer-events:none}
+#eggPts{position:fixed;left:12px;top:calc(env(safe-area-inset-top,0px) + 94px);z-index:5;display:none;padding:6px 10px;font-size:13px;min-width:140px;pointer-events:none}
+#eggPts div{display:flex;gap:8px;justify-content:space-between;padding:1px 0}#eggPts span{font-family:var(--display)}
+#eggBanner{position:fixed;left:50%;top:22%;transform:translateX(-50%);z-index:8;display:none;text-align:center;pointer-events:none;max-width:min(440px,92vw)}
+#eggBanner .title{font-size:clamp(34px,7vw,52px)}
 #killfeed div{background:rgba(20,30,45,.82);color:#fff;padding:4px 10px;border-radius:999px;font-size:13px;animation:pop .2s ease-out}
 #dmgFlash{position:fixed;inset:0;pointer-events:none;z-index:3;opacity:0;background:radial-gradient(ellipse at center, rgba(255,40,30,0) 45%, rgba(255,40,30,.75) 100%)}
 #respawn,#matchEnd{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:9;background:rgba(20,30,45,.35)}
@@ -223,6 +227,8 @@ body.touch #hpBar{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 58px);left
   <div id="hpBar"><div id="hpFill"></div><span id="hpText">100 HP</span></div>
 </div>
 <div id="killfeed"></div>
+<div id="eggPts" class="sticker" aria-label="Points"></div>
+<div id="eggBanner" class="panel sticker" role="status"></div>
 <div id="dmgFlash"></div>
 <div id="respawn"><div class="panel sticker" style="max-width:320px"><div class="title red" style="font-size:44px">Knocked out</div><p>Back in <b id="respawnT">4</b>…</p></div></div>
 <div id="matchEnd"></div>
@@ -247,7 +253,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-01.4';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-02.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -701,7 +707,7 @@ const chars = {blue:null, red:null};
 const attacker = () => G.pvp ? (G.casterKey || G.localKey) : (G.defender === 'blue' ? 'red' : 'blue');
 const teamName = t => t === 'blue' ? 'Blue' : 'Red';
 const activeTeam = () => G.phase === 'build' ? G.defender : G.phase === 'attack' ? attacker() : null;
-const activeChar = () => { if (G.pvp) return G.phase === 'attack' ? chars[G.localKey] : null; const t = activeTeam(); return t ? chars[t] : null; };
+const activeChar = () => { if (G.pvp) return G.phase === 'attack' || G.phase === 'build' ? chars[G.localKey] : null; const t = activeTeam(); return t ? chars[t] : null; };
 const GRP_CHAR = 2, GRP_GRAN = 4;
 
 /* ---------------- player characters ---------------- */
@@ -965,6 +971,7 @@ function spawnEgg(h){
   Object.assign(egg, {cracks:0, alive:true, grace:1.2, pending:null, crackG, crackCd:0});
   body.addEventListener('collide', e => {
     if (!egg.alive || egg.grace > 0 || egg.pending) return;
+    if (G.pvp && G.mode === 'egg' && (!eggAuth() || G.phase !== 'attack')) return;
     let v = Math.abs(e.contact.getImpactVelocityAlongNormal());
     const other = e.body;
     if (other && (other.tag === 'mattress' || other.tag === 'soft')) v *= .35;
@@ -985,6 +992,10 @@ function addCrack(){
 }
 function breakEgg(reason){
   if (!egg || !egg.alive) return;
+  if (eggOn()) {
+    if (!G.eggNetBreak) { if (!eggAuth() || G.egg.over) return; if (G.phase !== 'attack') { eggReset(); return; } }
+    if (G.eggLives > 0 && !G.eggNetBreak && reason !== 'worldend') { saveEgg(); return; }
+  }
   if (G.eggLives > 0 && reason !== 'worldend' && G.phase === 'attack') { saveEgg(); return; }
   egg.alive = false;
   for (const t of Object.keys(chars)) if (chars[t] && chars[t].carry === egg) chars[t].carry = null;
@@ -1001,6 +1012,7 @@ function breakEgg(reason){
     yb.velocity.set(rr(-1,1), 2, rr(-1,1)); addObj({body:yb, mesh:ym, kind:'yolk', bottom:.2});
   }
   G.eggPos = p;
+  if (eggOn()) { if (!G.eggNetBreak) eggRoundOver('atk', reason); return; }
   const own = G.phase !== 'attack';
   if (G.phase === 'attack' || G.phase === 'build' || G.phase === 'handoff') {
     G.slowmo = reduceMotion ? 0 : 1.6; G.eggCam = 1; releaseLock();
@@ -1090,6 +1102,7 @@ function newItem(){ const pool = G.defChar.def.pool || Object.keys(DEF_ITEMS); r
 function newAmmo(){ const pool = G.atkChar.atk.pool || ['chicken','chicken','grandma','anvil','melon','bowling','duck','cow']; return pick(pool); }
 function finishBuild(){
   if (G.phase !== 'build') return;
+  if (G.pvp) { eggDone(); return; }
   const P = chars[G.defender]; if (P.carry) dropCarry(P, false);
   G.phase = 'handoff'; setGhost(null); zoneRing.visible = false; releaseLock();
   renderTray(); $('who').style.display = 'none';
@@ -1177,7 +1190,8 @@ function setGhost(key){
 function updateGhost(){
   const cross = $('cross');
   if (!G.ghost) { cross.classList.remove('bad'); return; }
-  const P = chars[G.defender];
+  const P = G.pvp ? localP() : chars[G.defender];
+  if (!P) return;
   if (P.carry) { G.ghost.visible = false; cross.classList.remove('bad'); return; }
   const h = crosshairHit();
   if (!h) { G.ghost.visible = false; G.ghostOK = false; G.ghostWhy = 'Aim at the ground or the fort.'; cross.classList.add('bad'); return; }
@@ -1201,6 +1215,11 @@ function placeItem(){
   if (!G.ghost) { toast('Pick a protection first: press its key or tap it in the Protection bar.'); return; }
   if (!G.ghost.visible || !G.ghostOK) { toast(G.ghostWhy || 'Aim at a spot first.'); return; }
   const key = G.ghostKey, def = itemDef(key), isDef = !!G.defPlace, s = isDef ? 1 : (G.defChar.def.size || 1);
+  if (isDef && G.pvp) {   // online: a cast, so every screen gets it and the host can check it
+    if (!amDefender() || !(G.defs[key] > 0)) return;
+    localCast('d_place', G.ghost.position.clone(), {k:key, r:+G.ghost.rotation.y.toFixed(3)});
+    G.defs[key]--; if (G.defs[key] <= 0) G.defPlace = null; renderTray(); setGhost(); return;
+  }
   if (isDef && def.spawn) { def.spawn(G.ghost.position.clone(), G.ghost.rotation.y); G.defs[key]--; if (G.defs[key] <= 0) G.defPlace = null; renderTray(); setGhost(); return; }
   const o = makeBody(def, s);
   const drop = !isDef && G.defChar.def.drop ? 1.6 : 0;
@@ -1230,7 +1249,7 @@ function grabNearest(P){
   for (const o of objs) {
     if (o.dead || o.gran && o.life < .5) continue;
     if (!['item','proj','yolk','egg'].includes(o.kind)) continue;
-    if (o.kind === 'egg' && G.phase !== 'build') continue;
+    if (o.kind === 'egg' && (G.phase !== 'build' || G.pvp)) continue;
     if (o.kind === 'egg' && !egg.alive) continue;
     const d = Math.hypot(o.body.position.x-pp.x, o.body.position.z-pp.z) + Math.max(0, Math.abs(o.body.position.y - (pp.y+1)) - 1.2);
     if (d < bd) { bd = d; best = o; }
@@ -1385,6 +1404,8 @@ const effectsActive = () => holes.some(h => !h.done) || comets.some(c => !c.done
 function useSpecial(id){
   if (G.phase !== 'attack' || !G.specials || !G.specials[id] || G.atkTime <= 0) return;
   const P = chars[attacker()]; if (!P || P.stun > 0 || P.lockT > 0) return;
+  if (amDefender()) { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('🛡️ You defend: click for energy blasts, E to grab and throw things.'); } return; }
+  if (G.egg && G.egg.over) return;
   if (G.mode === 'pain') { painUse(id); return; }
   const INSTANT_IDS = ['gravity','flip','slow','freeze','night','onepunch','serious'];
   if (INSTANT_IDS.includes(id)) { if (G.spCd > 0) return; G.spCd = .4; if (G.pvp && (G.cd[id] || 0) > 0) { cdToast(id); return; } localCast(id, null); return; }
@@ -2213,12 +2234,10 @@ const DEFENSES = {
 const itemDef = k => DEF_ITEMS[k] || DEFENSES[k];
 function useDefense(id){
   if (G.phase !== 'build' || !G.defs || !(G.defs[id] > 0)) return;
+  if (G.pvp && !amDefender()) return;
   const D = DEFENSES[id];
   if (D.place) { G.defPlace = G.defPlace === id ? null : id; setGhost(); renderTray(); if (G.defPlace) toast(`${D.e} Aim and click to place the ${D.name.toLowerCase()}.`); return; }
-  if (id === 'dome') raiseDome();
-  if (id === 'fort') buildFortress();
-  if (id === 'armor') armorEgg();
-  if (['drones','angel','cloak','moat','medic'].includes(id)) instantDefense(id);
+  if (G.pvp) localCast('d_use', null, {k:id}); else runDefense('d_use', null, {k:id});
   G.defs[id]--; renderTray();
 }
 function eggHome(){ const e = egg && egg.alive && !isCarried(egg) ? egg.body.position : {x:0, y:1, z:0}; return new THREE.Vector3(e.x, 0, e.z); }
@@ -3382,11 +3401,11 @@ function updateFieldDefenses(dt){
       for (const s of satans) if (!s.done && s.state === 'walk' && Math.hypot(s.pos.x - top.x, s.pos.z - top.z) < R + 3) targets.push({p:new THREE.Vector3(s.pos.x, 7, s.pos.z), f:() => { hurtSatan(s); hurtSatan(s); }});
       for (const cw of gcows) if (!cw.done && !cw.o.dead && dist3(cw.o.body.position, top) < R) targets.push({p:cw.o.body.position, f:() => poofCow(cw)});
       for (const q of objs) if (!q.dead && (q.tag === 'knife' || q.tag === 'milk' || q.tag === 'lava') && dist3(q.body.position, top) < R) targets.push({p:q.body.position, f:() => removeObj(q)});
-      const A = chars[attacker()]; if (A && dist3(A.body.position, top) < R) targets.push({p:A.body.position, f:() => { A.stun = Math.max(A.stun, 1.5); A.stars.visible = true; }});
+      const A = eggFoe(); if (A && dist3(A.body.position, top) < R) targets.push({p:A.body.position, f:() => { A.stun = Math.max(A.stun, 1.5); A.stars.visible = true; }});
       if (targets.length) { o.cd = .8; targets.slice(0,3).forEach(t => { const tp = new THREE.Vector3(t.p.x, t.p.y + .5, t.p.z); arcBeam(top, tp, 0x9FE6FF); t.f(); }); sfx('zap'); }
     }
     else if (k === 'mortar') {
-      const A = chars[attacker()]; if (!A) continue;
+      const A = eggFoe(); if (!A) continue;
       o.cd = 7; fireShell(pos, new THREE.Vector3(A.body.position.x + A.body.velocity.x*1.2, 0, A.body.position.z + A.body.velocity.z*1.2));
     }
   }
@@ -3447,7 +3466,7 @@ function applyFieldForces(){
   const fans = [], mags = [];
   for (const o of objs) { if (o.dead || isCarried(o) || !upright(o)) continue; if (o.key === 'fan') fans.push(o); else if (o.key === 'magnet') mags.push(o); }
   if (!fans.length && !mags.length) return;
-  const A = chars[attacker()];
+  const A = eggFoe();
   for (const f of fans) {
     const dir = new THREE.Vector3(0,0,1).applyQuaternion(f.mesh.quaternion); dir.y = 0; dir.normalize();
     const o0 = new THREE.Vector3(f.body.position.x, f.body.position.y + 1.2, f.body.position.z);
@@ -3475,7 +3494,8 @@ function applyFieldForces(){
 
 /* mirror walls send things back */
 function reflectToAttacker(o){
-  const A = chars[attacker()]; if (!A) return;
+  // back at whoever threw it (online every screen agrees on that); hotseat: the attacker
+  const A = G.pvp && o.ownerKey && chars[o.ownerKey] && !(G.egg && o.ownerKey === G.egg.def) ? chars[o.ownerKey] : eggFoe(); if (!A) return;
   const b = o.body, speed = Math.max(18, b.velocity.length());
   const d = new THREE.Vector3(A.body.position.x - b.position.x, 0, A.body.position.z - b.position.z); const dist = d.length(); d.normalize();
   const T = Math.max(.6, dist/speed), vy = (A.body.position.y + 1 - b.position.y)/T + .5*Math.abs(world.gravity.y)*T;
@@ -3489,7 +3509,7 @@ const jammedAt = p => objs.some(o => !o.dead && o.key === 'jammer' && !isCarried
 
 function updateEggCare(dt){
   if (!egg || !egg.alive) return;
-  if (G.cloak) { const a = G.phase === 'attack' ? .06 + Math.max(0, Math.sin(G.t*1.3))*.05 : .3; egg.mesh.traverse(m => { if (m.isMesh && m.material && m.material.transparent) m.material.opacity = a; }); }
+  if (G.cloak) { const a = G.phase === 'attack' && !amDefender() ? .06 + Math.max(0, Math.sin(G.t*1.3))*.05 : .3; egg.mesh.traverse(m => { if (m.isMesh && m.material && m.material.transparent) m.material.opacity = a; }); }
   if (G.eggRegen && G.phase === 'attack') {
     G.regenT = (G.regenT || 0) + dt;
     if (G.regenT > 6) { G.regenT = 0; if (egg.cracks > 0) { egg.cracks--; for (let i=0;i<3 && egg.crackG.children.length;i++) egg.crackG.remove(egg.crackG.children[egg.crackG.children.length - 1]); toast('💚 A crack in the egg healed.'); } }
@@ -4183,7 +4203,9 @@ const WIN_SCORE = 50;
 const LOOK_COUNT = CHARS.length;
 const casterTeam = () => { const P = chars[attacker()]; return P ? P.team : null; };
 const localP = () => chars[G.localKey];
-function teamSpawn(team){ const x = team === 'blue' ? -48 : 48, z = (Math.random() - .5)*36; return new THREE.Vector3(x, groundH(x, z) + .3, z); }
+function teamSpawn(team){
+  if (G.pvp && G.mode === 'egg' && team === 'blue') { const a = Math.random()*Math.PI*2, x = Math.cos(a)*6.5, z = Math.sin(a)*6.5; return new THREE.Vector3(x, groundH(x, z) + .3, z); }   // the defender starts next to the egg
+  const x = team === 'blue' ? -48 : 48, z = (Math.random() - .5)*36; return new THREE.Vector3(x, groundH(x, z) + .3, z); }
 function nearestEnemy(x, z, team){
   let best = null, bd = Infinity;
   for (const k in chars) { const P = chars[k]; if (!P || P.alive === false || (team && P.team === team)) continue; const d = Math.hypot(P.body.position.x - x, P.body.position.z - z); if (d < bd) { bd = d; best = P.body.position; } }
@@ -4268,16 +4290,19 @@ function addPlayer(info, isLocal){
   chars[info.id] = P; return P;
 }
 function removePlayer(id){ const P = chars[id]; if (!P) return; roundGroup.remove(P.root); if (P.body.world) world.removeBody(P.body); delete chars[id]; }
-function startMatch(seed, list, score, mode, cdOn){
-  hideOverlay(); $('matchEnd').style.display = 'none';
-  G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' ? 'pain' : 'chaos'; G.cdOn = !!cdOn; G.matchT0 = performance.now()/1000;
+function startMatch(seed, list, score, mode, cdOn, eg){
+  hideOverlay(); $('matchEnd').style.display = 'none'; $('eggBanner').style.display = 'none';
+  G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' ? mode : 'chaos'; G.cdOn = G.mode === 'egg' || !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
+  if (G.mode === 'egg' && !eg) eg = {def:G.localKey, round:1, total:1, pts:{}};
   buildRound(seed);
   painReset(); painAmbience();
-  if (egg) { removeObj(egg); egg = null; }
-  world.bodies.slice().forEach(b => { if (b.tag === 'pedestal') world.removeBody(b); }); if (G.pedMesh) roundGroup.remove(G.pedMesh);
+  if (G.mode !== 'egg') {   // only Egg mode keeps the egg and its pedestal
+    if (egg) { removeObj(egg); egg = null; }
+    world.bodies.slice().forEach(b => { if (b.tag === 'pedestal') world.removeBody(b); }); if (G.pedMesh) roundGroup.remove(G.pedMesh);
+  }
   for (const k of Object.keys(chars)) { const P = chars[k]; if (P) { roundGroup.remove(P.root); if (P.body.world) world.removeBody(P.body); } delete chars[k]; }
   G.atkChar = {name:'', e:'', atk:{}}; G.defChar = {name:'', e:'', def:{}};
-  list.forEach(info => addPlayer(info, info.id === G.localKey));
+  list.forEach(info => addPlayer(G.mode === 'egg' ? Object.assign({}, info, {team:info.id === eg.def ? 'blue' : 'red'}) : info, info.id === G.localKey));
   G.phase = 'attack'; G.atkTime = Infinity; G.specials = {}; Object.keys(skillTable()).forEach(k => G.specials[k] = Infinity);
   G.targeting = null; G.cd = {}; G.spCd = 0; G.kiCd = 0; G.slowmo = 0; G.eggCam = 0;
   G.score = score || {blue:0, red:0}; G.matchOver = false; G.spawnShield = 2;
@@ -4286,8 +4311,194 @@ function startMatch(seed, list, score, mode, cdOn){
   renderScore(); renderTray(); updateHud(); $('hud2').style.display = 'block';
   requestLock();
   if (isPain() && !NET.peer) spawnDummies();
+  $('eggPts').style.display = G.mode === 'egg' ? 'block' : 'none'; document.querySelector('#top .score').style.display = G.mode === 'egg' ? 'none' : '';
+  if (G.mode === 'egg') { eggStart(eg); return; }
   toast(isPain() ? (NET.peer ? `🌑 Pain mode! First team to ${WIN_SCORE} knockouts wins.` : '🌑 Pain practice: throw the training dummies around with every gravity power.')
     : NET.peer ? `⚔️ Match on! First team to ${WIN_SCORE} knockouts wins.` : '⚔️ Practice mode: try every skill on the map.');
+}
+
+/* ===================================== EGG MODE (online) =====================================
+   G.mode === 'egg'. Every round one player defends the egg: they get the 19 protection powers and EGG_BUILD seconds
+   to set up (G.phase 'build'), then everyone else gets EGG_ATK seconds and the Chaos powers, with cooldowns, to break
+   it (G.phase 'attack'). The defender can still shoot energy blasts and throw things. Every player defends once.
+   The host's browser runs the round: timers, the defender rotation, points, and the egg itself. Only the host's egg
+   is a real physics body; every other screen shows a copy that follows the host's ('eg' messages), so all players
+   always agree on whether the egg broke. Protection powers are casts ('d_use', 'd_place') like any other skill,
+   checked by the host (castOK -> eggDefOK) against the defender's remaining counts. */
+const EGG_BUILD = 60, EGG_ATK = 120, EGG_PAUSE = 6;
+const eggOn = () => G.pvp && G.mode === 'egg' && !!G.egg;
+const eggAuth = () => !NET.peer || NET.host;
+const amDefender = () => eggOn() && G.egg.def === G.localKey;
+const eggName = id => (chars[id] && chars[id].name) || (NET.players[id] && NET.players[id].name) || 'Player';
+// who the field defenses (tesla, mortar, fans, mirrors) go after on this screen: our own player if they attack
+function eggFoe(){
+  if (!G.pvp) return chars[attacker()];
+  if (amDefender()) return null;
+  const P = localP(); return P && P.alive !== false ? P : null;
+}
+function eggStart(eg){
+  G.egg = {def:eg.def, round:eg.round || 1, total:eg.total || 1, pts:eg.pts || {}, ph:'build', endT:0, over:false, left:{}, sendT:0, net:null, uiT:0};
+  if (!eggAuth() && egg) { const b = egg.body; b.type = CANNON.Body.KINEMATIC; b.mass = 0; b.updateMassProperties(); b.velocity.set(0,0,0); b.collisionResponse = true; }
+  if (eg.ph === 'attack') eggAttack(eg.left != null ? eg.left : EGG_ATK); else eggBuild(eg.left != null ? eg.left : EGG_BUILD);
+}
+function eggBuild(left){
+  const E = G.egg;
+  G.phase = 'build'; E.ph = 'build'; E.endT = G.t + left;
+  G.placements = 0; G.hand = []; G.sel = -1; G.ghostRot = 0; G.defPlace = null;
+  G.defs = {}; Object.keys(DEFENSES).forEach(k => { G.defs[k] = DEFENSES[k].count; E.left[k] = DEFENSES[k].count; });
+  renderTray(); setGhost();
+  if (amDefender()) { const P = localP(); if (P) aimAtEggFrom(P, -.35); toast(`🛡️ You defend the egg! ${left} seconds to set up. Press a protection's key, aim, click. F when you're done.`); }
+  else toast(`🛡️ ${eggName(E.def)} is building defenses. You attack in ${Math.ceil(left)} seconds.`);
+}
+function eggAttack(left){
+  const E = G.egg;
+  if (G.phase === 'build') { const P = localP(); if (P && P.carry) dropCarry(P, false); }
+  setGhost(null); G.defPlace = null;
+  G.phase = 'attack'; E.ph = 'attack'; E.endT = G.t + left;
+  G.specials = {}; Object.keys(skillTable()).forEach(k => G.specials[k] = Infinity); G.targeting = null; G.atkTime = Infinity; G.cd = {};
+  if (!NET.peer && E.def === G.localKey) {
+    // practice: you built it, now try to break it from outside the ring
+    // stand where nothing blocks the view of the egg
+    let x = 0, z = 26, best = -1;
+    for (let i = 0; i < 16; i++) { const an = i/16*Math.PI*2, cx = Math.cos(an)*26, cz = Math.sin(an)*26; let clear = 99; for (const pr of props) { if (pr.dead) continue; const t = clamp((pr.x*cx + pr.z*cz)/(26*26), 0, 1); clear = Math.min(clear, Math.hypot(pr.x - cx*t, pr.z - cz*t)); } if (clear > best) { best = clear; x = cx; z = cz; } }
+    E.def = null; const P = localP(), b = P.body; b.position.set(x, groundH(x, z) + .4, z); b.velocity.set(0,0,0); aimAtEggFrom(P, .15);
+  }
+  G.spawnShield = 2; renderTray();
+  toast(amDefender() ? '🥚 Here they come! Click for energy blasts, E to grab and throw things.' : `🥚 Break the egg! ${Math.round(left)} seconds. Every power has a cooldown.`);
+}
+// the host (or practice) decides; everyone else hears it
+function eggToAttack(){
+  if (!eggOn() || !eggAuth() || G.egg.over || G.phase !== 'build') return;
+  netBroadcast({t:'eph', ph:'attack', left:EGG_ATK});
+  eggAttack(EGG_ATK);
+}
+function eggDone(){
+  if (!eggOn() || G.phase !== 'build') return;
+  if (!amDefender()) { toast(`${eggName(G.egg.def)} is still building.`); return; }
+  if (eggAuth()) eggToAttack(); else { netSend({t:'edone', id:G.localKey}); toast('Ready! Starting the attack…'); }
+}
+function eggRoundOver(w, reason){
+  const E = G.egg; if (!E || E.over) return;
+  const atk = Object.keys(chars).filter(k => k !== E.def);
+  if (w === 'atk') atk.forEach(k => E.pts[k] = (E.pts[k] || 0) + 1);
+  else if (w === 'def' && E.def) E.pts[E.def] = (E.pts[E.def] || 0) + Math.max(1, atk.length);
+  const m = {t:'eover', w, r:reason, pts:E.pts};
+  if (NET.peer) netBroadcast(m);
+  eggShowOver(m);
+  const gen = G.gen;
+  setTimeout(() => { if (G.gen !== gen || !eggOn()) return; if (NET.peer) hostEggRound(); else soloEgg(); }, EGG_PAUSE*1000);
+}
+function eggShowOver(m){
+  const E = G.egg; if (!E) return;
+  E.over = true; E.pts = m.pts || E.pts; G.targeting = null; setGhost(null);
+  if (m.w === 'atk' && egg && egg.alive) { G.eggNetBreak = true; try { breakEgg(m.r || 'hit'); } finally { G.eggNetBreak = false; } }
+  const def = E.def ? eggName(E.def) : 'The egg';
+  const title = m.w === 'atk' ? 'Cracked!' : m.w === 'def' ? 'Egg survived!' : 'Round over';
+  const line = m.w === 'atk' ? (amDefender() ? 'They got your egg.' : 'You broke it! Every attacker scores 1 point.')
+    : m.w === 'def' ? (amDefender() ? 'You held them off! Big points for the defender.' : `${def} held you off.`)
+    : 'The defender left, so nobody scores this round.';
+  sfx(m.w === 'atk' ? (amDefender() ? 'lose' : 'win') : (amDefender() ? 'win' : 'lose'));
+  const last = NET.peer && E.round >= E.total;
+  $('eggBanner').innerHTML = `<div class="title ${m.w === 'atk' ? 'red' : 'blue'}">${title}</div><p>${line}</p><p class="muted">${last ? 'Final round. Results in a moment…' : 'Next round in a few seconds…'}</p>`;
+  $('eggBanner').style.display = 'block'; renderTray(); eggHud(true);
+}
+function hostEggRound(){
+  if (!NET.host) return;
+  const order = NET.eggOrder || [];
+  while (NET.eggRound < order.length && !NET.players[order[NET.eggRound]]) NET.eggRound++;   // skip anyone who left
+  const pts = G.egg ? G.egg.pts : {};
+  if (NET.eggRound >= order.length) {
+    G.matchOver = true;
+    const m = {t:'eend', pts}; netBroadcast(m); eggShowEnd(m); return;
+  }
+  const def = order[NET.eggRound]; NET.eggRound++;
+  NET.seed = Math.floor(Math.random()*90000) + 10000;
+  const eg = {def, round:NET.eggRound, total:order.length, pts, ph:'build', left:EGG_BUILD};
+  netBroadcast({t:'start', seed:NET.seed, players:lobbyList(), score:G.score, mode:'egg', cd:1, eg});
+  startMatch(NET.seed, lobbyList(), G.score, 'egg', true, eg);
+}
+function soloEgg(){ startMatch(Math.floor(Math.random()*90000) + 10000, [{id:'me', name:ME.name || 'Player', team:'blue', look:ME.look}], null, 'egg', true, {def:'me', round:1, total:1, pts:{}}); }
+function eggShowEnd(m){
+  const pts = m.pts || {}, ids = Object.keys(NET.players).length ? Object.keys(NET.players) : Object.keys(pts);
+  const rows = ids.map(id => ({id, n:(NET.players[id] && NET.players[id].name) || eggName(id), p:pts[id] || 0})).sort((a, b) => b.p - a.p);
+  const top = rows[0], tie = rows.length > 1 && rows[1].p === top.p;
+  $('eggBanner').style.display = 'none';
+  showMatchEnd(null, `${tie ? 'It’s a tie!' : `🏆 ${top ? top.n : 'Nobody'} wins!`}<br>${rows.map(r => `${r.id === G.localKey ? '⭐ ' : ''}${r.n}: <b>${r.p}</b>`).join('<br>')}`);
+}
+// a hit that would break the egg while the defender is still building just puts it back
+function eggReset(){
+  if (!egg || !egg.alive) return;
+  if (!egg.body.world) world.addBody(egg.body);
+  egg.body.position.set(0, (G.pedH || 1) + .36, 0); egg.body.velocity.set(0,0,0); egg.body.angularVelocity.set(0,0,0); egg.body.quaternion.set(0,0,0,1);
+  egg.cracks = 0; while (egg.crackG.children.length) egg.crackG.remove(egg.crackG.children[0]); egg.grace = 1; egg.pending = null;
+}
+// host side: may this player use this protection power right now?
+function eggDefOK(c, m){
+  const E = G.egg;
+  if (!m || m.id !== c.peer || !eggOn() || E.over || G.phase !== 'build' || m.id !== E.def) return false;
+  const D = DEFENSES[m.k]; if (!D || !(E.left[m.k] > 0)) return false;
+  if (m.s === 'd_place') { if (!D.place || !Array.isArray(m.p) || !(Math.hypot(m.p[0], m.p[2]) < 11.6) || !(Math.abs(m.p[1]) < 30)) return false; }
+  else if (D.place) return false;
+  const now = performance.now()/1000, r = castRate[m.id] = (castRate[m.id] || []).filter(t => now - t < 1); if (r.length >= 14) return false; r.push(now);
+  E.left[m.k]--; return true;
+}
+function runDefense(id, p, x){
+  const k = x && x.k, D = DEFENSES[k]; if (!D) return;
+  if (id === 'd_place') { if (D.place && p) placeDefense(k, p, +x.r || 0); return; }
+  if (k === 'dome') raiseDome();
+  else if (k === 'fort') buildFortress();
+  else if (k === 'armor') armorEgg();
+  else if (['drones','angel','cloak','moat','medic'].includes(k)) instantDefense(k);
+}
+function placeDefense(key, pos, rotY){
+  const def = DEFENSES[key];
+  if (def.spawn) { def.spawn(pos.clone(), rotY); return; }
+  const o = makeBody(def, 1);
+  o.body.position.set(pos.x, pos.y, pos.z); o.body.quaternion.setFromEuler(0, rotY, 0);
+  o.kind = 'item'; o.key = key; o.bottom = def.bottom; addOutline(o.mesh);
+  addObj(o); sfx('place');
+  if (key === 'mirror') o.body.addEventListener('collide', e => { const q = bodyObj.get(e.body); if (q && q.kind === 'proj' && !q.defused && G.phase === 'attack') q.reflectPending = true; });
+  if (key === 'decoy') o.body.addEventListener('collide', e => { if (Math.abs(e.contact.getImpactVelocityAlongNormal()) > 4.5 && G.phase === 'attack') o.popPending = true; });
+}
+// every frame in Egg mode: timers (host), the egg copy (everyone else), the HUD
+function eggFrame(dt){
+  if (!eggOn()) return;
+  const E = G.egg;
+  if (eggAuth() && !E.over && G.t >= E.endT) { if (G.phase === 'build') eggToAttack(); else if (G.phase === 'attack') eggRoundOver('def', 'held'); }
+  if (NET.host && egg && egg.alive && !E.over) {
+    E.sendT -= dt;
+    if (E.sendT <= 0) { E.sendT = .1; const b = egg.body, q = b.quaternion; netBroadcast({t:'eg', p:[+b.position.x.toFixed(3), +b.position.y.toFixed(3), +b.position.z.toFixed(3)], q:[+q.x.toFixed(3), +q.y.toFixed(3), +q.z.toFixed(3), +q.w.toFixed(3)], c:egg.cracks, l:G.eggLives || 0}); }
+  }
+  if (!eggAuth() && egg && egg.alive && E.net) {
+    const n = E.net, b = egg.body, k = Math.min(1, dt*12);
+    if (Math.hypot(n.p[0] - b.position.x, n.p[1] - b.position.y, n.p[2] - b.position.z) > 6) b.position.set(n.p[0], n.p[1], n.p[2]);
+    else b.position.set(lerp(b.position.x, n.p[0], k), lerp(b.position.y, n.p[1], k), lerp(b.position.z, n.p[2], k));
+    const q = new THREE.Quaternion(b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w).slerp(new THREE.Quaternion(n.q[0], n.q[1], n.q[2], n.q[3]), k); b.quaternion.set(q.x, q.y, q.z, q.w); b.velocity.set(0,0,0); b.angularVelocity.set(0,0,0);
+  }
+  E.uiT -= dt; if (E.uiT <= 0) { E.uiT = .25; eggHud(); }
+}
+// client: the host's egg
+function eggNetState(m){
+  const E = G.egg; if (!eggOn() || eggAuth() || !egg || !egg.alive) return;
+  E.net = m;
+  while (egg.cracks < Math.min(2, m.c | 0)) addCrack();
+  if ((m.c | 0) < egg.cracks) { egg.cracks = m.c | 0; while (egg.crackG.children.length > egg.cracks*3) egg.crackG.remove(egg.crackG.children[egg.crackG.children.length - 1]); }
+  if (G.eggLives > 0 && !m.l && G.halo) { egg.mesh.remove(G.halo); G.halo = null; lightPillar(new THREE.Vector3(0, 0, 0), 1.2, true); sfx('holy'); toast('😇 The guardian angel saved the egg!'); }
+  G.eggLives = m.l | 0;
+}
+const fmtT = s => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s/60)}:${String(s % 60).padStart(2, '0')}`; };
+function eggHud(force){
+  const E = G.egg; if (!E) return;
+  const left = E.endT - G.t, defN = E.def ? eggName(E.def) : 'You';
+  const ph = $('phase');
+  if (E.over) ph.innerHTML = `Round ${E.round} over<small>Next round soon</small>`;
+  else if (G.phase === 'build') ph.innerHTML = `${amDefender() ? '🛡️ Build your defense' : `🛡️ ${defN} builds`}<small>${amDefender() ? 'Attack starts in' : 'You attack in'} ${fmtT(left)}</small>`;
+  else ph.innerHTML = `${amDefender() ? '🛡️ Defend the egg!' : '🥚 Break the egg!'}<small>${fmtT(left)} left · round ${E.round}/${E.total}</small>`;
+  const ids = Object.keys(chars).filter(k => chars[k]);
+  const box = $('eggPts');
+  const html = NET.peer ? ids.map(id => ({id, n:eggName(id), p:E.pts[id] || 0})).sort((a, b) => b.p - a.p)
+    .map(r => `<div>${r.id === E.def ? '🛡️' : '⚔️'} ${r.id === G.localKey ? '<b>' + r.n + '</b>' : r.n} <span>${r.p}</span></div>`).join('') : '<div>🥚 Egg practice</div>';
+  if (force || box.innerHTML !== html) box.innerHTML = html;
 }
 
 /* ===================================== PAIN MODE =====================================
@@ -5591,7 +5802,9 @@ function painHelp(){
 const castLog = {}, castRate = {};
 function castOK(c, m){
   if (!m || m.id !== c.peer) return false;                                  // nobody can cast as someone else
+  if (m.s === 'd_use' || m.s === 'd_place') return eggDefOK(c, m);       // Egg mode protection powers
   const P = chars[m.id]; if (!P || P.alive === false || !G.pvp || G.phase !== 'attack') return false;
+  if (eggOn() && (G.egg.over || (m.id === G.egg.def && m.s !== 'ki'))) return false;   // the defender only shoots
   const def = m.s === 'ki' ? null : skillTable()[m.s]; if (m.s !== 'ki' && !def) return false;   // the skill must exist in this mode
   if (m.o && P.net && Math.hypot(m.o[0] - P.net.x, m.o[2] - P.net.z) > 16) return false;          // cast from where they actually are
   if (def && def.range && m.p && m.o && Math.hypot(m.p[0] - m.o[0], m.p[2] - m.o[2]) > def.range + 6) return false;
@@ -5611,6 +5824,7 @@ function castOK(c, m){
 /* casting, locally and for other players */
 function runSkill(id, p, x){
   if (id === 'ki') { kiBlast(p); return; }
+  if (id === 'd_use' || id === 'd_place') { runDefense(id, p, x); return; }
   if (PAIN_SKILLS[id]) { runPain(id, p, x); return; }
   castFX(id);
   const INST = {gravity:gravityGun, flip:flipWorld, slow:slowTime, freeze:freezeTime, night:nightTime, onepunch:() => punch(false), serious:() => punch(true)};
@@ -5643,15 +5857,16 @@ function runSkill(id, p, x){
 }
 function localCast(id, p, x){
   const P = localP(); if (G.pvp && (!P || P.alive === false)) return;
+  if (G.egg && G.egg.over) return;
   G.casterKey = G.localKey;
   try { runSkill(id, p, x); } finally { G.casterKey = null; }
   if (!G.pvp) return;
-  if (id !== 'ki') G.cd[id] = cdFor(id);
+  if (id !== 'ki' && id !== 'd_use' && id !== 'd_place') G.cd[id] = cdFor(id);
   const b = P.body;
   netSend({t:'cast', id:G.localKey, s:id, p: p ? [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)] : null, y:+G.yaw.toFixed(3), o:[+b.position.x.toFixed(2), +b.position.y.toFixed(2), +b.position.z.toFixed(2)], ...(x || {})});
 }
 function replayCast(m){
-  const P = chars[m.id]; if (!P || !G.pvp || G.phase !== 'attack') return;
+  const P = chars[m.id]; if (!P || !G.pvp || !(G.phase === 'attack' || (G.phase === 'build' && (m.s === 'd_use' || m.s === 'd_place')))) return;
   const me = localP(); if (me && P.team !== me.team) G.lastEnemyCast = {id:m.id, t:G.t};
   const saveYaw = G.yaw;
   if (m.o) P.body.position.set(m.o[0], m.o[1], m.o[2]);
@@ -5708,6 +5923,8 @@ const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').s
 function netSend(m){ if (!NET.peer) return; if (NET.host) netBroadcast(m); else if (NET.hostConn && NET.hostConn.open) NET.hostConn.send(m); }
 function netBroadcast(m, except){ NET.conns.forEach(c => { if (c.open && c !== except) c.send(m); }); }
 function lobbyList(){ return Object.values(NET.players); }
+const normMode = m => m === 'pain' || m === 'egg' ? m : 'chaos';
+const MODE_NAME = {egg:'🥚 Egg', chaos:'🌀 Chaos', pain:'🌑 Pain'};
 function broadcastLobby(){ netBroadcast({t:'lobby', players:lobbyList(), host:NET.myId, mode:NET.mode, cd:NET.cdOn ? 1 : 0}); renderLobby(); }
 /* STUN lets two browsers find a direct route to each other. On strict networks (mobile data, school/work Wi-Fi,
    some VPNs) there is none. PeerJS's free TURN relays are gone (their hostnames no longer resolve), so when the
@@ -5809,7 +6026,7 @@ function resetPeer(){
 function adoptConn(c){
   NET.conns.push(c);
   c.on('data', m => hostHandle(c, m));
-  c.on('close', () => { if (c.superseded) return; NET.conns = NET.conns.filter(x => x !== c); const p = NET.players[c.peer]; if (p) { delete NET.players[c.peer]; netBroadcast({t:'left', id:c.peer}); removePlayer(c.peer); broadcastLobby(); killFeedText(`${p.name} left`); } });
+  c.on('close', () => { if (c.superseded) return; NET.conns = NET.conns.filter(x => x !== c); const p = NET.players[c.peer]; if (p) { delete NET.players[c.peer]; netBroadcast({t:'left', id:c.peer}); removePlayer(c.peer); broadcastLobby(); if (eggOn() && G.egg.def === c.peer && !G.egg.over) eggRoundOver('none', 'left'); killFeedText(`${p.name} left`); } });
 }
 function hostGame(wanted, tries = 0){
   if (typeof Peer === 'undefined') { lobbyMsg('Online play is not available here. Open the game from its own website link.'); return; }
@@ -5902,19 +6119,27 @@ function hostHandle(c, m){
     case 'hello': {
       const p = {id:c.peer, name:clean(m.name), team:m.team === 'red' ? 'red' : 'blue', look:(m.look|0) % LOOK_COUNT};
       NET.players[c.peer] = p; broadcastLobby();
-      if (NET.started) { c.send({t:'start', seed:NET.seed, players:lobbyList(), score:G.score, mode:NET.mode, cd:NET.cdOn ? 1 : 0}); netBroadcast({t:'join', p}, c); if (!chars[p.id]) addPlayer(p, false); killFeedText(`${p.name} joined ${p.team === 'blue' ? 'Blue' : 'Red'}`); }
+      if (NET.started) {
+        const E = eggOn() ? G.egg : null; if (E && NET.eggOrder && !NET.eggOrder.includes(p.id)) { NET.eggOrder.push(p.id); E.total = NET.eggOrder.length; }
+        c.send({t:'start', seed:NET.seed, players:lobbyList(), score:G.score, mode:NET.mode, cd:NET.cdOn ? 1 : 0, eg:E ? {def:E.def, round:E.round, total:E.total, pts:E.pts, ph:E.ph, left:Math.max(1, E.endT - G.t)} : undefined});
+        netBroadcast({t:'join', p}, c); if (!chars[p.id]) addPlayer(E ? Object.assign({}, p, {team:'red'}) : p, false); killFeedText(`${p.name} joined ${p.team === 'blue' ? 'Blue' : 'Red'}`); }
       break; }
     case 'team': if (NET.players[c.peer] && !NET.started) { NET.players[c.peer].team = m.team === 'red' ? 'red' : 'blue'; broadcastLobby(); } break;
     case 'st': if (m.id !== c.peer) break; applyState(m); netBroadcast(m, c); break;
     case 'cast': if (!castOK(c, m)) break; replayCast(m); netBroadcast(m, c); break;
     case 'death': if (m.id !== c.peer) break; if (m.by && !NET.players[m.by]) m.by = null; onDeath(m); break;
+    case 'edone': if (eggOn() && c.peer === G.egg.def) eggToAttack(); break;
   }
 }
 function clientHandle(m){
   switch (m.t) {
-    case 'lobby': NET.players = {}; m.players.forEach(p => NET.players[p.id] = p); NET.mode = m.mode === 'pain' ? 'pain' : 'chaos'; NET.cdOn = !!m.cd; renderLobby(); break;
-    case 'start': NET.started = true; NET.seed = m.seed; NET.mode = m.mode === 'pain' ? 'pain' : 'chaos'; NET.cdOn = !!m.cd; startMatch(m.seed, m.players, m.score, NET.mode, NET.cdOn); break;
-    case 'join': if (G.pvp && !chars[m.p.id]) { addPlayer(m.p, false); killFeedText(`${m.p.name} joined`); } break;
+    case 'lobby': NET.players = {}; m.players.forEach(p => NET.players[p.id] = p); NET.mode = normMode(m.mode); NET.cdOn = !!m.cd; renderLobby(); break;
+    case 'start': NET.started = true; NET.seed = m.seed; NET.mode = normMode(m.mode); NET.cdOn = !!m.cd; startMatch(m.seed, m.players, m.score, NET.mode, NET.cdOn, NET.mode === 'egg' && m.eg && typeof m.eg.def === 'string' ? m.eg : null); break;
+    case 'eph': if (eggOn() && m.ph === 'attack' && G.phase === 'build') eggAttack(+m.left || EGG_ATK); break;
+    case 'eg': if (Array.isArray(m.p) && Array.isArray(m.q)) eggNetState(m); break;
+    case 'eover': if (eggOn()) eggShowOver(m); break;
+    case 'eend': G.matchOver = true; eggShowEnd(m); break;
+    case 'join': if (G.pvp && !chars[m.p.id]) { addPlayer(eggOn() ? Object.assign({}, m.p, {team:'red'}) : m.p, false); killFeedText(`${m.p.name} joined`); } break;
     case 'left': { const P = chars[m.id]; if (P) killFeedText(`${P.name} left`); removePlayer(m.id); break; }
     case 'st': applyState(m); break;
     case 'cast': replayCast(m); break;
@@ -5925,6 +6150,7 @@ function clientHandle(m){
 }
 function onDeath(m){
   const victim = NET.players[m.id]; if (!victim || G.matchOver) return;
+  if (G.mode === 'egg') { const kf = {t:'kf', v:m.id, by:m.by}; netBroadcast(kf); killFeed(kf); return; }   // Egg mode scores eggs, not knockouts
   const other = victim.team === 'blue' ? 'red' : 'blue';
   G.score[other]++; renderScore();
   const kf = {t:'kf', v:m.id, by:m.by}; netBroadcast(kf); killFeed(kf);
@@ -5934,18 +6160,19 @@ function onDeath(m){
 function hostStart(){
   if (!NET.host) return;
   NET.started = true; NET.seed = Math.floor(Math.random()*90000) + 10000; G.score = {blue:0, red:0};
+  if (NET.mode === 'egg') { NET.eggOrder = lobbyList().map(p => p.id); NET.eggRound = 0; G.egg = null; G.matchOver = false; hostEggRound(); return; }
   netBroadcast({t:'start', seed:NET.seed, players:lobbyList(), score:G.score, mode:NET.mode, cd:NET.cdOn ? 1 : 0});
   startMatch(NET.seed, lobbyList(), G.score, NET.mode, NET.cdOn);
 }
 function netTick(dt){
-  if (!NET.peer || !G.pvp || G.phase !== 'attack') return;
+  if (!NET.peer || !G.pvp || !(G.phase === 'attack' || G.phase === 'build')) return;
   NET.sendT -= dt; if (NET.sendT > 0) return; NET.sendT = 1/15;
   const P = localP(); if (!P) return; const b = P.body;
   netSend({t:'st', id:G.localKey, x:+b.position.x.toFixed(2), y:+b.position.y.toFixed(2), z:+b.position.z.toFixed(2), f:+P.face.toFixed(2), vx:+b.velocity.x.toFixed(1), vz:+b.velocity.z.toFixed(1), fl:(P.naruto ? 1 : 0) | (P.grounded ? 2 : 0) | (P.dashT > 0 ? 4 : 0) | (P.stun > 0 ? 8 : 0), hp:Math.round(P.hp), al:P.alive === false ? 0 : 1});
 }
 
 /* ---------- menus and HUD ---------- */
-const ME = {name:'', team:'blue', look:Math.floor(Math.random()*LOOK_COUNT), mode:(() => { try { return localStorage.getItem('ca-mode') === 'pain' ? 'pain' : 'chaos'; } catch (e) { return 'chaos'; } })(),
+const ME = {name:'', team:'blue', look:Math.floor(Math.random()*LOOK_COUNT), mode:(() => { try { return normMode(localStorage.getItem('ca-mode2') || 'egg'); } catch (e) { return 'egg'; } })(),
   cdOn:(() => { try { return localStorage.getItem('ca-cd') === 'on'; } catch (e) { return false; } })()};
 function myInfo(){ ME.name = clean(($('nameIn') && $('nameIn').value) || ME.name || 'Player'); try { localStorage.setItem('ca-name', ME.name); } catch (e) {} return {id:null, name:ME.name, team:ME.team, look:ME.look}; }
 function lobbyMsg(t){ const e = $('lobbyMsg'); if (e) e.textContent = t; }
@@ -5954,11 +6181,11 @@ function showPvPTitle(){
   const online = typeof Peer !== 'undefined';
   overlay(`<div class="panel sticker">
     <div class="title">Chaos Arena</div>
-    <p>Team deathmatch with 31 ridiculous powers. First team to ${WIN_SCORE} knockouts wins.</p>
+    <p>Defend the egg, break the egg, or just fight. Pick a mode below.</p>
     <div class="rows" style="grid-template-columns:1fr 1fr;align-items:center">
       <label style="grid-column:1/-1;text-align:left;font-size:14px">Your name<br><input id="nameIn" maxlength="14" value="${clean(saved) === 'Player' && !saved ? '' : clean(saved)}" placeholder="Player" style="width:100%;margin-top:4px;padding:10px 12px;border:3px solid var(--edge);border-radius:12px;font:inherit;background:var(--panel);color:var(--text)"></label>
       <button class="btn" id="tBlue" style="background:var(--blue);color:#fff">Blue team</button><button class="btn" id="tRed" style="background:var(--red);color:#fff">Red team</button>
-      <button class="btn" id="mChaos">🌀 Chaos mode</button><button class="btn" id="mPain" style="background:#2A2236;color:#E6DAFF">🌑 Pain mode</button>
+      <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="btn" id="mEgg" style="background:#FFF3DC;color:#3B2A1A">🥚 Egg mode</button><button class="btn" id="mChaos">🌀 Chaos mode</button><button class="btn" id="mPain" style="background:#2A2236;color:#E6DAFF">🌑 Pain mode</button></div>
       <p class="muted" id="modeDesc" style="grid-column:1/-1;margin:0;font-size:14px"></p>
       <button class="btn" id="cdB" style="grid-column:1/-1"></button>
     </div>
@@ -5976,28 +6203,30 @@ function showPvPTitle(){
   setTeam(ME.team);
   $('tBlue').onclick = () => setTeam('blue'); $('tRed').onclick = () => setTeam('red');
   // game mode: the host's choice is used for the match; practice uses yours
-  const setMode = m => { ME.mode = m; try { localStorage.setItem('ca-mode', m); } catch (e) {}
-    $('mChaos').style.outline = m === 'chaos' ? '4px solid var(--yolk)' : 'none'; $('mPain').style.outline = m === 'pain' ? '4px solid var(--yolk)' : 'none';
-    $('modeDesc').textContent = m === 'pain' ? 'Pain: gravity powers. Push, pull, Shinra Tensei, Chibaku Tensei and more. The map can’t be destroyed.' : 'Chaos: 31 ridiculous powers. Nukes, black holes, giant cows.'; };
-  setMode(ME.mode);
-  const setCd = on => { ME.cdOn = on; try { localStorage.setItem('ca-cd', on ? 'on' : 'off'); } catch (e) {} $('cdB').textContent = on ? '⏱️ Cooldowns: on' : '⏱️ Cooldowns: off (spam everything)'; };
-  setCd(ME.cdOn); $('cdB').onclick = () => setCd(!ME.cdOn);
-  $('mChaos').onclick = () => setMode('chaos'); $('mPain').onclick = () => setMode('pain');
+  const setMode = m => { ME.mode = m; try { localStorage.setItem('ca-mode2', m); } catch (e) {}
+    for (const [id, k] of [['mEgg','egg'],['mChaos','chaos'],['mPain','pain']]) $(id).style.outline = m === k ? '4px solid var(--yolk)' : 'none';
+    $('modeDesc').textContent = m === 'egg' ? `Egg: one player defends the egg with 19 protection powers and gets ${EGG_BUILD} seconds to build. Everyone else gets ${EGG_ATK} seconds and 31 powers (with cooldowns) to break it. Everyone takes a turn defending.`
+      : m === 'pain' ? 'Pain: gravity powers. Push, pull, Shinra Tensei, Chibaku Tensei and more. The map can’t be destroyed.' : 'Chaos: 31 ridiculous powers. Nukes, black holes, giant cows.';
+    if ($('cdB')) setCd(ME.cdOn); };
+  function setCd(on){ ME.cdOn = on; try { localStorage.setItem('ca-cd', on ? 'on' : 'off'); } catch (e) {} const em = ME.mode === 'egg'; $('cdB').disabled = em; $('cdB').textContent = em ? '⏱️ Cooldowns: always on in Egg mode' : on ? '⏱️ Cooldowns: on' : '⏱️ Cooldowns: off (spam everything)'; }
+  setMode(ME.mode); setCd(ME.cdOn); $('cdB').onclick = () => setCd(!ME.cdOn);
+  $('mEgg').onclick = () => setMode('egg'); $('mChaos').onclick = () => setMode('chaos'); $('mPain').onclick = () => setMode('pain');
   $('hostB').onclick = () => { ensureAudio(); hostGame($('codeIn').value); };
   $('joinB').onclick = () => { ensureAudio(); joinGame($('codeIn').value); };
   $('codeIn').onkeydown = e => { if (e.key === 'Enter') { ensureAudio(); joinGame($('codeIn').value); } };
-  $('soloB').onclick = () => { ensureAudio(); const me = myInfo(); me.id = 'me'; NET.peer = null; NET.myId = 'me'; startMatch(Math.floor(Math.random()*90000) + 10000, [me], null, ME.mode, ME.cdOn); };
+  $('soloB').onclick = () => { ensureAudio(); const me = myInfo(); me.id = 'me'; NET.peer = null; NET.myId = 'me'; if (ME.mode === 'egg') { soloEgg(); return; } startMatch(Math.floor(Math.random()*90000) + 10000, [me], null, ME.mode, ME.cdOn); };
 }
 function showLobby(){ renderLobby(); }
 function renderLobby(){
-  if (G.pvp && G.phase === 'attack') return;
+  if (G.pvp && (G.phase === 'attack' || G.phase === 'build')) return;
   const list = lobbyList(), blue = list.filter(p => p.team === 'blue'), red = list.filter(p => p.team === 'red');
   const li = arr => arr.map(p => `<div style="padding:4px 0">${p.id === NET.myId ? '⭐ ' : ''}${p.name}</div>`).join('') || '<div class="muted">nobody yet</div>';
   overlay(`<div class="panel sticker">
     <div class="title" style="font-size:clamp(34px,8vw,56px)">Room ${NET.code}</div>
     <p>${NET.host ? 'Send your friends this page’s link and tell them the code <b>' + NET.code + '</b>.' : 'You’re in! Waiting for the host to start.'}</p>
-    <p>Mode: <b>${NET.mode === 'pain' ? '🌑 Pain' : '🌀 Chaos'}</b> ${NET.host ? `<button class="btn" id="modeB" style="padding:4px 12px;font-size:14px;margin-left:6px">Switch to ${NET.mode === 'pain' ? 'Chaos' : 'Pain'}</button>` : ''}</p>
-    <p>Cooldowns: <b>${NET.cdOn ? 'on' : 'off'}</b> ${NET.host ? `<button class="btn" id="cdLB" style="padding:4px 12px;font-size:14px;margin-left:6px">Turn ${NET.cdOn ? 'off' : 'on'}</button>` : ''}</p>
+    <p>Mode: <b>${MODE_NAME[NET.mode]}</b> ${NET.host ? Object.keys(MODE_NAME).filter(k => k !== NET.mode).map(k => `<button class="btn" data-mode="${k}" style="padding:4px 12px;font-size:14px;margin-left:6px">${MODE_NAME[k]}</button>`).join('') : ''}</p>
+    ${NET.mode === 'egg' ? `<p class="muted">Each round one player defends the egg (${EGG_BUILD} s to build), everyone else attacks (${EGG_ATK} s). Everyone defends once. Teams don’t matter here. Cooldowns are always on.</p>`
+      : `<p>Cooldowns: <b>${NET.cdOn ? 'on' : 'off'}</b> ${NET.host ? `<button class="btn" id="cdLB" style="padding:4px 12px;font-size:14px;margin-left:6px">Turn ${NET.cdOn ? 'off' : 'on'}</button>` : ''}</p>`}
     <div class="rows" style="grid-template-columns:1fr 1fr">
       <div class="row" style="display:block"><span class="tag bg-blue">Blue (${blue.length})</span>${li(blue)}</div>
       <div class="row" style="display:block"><span class="tag bg-red">Red (${red.length})</span>${li(red)}</div>
@@ -6005,7 +6234,7 @@ function renderLobby(){
     ${NET.host ? '<div class="actions"><button class="btn primary" id="startMatchB">Start match</button></div>' : ''}
     <p class="muted" id="lobbyMsg">Up to 10 players. People can also join after the match starts.</p>
   </div>`);
-  if (NET.host) { $('startMatchB').onclick = hostStart; $('modeB').onclick = () => { NET.mode = NET.mode === 'pain' ? 'chaos' : 'pain'; ME.mode = NET.mode; broadcastLobby(); }; $('cdLB').onclick = () => { NET.cdOn = !NET.cdOn; ME.cdOn = NET.cdOn; broadcastLobby(); }; }
+  if (NET.host) { $('startMatchB').onclick = hostStart; document.querySelectorAll('#overlay [data-mode]').forEach(b => b.onclick = () => { NET.mode = b.dataset.mode; ME.mode = NET.mode; try { localStorage.setItem('ca-mode2', NET.mode); } catch (e) {} broadcastLobby(); }); if ($('cdLB')) $('cdLB').onclick = () => { NET.cdOn = !NET.cdOn; ME.cdOn = NET.cdOn; broadcastLobby(); }; }
 }
 function showMatchEnd(w, text){
   G.matchOver = true; releaseLock();
@@ -6035,7 +6264,7 @@ function pvpFrame(rdt){
   for (const k in G.cd) G.cd[k] = Math.max(0, G.cd[k] - rdt);
   G.kiCd = Math.max(0, (G.kiCd || 0) - rdt); G.spawnShield = Math.max(0, (G.spawnShield || 0) - rdt);
   G.cdUiT = (G.cdUiT || 0) - rdt; if (G.cdUiT <= 0) { G.cdUiT = .1; updateCooldownUI(); }
-  updateRemotes(rdt); netTick(rdt); updateEnemyFinder();
+  updateRemotes(rdt); netTick(rdt); updateEnemyFinder(); eggFrame(rdt);
   const P = localP();
   if (P && P.alive === false && G.phase === 'attack') { P.deadT -= rdt; $('respawnT').textContent = Math.max(1, Math.ceil(P.deadT)); if (P.deadT <= 0) respawn(P); }
   if (P && P.alive && P.hp < 100 && G.phase === 'attack') { P.regenWait = (P.regenWait || 0) + rdt; }
@@ -6057,6 +6286,7 @@ function setWho(c, team, verb, txt){
 }
 function renderPhase(){
   const map = {title:'Egg Defense', intro:`Round ${G.round}`, build:`${teamName(G.defender)} builds`, handoff:'Swap players', attack: G.pvp ? (G.mode === 'pain' ? 'Pain' : 'Chaos Arena') : `${teamName(attacker())} attacks`, end:'Round over'};
+  if (eggOn()) { eggHud(true); eggHelp(); $('tAct').textContent = G.phase === 'build' && amDefender() ? 'Place' : 'Shoot'; return; }
   $('phase').innerHTML = map[G.phase] + (G.phase==='build' ? `<small>Place your protection</small>` : G.phase==='attack' ? (G.pvp ? `<small>First team to ${WIN_SCORE}</small>` : `<small>Break the egg!</small>`) : '');
   const help = $('help');
   if (G.phase === 'build') { help.style.display = 'block'; help.innerHTML = '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run, <b>Shift ×2</b> dash, <b>Space ×2</b> double jump<br><b>Click</b> place, <b>R</b> rotate, <b>1–3</b> or scroll to pick<br><b>E</b> pick up or put down, <b>click</b> while carrying to throw<br>Protection: press its key (see the Protection bar)<br><b>F</b> done building'; }
@@ -6064,6 +6294,13 @@ function renderPhase(){
   else if (G.phase === 'attack') { help.style.display = 'block'; help.innerHTML = '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run<br><b>Click</b> energy blast (no skill picked)<br>Skills: press a key (see the Skills bar), aim the red marker, <b>click</b><br><b>Right-click</b> to put a skill away<br><b>E</b> grab stuff lying around, <b>click</b> to throw it'; }
   else help.style.display = 'none';
   $('tAct').textContent = G.phase === 'attack' ? 'Cast' : 'Place';
+}
+function eggHelp(){
+  const help = $('help'); help.style.display = 'block';
+  help.innerHTML = G.phase === 'build' ? (amDefender() ? '<b>WASD</b> move, <b>Space</b> jump<br>Protection: press its key (see the Protection bar), aim, <b>click</b> to place, <b>R</b> rotate<br>Dome, fortress, armor and the rest work right away<br><b>F</b> done building (starts the attack early)'
+      : '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> run<br>Wait for the defender to finish. You can’t enter the white ring.')
+    : amDefender() ? '<b>Click</b> energy blast<br><b>E</b> grab stuff, <b>click</b> to throw it<br>Your turrets, golems and the rest fight on their own'
+    : '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run<br>Skills: press a key (see the Skills bar), aim the red marker, <b>click</b><br>Every power has a cooldown<br><b>Right-click</b> to put a skill away';
 }
 function renderSide(title, html, kind){
   const side = $('side');
@@ -6091,6 +6328,11 @@ const SHORT = {nuke:'Nuke', chibaku:'Black hole', gravity:'Gravity gun', comet:'
 function renderTray(){
   renderPhase();
   const t = $('tray');
+  if (eggOn() && (G.egg.over || (G.phase === 'build' && !amDefender()) || (G.phase === 'attack' && amDefender()))) {
+    const msg = G.egg.over ? 'Round over.' : G.phase === 'build' ? `${eggName(G.egg.def)} is building. Look around and plan: you can’t enter the white ring.` : 'Click for energy blasts, E to grab and throw things. Keep the egg alive!';
+    t.innerHTML = `<div class="bar sticker"><div class="tl">${G.phase === 'build' ? 'Get ready' : 'Defend'}</div><p style="margin:0 8px;max-width:420px;font-size:14px">${msg}</p></div>`;
+    renderSide(); return;
+  }
   if (G.phase === 'build') {
     const defs = Object.entries(DEFENSES);
     t.innerHTML = `<div class="bar sticker">
@@ -6172,7 +6414,7 @@ function actionDown(){
   const P = activeChar(); if (!P || P.stun > 0) return;
   if (P.carry) { dropCarry(P, true); G.skipUp = true; return; }
   if (G.phase === 'attack' && G.targeting) { castAt(); G.skipUp = true; return; }
-  if (G.phase === 'build') placeItem();
+  if (G.phase === 'build') { if (!G.pvp || amDefender()) placeItem(); }
   else if (G.phase === 'attack' && G.pvp) { if (G.mode === 'pain') chargeStart('p_rod', 'mouse'); else fireKi(); }
   else if (G.phase === 'attack') { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('Pick a skill first: press its key or tap it in the Skills bar.'); } }
 }
@@ -6395,7 +6637,7 @@ function frame(now){
     if (act) interpPrev.set(act.body.position.x, act.body.position.y, act.body.position.z);
     for (const t of Object.keys(chars)) { const P = chars[t]; if (!P) continue; controlPlayer(P, FIXED, P === act ? input : null); keepInBounds(P); }
     // attackers can't enter the ring
-    if (G.phase === 'attack' && act && !G.pvp) {
+    if (act && ((G.phase === 'attack' && !G.pvp) || (eggOn() && !amDefender() && (G.phase === 'attack' || G.phase === 'build')))) {
       const b = act.body, d = Math.hypot(b.position.x, b.position.z);
       if (d < 12.4 && d > .01) { const nx = b.position.x/d, nz = b.position.z/d; b.position.x = nx*12.4; b.position.z = nz*12.4; const vr = b.velocity.x*nx + b.velocity.z*nz; if (vr < 0) { b.velocity.x -= vr*nx*1.6; b.velocity.z -= vr*nz*1.6; } if (!G.ringWarn || G.t - G.ringWarn > 3) { G.ringWarn = G.t; toast('No entry for attackers. Launch things over the ring.'); } }
     }
@@ -6525,7 +6767,7 @@ function frame(now){
     } else if (!(G.targeting && THROWN.has(G.targeting) && G.targetPoint)) G.dots.forEach(d => d.visible = false);
     updateThrowArc();
   }
-  zoneRing.visible = !G.pvp && (G.phase === 'build' || G.phase === 'attack' || G.phase === 'intro');
+  zoneRing.visible = (!G.pvp || eggOn()) && (G.phase === 'build' || G.phase === 'attack' || G.phase === 'intro');
   zoneRing.material.color.set(G.phase === 'attack' ? 0xFF8A80 : 0xffffff);
   { const hm = (inPlay() && !isTouch && !G.locked && !G.eggCam) ? (G.fallback ? 2 : 1) : 0;
     if (hm !== G.hintMode) { G.hintMode = hm; const h = $('lockHint'); h.style.display = hm ? 'block' : 'none'; h.classList.toggle('fb', hm === 2);

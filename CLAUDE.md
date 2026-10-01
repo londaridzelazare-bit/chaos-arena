@@ -55,10 +55,27 @@ PeerJS 1.5.4 is inlined in a `<script>` block near the top.
 
 ## Game modes
 
-`G.mode` is `'chaos'` (the original 31 skills, `SPECIALS`) or `'pain'` (gravity powers, `PAIN_SKILLS`).
-Picked on the title screen (`ME.mode`, saved in localStorage); the host's choice travels as `NET.mode`
-in `lobby`/`start` messages and can be switched in the lobby. `startMatch(seed, list, score, mode)`.
-`skillTable()` / `skillDef()` return the active table; tray, keys (`PAIN_KEYS`), cooldowns all follow it.
+`G.mode` is `'egg'` (the default), `'chaos'` (the original 31 skills, `SPECIALS`) or `'pain'`
+(gravity powers, `PAIN_SKILLS`). Picked on the title screen (`ME.mode`, localStorage key `ca-mode2`);
+the host's choice travels as `NET.mode` in `lobby`/`start` messages and can be switched in the lobby.
+`startMatch(seed, list, score, mode, cdOn, eg)`. `skillTable()` / `skillDef()` return the active table;
+tray, keys (`PAIN_KEYS`), cooldowns all follow it.
+
+**Egg mode** (module "EGG MODE (online)", right before the Pain module): the old hotseat Egg Defense,
+online. Each round the host picks the next defender (`NET.eggOrder`, everyone defends once, late
+joiners are appended). The defender is team blue and spawns by the egg; everyone else is red.
+`G.phase` is really `'build'` (EGG_BUILD = 60 s, defender gets all 19 `DEFENSES`, F ends early via
+`edone`) then `'attack'` (EGG_ATK = 120 s, attackers get `SPECIALS` with cooldowns forced on; the
+defender can only shoot ki and grab). Attackers can't enter the 12.4 m ring. State lives in `G.egg`
+(`def, round, total, pts, ph, endT, over, left`). Protection powers are casts `d_use` / `d_place`
+(`runDefense`, `placeDefense`), validated on the host by `eggDefOK` against `G.egg.left`. The egg
+is host-authoritative: only the host's egg is dynamic and can break (`breakEgg` returns on clients
+unless `G.eggNetBreak`); the host sends `eg` (pose, cracks, angel lives) at 10 Hz and clients' kinematic
+copies follow (`eggNetState`/`eggFrame`). Messages: `eph` (to attack), `eover` (round result + points;
+`w` = 'atk' | 'def' | 'none'), `eend` (final standings), `edone`. Points: egg broken = every attacker +1,
+egg held = defender + number of attackers. Field defenses that hit players (tesla, mortar, fans,
+mirror) use `eggFoe()`: the local player only if they're attacking (victim-side, like all damage).
+Practice alone in Egg mode: build for 60 s, then you attack your own defense.
 
 **Pain mode** (module "PAIN MODE" in index.html, right before `runSkill`): ids are prefixed `p_`
 and dispatched by `runPain()` from `runSkill()`. Tunables in `PAIN_CFG`. Shared systems:
