@@ -148,6 +148,9 @@ only renders through a texture while an entry is alive; `warpPulse` for one-off 
 **Live:** https://londaridzelazare-bit.github.io/chaos-arena/ — GitHub Pages from `main` /
 (root) of `github.com/londaridzelazare-bit/chaos-arena`. To redeploy, commit and
 `git push` to `main`; Pages rebuilds in about a minute at the same URL.
+**Bump `GAME_VERSION` in index.html on every deploy.** Pages sends `Cache-Control: max-age=600`, so
+browsers kept showing the old game; on the title screen the page fetches itself with `no-store` and
+reloads into `?v=<new version>` when the version differs (once per version, never mid-match).
 
 The user wants a public link to send to friends. Deploy `index.html` as a static site:
 - Preferred: whatever the user has used before (check their GitHub repos / Netlify sites).

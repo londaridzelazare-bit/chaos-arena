@@ -247,6 +247,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
+const GAME_VERSION = '2026-10-01.3';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -5967,6 +5968,7 @@ function showPvPTitle(){
       <button class="btn" id="joinB" ${online ? '' : 'disabled'}>Join</button>
     </div>
     <div class="actions"><button class="btn" id="soloB">Practice alone</button></div>
+    <p class="muted" style="margin:0;font-size:12px">Version ${GAME_VERSION}</p>
     <p class="muted" id="lobbyMsg">${online ? 'Host a match (type a code first to pick your own) and send your friends this page’s link plus the room code.' : 'Online play works when the game is opened from its own website link. Practice works anywhere.'}</p>
     <div class="keys"><kbd>WASD</kbd><span>Move, Shift to Naruto run, Shift×2 to dash</span><kbd>Space</kbd><span>Jump, press again to double jump</span><kbd>Click</kbd><span>Energy blast, or cast the selected skill</span><kbd>Keys</kbd><span>Pick a skill (shown in the Skills bar), right-click to put it away</span></div>
   </div>`);
@@ -6540,6 +6542,18 @@ G.defender = 'blue';
 buildRound(12345); G.phase = 'title';
 
 G.map = null; renderScore(); renderPhase(); showPvPTitle();
+/* GitHub Pages lets browsers keep a copy of the page for 10 minutes, so after an update players kept getting the
+   old game. On the title screen, ask the server for the current version and reload into it if ours is stale. */
+(async () => {
+  try {
+    const r = await fetch(location.pathname + '?v=' + Date.now(), {cache:'no-store'}); if (!r.ok) return;
+    const m = (await r.text()).match(/const GAME_VERSION = '([^']+)'/); if (!m || m[1] === GAME_VERSION) return;
+    let tried = ''; try { tried = sessionStorage.getItem('ca-upd') || ''; } catch (e) {}
+    if (tried === m[1] || G.phase !== 'title' || NET.peer) return;   // never twice for the same version, never mid-match
+    try { sessionStorage.setItem('ca-upd', m[1]); } catch (e) {}
+    location.replace(location.pathname + '?v=' + encodeURIComponent(m[1]));
+  } catch (e) {}
+})();
 })();
 </script>
 </body>
