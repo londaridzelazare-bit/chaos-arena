@@ -53,6 +53,29 @@ PeerJS 1.5.4 is inlined in a `<script>` block near the top.
 - Summons (tornado, skeletons, Satan, volcano lava, milk cow, judgement) chase the nearest
   enemy via `eggTarget(x, z, ownerTeam)` -> `nearestEnemy()`. Friendly fire is ON for blasts.
 
+## Game modes
+
+`G.mode` is `'chaos'` (the original 31 skills, `SPECIALS`) or `'pain'` (gravity powers, `PAIN_SKILLS`).
+Picked on the title screen (`ME.mode`, saved in localStorage); the host's choice travels as `NET.mode`
+in `lobby`/`start` messages and can be switched in the lobby. `startMatch(seed, list, score, mode)`.
+`skillTable()` / `skillDef()` return the active table; tray, keys (`PAIN_KEYS`), cooldowns all follow it.
+
+**Pain mode** (module "PAIN MODE" in index.html, right before `runSkill`): ids are prefixed `p_`
+and dispatched by `runPain()` from `runSkill()`. Tunables in `PAIN_CFG`. Shared systems:
+GravityForce (`radialPush`, `conePush`, `knock`), gravity fields (`PAIN.fields`, applied every
+physics step by `applyPainForces()` from `applyForces`), PhysicsObjectAttractor (`liftProp` turns
+props into debris objects and `regrowProps` puts them back after 40 s; `makeCore`/`attractorField`/
+`stickToCore`/`collapseCore` build the Chibaku masses with instanced rock chunks), timed phases in
+`PAIN.fx` (`update(dt)` returns false when done), and `SpaceWarp` (screen-space lens/shockwave pass,
+only renders through a texture while an entry is alive; `warpPulse` for one-off rings).
+- Terrain is indestructible in Pain mode (`craterAt` returns early). Props are uprooted, never deleted.
+- Damage/knockback stay victim-side like the rest of the game (`victimFor`, `painHurt`, no friendly fire).
+- Pull sends its target as `tg`, Weightless World is a hold (`h:1` / `h:0`), gravity dash sends `d`.
+- `castOK()` (host) rejects casts with a spoofed id, unknown skill for the mode, broken cooldown,
+  out-of-range target or a teleported origin; `st`/`death` must come from the sender's own id.
+- Practice in Pain mode spawns training dummies (`PAIN.dummies`, physics objects with damage numbers).
+- Abilities owned by a player stop when they're knocked out (`painOwnerDied`).
+
 ## Networking (peer-to-peer, no server)
 
 - PeerJS over WebRTC using the free public PeerJS broker. The **host's browser** is the hub.
