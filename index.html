@@ -247,7 +247,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-01.3';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-01.4';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -6233,9 +6233,24 @@ tb('tAct', actionDown, actionUp);
 tb('tJump', () => { G.jumpQ = .2; });
 tb('tGrab', () => { const P = activeChar(); if (P && P.stun <= 0) grabNearest(P); });
 
+// The physical key, whatever language the keyboard is in. The game used e.key, so with the Georgian layout active
+// (Windows switches it per window, e.g. after chatting) W/A/S/D arrived as ც/ფ/ს/დ and movement broke until the
+// layout was switched back. e.code is 'KeyW' on every layout.
+function keyName(e){
+  const c = e.code || '';
+  if (c.startsWith('Key')) return c.slice(3).toLowerCase();
+  if (c.startsWith('Digit')) return c.slice(5);
+  if (/^Numpad\d$/.test(c)) return c.slice(6);
+  if (c === 'Space') return ' ';
+  if (c === 'ShiftLeft' || c === 'ShiftRight') return 'shift';
+  if (c.startsWith('Arrow')) return c.toLowerCase();
+  if (c === 'Enter' || c === 'NumpadEnter') return 'enter';
+  if (c === 'Escape') return 'escape';
+  return (e.key || '').toLowerCase();
+}
 addEventListener('keydown', e => {
   if (e.target && e.target.tagName === 'BUTTON' && (e.key === 'Enter' || e.key === ' ')) return;
-  const k = e.key.toLowerCase(); keys[k] = true;
+  const k = keyName(e); keys[k] = true;
   if (!inPlay()) return;
   if (k === ' ') { e.preventDefault(); if (!e.repeat) G.jumpQ = .2; }
   if (k === 'shift' && !e.repeat) { if (G.t - (G.lastShift || -9) < .3) { dash(); G.lastShift = -9; } else G.lastShift = G.t; }
@@ -6248,7 +6263,10 @@ addEventListener('keydown', e => {
     if (k === 'f' || k === 'enter') finishBuild();
   }
 });
-addEventListener('keyup', e => { const k = e.key.toLowerCase(); keys[k] = false; if (G.mode === 'pain') painKeyUp(k); });
+addEventListener('keyup', e => { const k = keyName(e); keys[k] = false; if (G.mode === 'pain') painKeyUp(k); });
+// leaving the tab never delivers the key-up for keys that were held, so start clean when it hides and when it comes back
+document.addEventListener('visibilitychange', () => { for (const k in keys) keys[k] = false; if (document.hidden && G.mode === 'pain') painKeyUp(null); });
+addEventListener('focus', () => { for (const k in keys) keys[k] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; if (G.mode === 'pain') painKeyUp(null); });
 
 function readInput(){
