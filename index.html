@@ -53,6 +53,7 @@ button:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
 #cross::after{content:"";position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;background:#fff;border-radius:50%}
 #cross.bad{border-color:var(--red)}
 #lockHint{position:fixed;left:50%;top:58%;transform:translateX(-50%);padding:8px 16px;font-size:15px;z-index:6;display:none;pointer-events:none;text-align:center}
+#lockHint.fb{top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 150px);font-size:13px;width:min(560px,92vw)}
 #help{position:fixed;right:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 12px);padding:8px 12px;font-size:12px;line-height:1.5;color:var(--muted);z-index:4;display:none;max-width:230px}
 #help b{color:var(--text)}
 
@@ -327,7 +328,24 @@ $('mute').addEventListener('click', () => { muted = !muted; $('mute').textConten
 
 /* ---------------- three ---------------- */
 const canvas = $('c');
-const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+let renderer;
+try { renderer = new THREE.WebGLRenderer({canvas, antialias:true}); }
+catch (e) {
+  // Chrome blocks 3D in a tab after a graphics-driver reset; a reload in the same tab doesn't clear it, a new tab does
+  document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p><b>3D graphics are blocked in this tab.</b></p><p>This happens after your graphics driver resets (for example when you switch windows, tabs or graphics cards). Close this tab and open the game link again. If that doesn’t help, turn on <i>Use graphics acceleration when available</i> in your browser’s settings.</p></div>';
+  return;
+}
+// the GPU can reset while the tab is in the background; tell the player instead of showing a frozen picture
+function glBanner(lost){
+  let b = document.getElementById('glLost');
+  clearTimeout(glBanner.t);
+  if (!lost) { if (b) b.remove(); return; }
+  if (!b) { b = document.createElement('div'); b.id = 'glLost'; b.className = 'sticker'; b.style.cssText = 'position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);z-index:30;padding:14px 18px;max-width:min(460px,90vw);text-align:center;background:var(--panel);color:var(--text)'; document.body.appendChild(b); }
+  b.innerHTML = '<b>Your browser reset the graphics.</b><br>Restoring…';
+  glBanner.t = setTimeout(() => { if (!document.getElementById('glLost')) return; b.innerHTML = '<b>The graphics didn’t come back.</b><br>Reload the game. If the screen is still black after that, close this tab and open the game link again.<br><button class="btn primary" style="margin-top:10px">Reload game</button>'; b.querySelector('button').onclick = () => location.reload(); }, 3500);
+}
+canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); glBanner(true); });
+canvas.addEventListener('webglcontextrestored', () => glBanner(false));
 // 2x resolution costs about 3x the GPU time of 1.5x for a barely visible difference; perfTune() lowers it further on slow GPUs
 const MAX_PR = Math.min(window.devicePixelRatio||1, 1.5), MIN_PR = .6;
 renderer.setPixelRatio(MAX_PR);
@@ -5591,34 +5609,49 @@ const inPlay = () => G.phase === 'build' || G.phase === 'attack';
    for about a second after the player pressed Esc, or before the window has focus. One refusal used to switch the
    game to right-drag look for good, so mouse look "broke" until reload. Now only repeated refusals fall back, the
    next click always retries, and a successful lock turns the fallback off again. */
-let lockFails = 0, lastUnlock = -9;
-function lockFailed(){
+let lockFails = 0, lastUnlock = -9, lockReq = 0, lockDone = 0, lockWatch = 0;
+function lockFailed(e){
+  if (lockDone === lockReq) return;   // one verdict per request (Chrome can send an error event and a rejection)
+  lockDone = lockReq; clearTimeout(lockWatch);
+  G.lockErr = e && e.name ? e.name : 'refused';
   if (performance.now()/1000 - lastUnlock < 1.5) { toast('Click again to grab the mouse.'); return; }   // Esc cooldown, not a real block
-  if (++lockFails >= 3 && !G.fallback) { G.fallback = true; toast('Mouse lock keeps failing here. Hold the right mouse button to look around (clicking still retries).'); }
+  if (++lockFails >= 2 && !G.fallback) { G.fallback = true; G.hintMode = -1; toast('🖱️ The browser won’t lock the mouse in this tab right now. The camera follows your mouse instead.'); }
 }
 function requestLock(){
   if (isTouch || !canvas.requestPointerLock || document.pointerLockElement === canvas) return;
   if (navigator.userActivation && !navigator.userActivation.isActive) return;   // no click behind this: it would only be refused
   // no {unadjustedMovement:true}: raw input sends nothing from Windows Precision Touchpads and changes mouse speed
-  try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(lockFailed); } catch (e) { lockFailed(); }
+  lockReq++; clearTimeout(lockWatch);
+  // after you switch away and back, Chrome on Windows sometimes ignores the request without any answer at all;
+  // waiting forever left mouse look dead for the rest of the tab's life, so 1.2 s of silence counts as a refusal
+  lockWatch = setTimeout(() => { if (document.pointerLockElement !== canvas) lockFailed({name:'no answer'}); }, 1200);
+  try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(lockFailed); } catch (e) { lockFailed(e); }
 }
 function releaseLock(){ if (document.pointerLockElement) try { document.exitPointerLock(); } catch(e) {} }
 document.addEventListener('pointerlockchange', () => {
   const was = G.locked; G.locked = document.pointerLockElement === canvas;
-  if (G.locked) { lockFails = 0; G.fallback = false; } else if (was) lastUnlock = performance.now()/1000;
+  if (G.locked) { clearTimeout(lockWatch); lockDone = lockReq; lockFails = 0; G.fallback = false; } else if (was) lastUnlock = performance.now()/1000;
 });
 document.addEventListener('pointerlockerror', lockFailed);
-function look(dx, dy, s){ G.yaw -= dx*s; G.pitch = clamp(G.pitch - dy*s, -.75, 1.15); }
+const PITCH_MIN = -1.3, PITCH_MAX = 1.3;   // about 75 degrees down and up
+function look(dx, dy, s){ G.yaw -= dx*s; G.pitch = clamp(G.pitch - dy*s, PITCH_MIN, PITCH_MAX); }
 // Chrome on Windows sometimes reports one huge bogus jump while locked. Only drop an event that is both huge and
 // far beyond the recent movement: real flicks ramp up over several events, so they always get through.
 let mvAvg = 0;
 document.addEventListener('mousemove', e => {
-  if (!G.locked || !inPlay()) return;
-  const m = Math.max(Math.abs(e.movementX), Math.abs(e.movementY));
-  if (m > 600 && m > mvAvg*8 + 60) return;
-  mvAvg = mvAvg*.8 + m*.2;
-  look(e.movementX, e.movementY, .0026);
+  if (!inPlay()) return;
+  if (G.locked) {
+    const m = Math.max(Math.abs(e.movementX), Math.abs(e.movementY));
+    const spike = m > 600 && m > mvAvg*8 + 60;
+    mvAvg = mvAvg*.8 + Math.min(m, 2000)*.2;   // learn from every event: a sustained fast flick only loses its first event
+    if (!spike) look(e.movementX, e.movementY, .0026);
+    return;
+  }
+  // no mouse lock available: the camera follows the free cursor; edge turning (in frame) covers the screen edges
+  G.mx = e.clientX; G.my = e.clientY;
+  if (G.fallback && !rdrag) look(e.movementX, e.movementY, .0026);
 });
+document.documentElement.addEventListener('mouseleave', () => { G.mx = null; });
 
 function actionDown(){
   ensureAudio();
@@ -5663,7 +5696,7 @@ canvas.addEventListener('pointermove', e => {
     }
     return;
   }
-  if (rdrag && !G.locked) { look(e.clientX - rdrag.x, e.clientY - rdrag.y, .005); rdrag.x = e.clientX; rdrag.y = e.clientY; }
+  if (rdrag && !G.locked) { look(e.movementX, e.movementY, .005); rdrag.x = e.clientX; rdrag.y = e.clientY; }
 });
 function endTouch(e){
   if (touches.stick && touches.stick.id === e.pointerId) { touches.stick = null; $('stick').firstElementChild.style.transform = ''; }
@@ -5712,6 +5745,25 @@ function readInput(){
 }
 
 /* ---------------- loop ---------------- */
+// keep the camera out of trees, rocks and ruins: shorten the camera boom to just in front of the first one in the way
+// (the camera used to end up inside boulders and tree crowns, hiding the whole view)
+const _boomDir = new THREE.Vector3();
+function cameraBoom(piv, want){
+  _boomDir.copy(want).sub(piv); const L = _boomDir.length(); if (L < .05) return; _boomDir.divideScalar(L);
+  const dx = _boomDir.x, dy = _boomDir.y, dz = _boomDir.z, a2 = dx*dx + dz*dz;
+  let best = L;
+  const sphere = (cx, cy, cz, r) => { const ox = cx - piv.x, oy = cy - piv.y, oz = cz - piv.z, t = ox*dx + oy*dy + oz*dz; if (t < -r || t > best + r) return;
+    const d2 = ox*ox + oy*oy + oz*oz - t*t; if (d2 > r*r) return; const hit = t - Math.sqrt(r*r - d2); if (hit > .3 && hit < best) best = hit; };
+  const column = (cx, cz, r, y0, y1) => { if (a2 < 1e-6) return; const ox = piv.x - cx, oz = piv.z - cz, b = 2*(ox*dx + oz*dz), c = ox*ox + oz*oz - r*r, disc = b*b - 4*a2*c; if (disc < 0) return;
+    const hit = (-b - Math.sqrt(disc))/(2*a2); if (hit <= .3 || hit >= best) return; const y = piv.y + dy*hit; if (y >= y0 && y <= y1) best = hit; };
+  for (const pr of props) {
+    if (pr.dead || Math.abs(pr.x - piv.x) > L + 6 || Math.abs(pr.z - piv.z) > L + 6) continue;
+    if (pr.kind === 'tree') { sphere(pr.x, pr.y + 2.4*pr.s, pr.z, 1.05*pr.s); column(pr.x, pr.z, .3*pr.s, pr.y, pr.y + 2*pr.s); }
+    else if (pr.kind === 'rock') sphere(pr.x, pr.mesh.position.y, pr.z, pr.r*.95);
+    else { const m = pr.mesh.position; column(m.x, m.z, pr.kind === 'pillar' ? .7 : Math.max(pr.hx, pr.hz)*.85, m.y - pr.hy, m.y + pr.hy + .3); }
+  }
+  if (best < L) { const k = Math.max(.7, best - .35); want.copy(piv).addScaledVector(_boomDir, k); want.y += Math.max(0, 2.6 - k)*.45; }   // pushed in close: rise to look over the shoulder
+}
 function resize(){ const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w/h; G.baseFov = w < h ? 68 : 55; camera.fov = G.baseFov; camera.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
 
@@ -5797,7 +5849,13 @@ function frame(now){
   G.jumpQ = Math.max(0, G.jumpQ - rdt);
   if (inPlay()) {
     const lx = (keys['arrowleft'] ? 1 : 0) - (keys['arrowright'] ? 1 : 0), ly = (keys['arrowup'] ? 1 : 0) - (keys['arrowdown'] ? 1 : 0);
-    if (lx || ly) { G.yaw += lx*rdt*2.2; G.pitch = clamp(G.pitch + ly*rdt*1.4, -.75, 1.15); }
+    if (lx || ly) { G.yaw += lx*rdt*2.2; G.pitch = clamp(G.pitch + ly*rdt*1.4, PITCH_MIN, PITCH_MAX); }
+    // free-cursor mode: holding the cursor at a screen edge keeps turning, so no angle is ever out of reach
+    if (G.fallback && !G.locked && G.mx != null && !isTouch) {
+      const E = 48;
+      if (G.mx < E) G.yaw += rdt*2.6*(1 - G.mx/E + .3); else if (G.mx > innerWidth - E) G.yaw -= rdt*2.6*(1 - (innerWidth - G.mx)/E + .3);
+      if (G.my < E) G.pitch = clamp(G.pitch + rdt*1.3, PITCH_MIN, PITCH_MAX); else if (G.my > innerHeight - E) G.pitch = clamp(G.pitch - rdt*1.3, PITCH_MIN, PITCH_MAX);
+    }
   }
 
   acc += rdt; let n = 0;
@@ -5892,6 +5950,7 @@ function frame(now){
     const piv = tmpL.set(bp.x, bp.y + 1.75, bp.z).addScaledVector(right, .75);
     const dist = (G.phase === 'attack' ? G.camDist*.85 : G.camDist) * (act.fly ? 2.4 : 1);
     tmpV.copy(piv).addScaledVector(f3, -dist);
+    cameraBoom(piv, tmpV);
     { const cg = Math.max(groundH(tmpV.x, tmpV.z), groundH((tmpV.x + bp.x)/2, (tmpV.z + bp.z)/2)) + .6; if (tmpV.y < cg) tmpV.y = cg; }
     camPos.lerp(tmpV, 1 - Math.pow(.0005, rdt));
     camera.position.copy(camPos);
@@ -5910,6 +5969,8 @@ function frame(now){
   { const A = activeChar(); G.fovKick = Math.max(0, (G.fovKick || 0) - rdt*3); G.dashCd = (G.dashCd || 0) - rdt; const want = (G.baseFov || 55) + (A && A.nrk > .5 ? 12*A.nrk : 0) + G.fovKick*14; if (Math.abs(camera.fov - want) > .05) { camera.fov = lerp(camera.fov, want, Math.min(1, rdt*6)); camera.updateProjectionMatrix(); } }
   camera.lookAt(camLook);
   G.roll = lerp(G.roll || 0, G.flip > 0 ? Math.PI : 0, Math.min(1, rdt*2.5)); if (Math.abs(G.roll) > .002) camera.rotateZ(G.roll);
+  // a slight lean into strafes makes the camera feel alive
+  G.sRoll = lerp(G.sRoll || 0, input && !reduceMotion ? -input.x*.022 : 0, Math.min(1, rdt*7)); if (Math.abs(G.sRoll) > .0005) camera.rotateZ(G.sRoll);
   camera.updateMatrixWorld();
   { const f = act ? act.body.position : camLook; sun.position.set(f.x + 18, 30, f.z + 12); sun.target.position.set(f.x, 0, f.z); sun.target.updateMatrixWorld(); }
 
@@ -5934,7 +5995,9 @@ function frame(now){
   }
   zoneRing.visible = !G.pvp && (G.phase === 'build' || G.phase === 'attack' || G.phase === 'intro');
   zoneRing.material.color.set(G.phase === 'attack' ? 0xFF8A80 : 0xffffff);
-  $('lockHint').style.display = (inPlay() && !isTouch && !G.locked && !G.fallback && !G.eggCam) ? 'block' : 'none';
+  { const hm = (inPlay() && !isTouch && !G.locked && !G.eggCam) ? (G.fallback ? 2 : 1) : 0;
+    if (hm !== G.hintMode) { G.hintMode = hm; const h = $('lockHint'); h.style.display = hm ? 'block' : 'none'; h.classList.toggle('fb', hm === 2);
+      h.innerHTML = hm === 2 ? `🖱️ Mouse lock is blocked in this tab (${G.lockErr || 'refused'}). The camera follows your mouse; hold it at the screen edge to keep turning.<br><small>Click to retry. If it keeps happening, close this tab and open the game link again.</small>` : 'Click to control your character'; } }
   updateVisuals(rdt); updateEdge(); pvpFrame(rdt); if (G.mode === 'pain' && G.phase === 'attack') painFrame(rdt);
   SpaceWarp.render();
   perfTune(performance.now() - t0, rdt);
