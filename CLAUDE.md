@@ -75,6 +75,23 @@ only renders through a texture while an entry is alive; `warpPulse` for one-off 
   out-of-range target or a teleported origin; `st`/`death` must come from the sender's own id.
 - Practice in Pain mode spawns training dummies (`PAIN.dummies`, physics objects with damage numbers).
 - Abilities owned by a player stop when they're knocked out (`painOwnerDied`).
+- Input kinds (`PAIN_SKILLS[id].kind`): `charge` (hold, release casts with `c` = seconds; Chakra Rod
+  `chargeMul` has no cap, Shinra x3 at 4 s), `aimhold` (Pull: hold Q shows a lock-on via
+  `pickPullTarget`, release casts `{tg}`; no target = `pullEverything`), `hold` (Weightless World,
+  Deva Barrier: `h:1`/`h:0`), `aim` (red marker + click), `now`, `move` (dash/jump). Keyboard goes
+  through `painKeyDown`/`painKeyUp`, Skills-bar clicks through `painUse`.
+- Area gravity uses `bodyFor()` (moves the caster and allies too, `harm` only for enemies);
+  direct hits use `victimFor()`. Chibaku cores are movable bodies (`trackCore`, `moveCore`,
+  `kickCores`): From Below lifts them, From Above slams them into an early collapse, pushes/pulls
+  shove them. Chibaku orbs fly from the hand first (`throwOrb`).
+- New powers: Planetary Orbit (`PAIN.orbits`, second press fires `PAIN.shots`), Deva Barrier
+  (`PAIN.barriers`, reflects rods and shots via `barrierCross`), Meteor Dive (`meteorPoint`, the
+  caster follows the path in `applyPainForces`), Six Paths (`painSix`, shadow clones with one
+  technique each; targets picked by the caster and sent as `tg6`).
+- Cooldowns are a match setting (`G.cdOn`, off by default; title button for practice, host button
+  in the lobby, sent as `cd` in `lobby`/`start`). `cdFor(id)` gives 0 when off. The host still
+  rate-limits casts (14/s per player) and checks that a claimed charge `c` is not longer than the
+  time since that player's previous cast of the same ability.
 
 ## Networking (peer-to-peer, no server)
 
