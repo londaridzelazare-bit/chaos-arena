@@ -4754,10 +4754,8 @@ function lockFailed(){
 function requestLock(){
   if (isTouch || !canvas.requestPointerLock || document.pointerLockElement === canvas) return;
   if (navigator.userActivation && !navigator.userActivation.isActive) return;   // no click behind this: it would only be refused
-  // raw mouse input avoids Chrome-on-Windows jumps and OS acceleration; older browsers reject the option, so retry plain
-  const plain = () => { try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(lockFailed); } catch (e) { lockFailed(); } };
-  let r; try { r = canvas.requestPointerLock({unadjustedMovement:true}); } catch (e) { plain(); return; }
-  if (r && r.catch) r.catch(err => { if (err && err.name === 'NotSupportedError') plain(); else lockFailed(); });
+  // no {unadjustedMovement:true}: raw input sends nothing from Windows Precision Touchpads and changes mouse speed
+  try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(lockFailed); } catch (e) { lockFailed(); }
 }
 function releaseLock(){ if (document.pointerLockElement) try { document.exitPointerLock(); } catch(e) {} }
 document.addEventListener('pointerlockchange', () => {
@@ -4766,8 +4764,16 @@ document.addEventListener('pointerlockchange', () => {
 });
 document.addEventListener('pointerlockerror', lockFailed);
 function look(dx, dy, s){ G.yaw -= dx*s; G.pitch = clamp(G.pitch - dy*s, -.75, 1.15); }
-// Chrome on Windows sometimes reports one huge bogus jump while locked; a real flick is never this big in one event
-document.addEventListener('mousemove', e => { if (G.locked && inPlay() && Math.abs(e.movementX) < 400 && Math.abs(e.movementY) < 400) look(e.movementX, e.movementY, .0026); });
+// Chrome on Windows sometimes reports one huge bogus jump while locked. Only drop an event that is both huge and
+// far beyond the recent movement: real flicks ramp up over several events, so they always get through.
+let mvAvg = 0;
+document.addEventListener('mousemove', e => {
+  if (!G.locked || !inPlay()) return;
+  const m = Math.max(Math.abs(e.movementX), Math.abs(e.movementY));
+  if (m > 600 && m > mvAvg*8 + 60) return;
+  mvAvg = mvAvg*.8 + m*.2;
+  look(e.movementX, e.movementY, .0026);
+});
 
 function actionDown(){
   ensureAudio();
