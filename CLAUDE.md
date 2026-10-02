@@ -87,24 +87,26 @@ props into debris objects and `regrowProps` puts them back after 40 s; `makeCore
 only renders through a texture while an entry is alive; `warpPulse` for one-off rings).
 - Terrain is indestructible in Pain mode (`craterAt` returns early). Props are uprooted, never deleted.
 - Damage/knockback stay victim-side like the rest of the game (`victimFor`, `painHurt`, no friendly fire).
-- Pull sends its target as `tg`, Weightless World is a hold (`h:1` / `h:0`), gravity dash sends `d`.
+- Pull sends its target as `tg`; the warp dash sends its direction `d` and end point `e` (host rejects `e` farther than WARP_DIST).
 - `castOK()` (host) rejects casts with a spoofed id, unknown skill for the mode, broken cooldown,
   out-of-range target or a teleported origin; `st`/`death` must come from the sender's own id.
 - Practice in Pain mode spawns training dummies (`PAIN.dummies`, physics objects with damage numbers).
 - Abilities owned by a player stop when they're knocked out (`painOwnerDied`).
 - Input kinds (`PAIN_SKILLS[id].kind`): `charge` (hold, release casts with `c` = seconds; Chakra Rod
   `chargeMul` has no cap for any of them: rod +1x per second, both Shinra +0.5x per second; Shinra damage and reach use the full multiplier, knockback `shinraKick(m)` = m^0.55, at most `SHINRA_MAX_PROPS` props torn loose), `aimhold` (Pull: hold Q shows a lock-on via
-  `pickPullTarget`, release casts `{tg}`; no target = `pullEverything`), `hold` (Weightless World,
-  Deva Barrier: `h:1`/`h:0`), `aim` (red marker + click), `now`, `move` (dash/jump). Keyboard goes
+  `pickPullTarget`, release casts `{tg}`; no target = `pullEverything`), `aim` (red marker + click), `now`, `move` (dash/jump). Keyboard goes
   through `painKeyDown`/`painKeyUp`, Skills-bar clicks through `painUse`.
 - Area gravity uses `bodyFor()` (moves the caster and allies too, `harm` only for enemies);
   direct hits use `victimFor()`. Chibaku cores are movable bodies (`trackCore`, `moveCore`,
   `kickCores`): From Below lifts them, From Above slams them into an early collapse, pushes/pulls
   shove them. Chibaku orbs fly from the hand first (`throwOrb`).
-- New powers: Planetary Orbit (`PAIN.orbits`, second press fires `PAIN.shots`), Deva Barrier
-  (`PAIN.barriers`, reflects rods and shots via `barrierCross`), Meteor Dive (`meteorPoint`, the
-  caster follows the path in `applyPainForces`), Six Paths (`painSix`, shadow clones with one
-  technique each; targets picked by the caster and sent as `tg6`).
+- Planetary Orbit (`PAIN.orbits`, second press fires `PAIN.shots`). Meteor Dive, Weightless World,
+  Deva Barrier and Six Paths were removed at the user's request (2026-10-03).
+- Warp Dash (Shift x2, `p_gdash`): `warpEnd` walks the line in 0.5 m steps up to WARP_DIST (32 m),
+  stopping before props (`warpBlocked`), objects over 300 kg, cliffs and the island edge; the caster
+  rides `P.warp` in `controlPlayer` for WARP_T (0.14 s). Visuals: lenses, a warpMaterial tunnel,
+  see-through afterimages (`warpGhost`). Gravity Jump stays on Space x2 but is hidden from the
+  Skills bar (`hide:true`; the tray skips hidden entries).
 - Cooldowns are a match setting (`G.cdOn`, off by default; title button for practice, host button
   in the lobby, sent as `cd` in `lobby`/`start`). `cdFor(id)` gives 0 when off. The host still
   rate-limits casts (14/s per player) and checks that a claimed charge `c` is not longer than the

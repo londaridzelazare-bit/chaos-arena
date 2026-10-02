@@ -253,7 +253,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-03.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-03.3';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -769,6 +769,13 @@ function controlPlayer(P, dt, input){
   const b = P.body;
   if (G.pvp && P.alive === false) return;
   if (G.pvp && P.stun > .9) P.stun = .9;
+  if (P.warp) {   // Pain warp dash: carried along the folded path, then thrown out the far end with some speed
+    const w = P.warp; w.t += dt; const k = Math.min(1, w.t/WARP_T), e = 1 - Math.pow(1 - k, 2);
+    b.position.set(lerp(w.from.x, w.to.x, e), lerp(w.from.y, w.to.y, e) + Math.sin(k*Math.PI)*.25, lerp(w.from.z, w.to.z, e)); b.velocity.set(0, 0, 0);
+    P.naruto = true; P.moving = true; P.moveFace = Math.atan2(w.d.x, w.d.z);
+    if (k >= 1) { P.warp = null; b.velocity.set(w.d.x*13, 0, w.d.z*13); b._onGround = false; }
+    return;
+  }
   if (P.stun > 0) { P.stun -= dt; if (P.stun <= 0) P.stars.visible = false; P.dashT = 0; return; }
   if (P.lockT > 0) { P.lockT -= dt; return; }   // channelling (Pain: Shinra Tensei, Almighty Push)
   if (P.dashT > 0 && P.dashT < .27 && Math.hypot(b.velocity.x, b.velocity.z) < 20) { P.dashT = 0; P.dashEndFx = true; G.shake = Math.max(G.shake, reduceMotion ? 0 : .2); }   // slammed into something heavy
@@ -1945,7 +1952,7 @@ function updateBolts(dt){
 }
 
 /* ---------------- targeting: pick where each power lands ---------------- */
-const TARGET_R = {p_meteor:9, p_above:7, p_below:5.5, p_chibaku:3.2, p_cata:9, nuke:4.5, chibaku:3, bijuu:7, comet:4, army:3.4, shinra:2.2, tornado:3, volcano:6, lightning:4, gcow:3.5, frog:5.5, knives:7, antimatter:10, hellgate:4.8, fireball:9, doomnuke:15, judgement:11, coming:16};
+const TARGET_R = {p_above:7, p_below:5.5, p_chibaku:3.2, p_cata:9, nuke:4.5, chibaku:3, bijuu:7, comet:4, army:3.4, shinra:2.2, tornado:3, volcano:6, lightning:4, gcow:3.5, frog:5.5, knives:7, antimatter:10, hellgate:4.8, fireball:9, doomnuke:15, judgement:11, coming:16};
 const marker = new THREE.Group(); marker.visible = false; scene.add(marker);
 const mkRing = new THREE.Mesh(new THREE.RingGeometry(.9,1,56), new THREE.MeshBasicMaterial({color:0xFF3B30, transparent:true, opacity:.9, depthWrite:false})); mkRing.rotation.x = -Math.PI/2; marker.add(mkRing);
 const mkDisc = new THREE.Mesh(new THREE.CircleGeometry(.9,40), new THREE.MeshBasicMaterial({color:0xFF3B30, transparent:true, opacity:.14, depthWrite:false})); mkDisc.rotation.x = -Math.PI/2; marker.add(mkDisc);
@@ -4535,7 +4542,7 @@ function eggHud(force){
      PhysicsObjectAttractor  props ripped out as physics objects (liftProp) and debris stuck to a core (stickToCore)
      AbilityCharge           hold-to-charge (PAIN.charge, chargeMul) and timed phases in PAIN.fx entries
      SpaceWarp               screen-space gravitational lensing + warp meshes (warpMaterial)
-   Area gravity (from above/below, Chibaku, Weightless World) moves everyone inside it, the caster included; only
+   Area gravity (from above/below, Chibaku) moves everyone inside it, the caster included; only
    enemies take damage. Chibaku cores are bodies too: every other gravity power can shove, lift or slam them.
    The terrain is never modified in this mode: craterAt() is off, props grow back where they stood. */
 const PAIN_SKILLS = {
@@ -4548,14 +4555,10 @@ const PAIN_SKILLS = {
   p_below:     {name:'Gravity From Below', e:'⏫', key:'B', kind:'aim', cd:12, range:38, r:5.5},
   p_chibaku:   {name:'Chibaku Tensei', e:'🌑', key:'C', kind:'aim', cd:18, range:40, r:3.2},
   p_cata:      {name:'Catastrophic Chibaku', e:'🌕', key:'X', kind:'aim', cd:60, range:50, r:9},
-  p_weight:    {name:'Weightless World', e:'🎈', key:'G', kind:'hold', cd:12},
   p_orbit:     {name:'Planetary Orbit', e:'🪐', key:'2', kind:'now', cd:16},
-  p_barrier:   {name:'Deva Barrier', e:'🛡️', key:'3', kind:'hold', cd:14},
-  p_meteor:    {name:'Meteor Dive', e:'☄️', key:'4', kind:'aim', cd:10, range:45, r:9},
-  p_six:       {name:'Six Paths', e:'👁️', key:'5', kind:'now', cd:50},
   p_almighty:  {name:'Giant Push', e:'💥', key:'Z', kind:'now', cd:75},
   p_gdash:     {name:'Gravity Dash', e:'💨', key:'⇧⇧', kind:'move', cd:1},
-  p_gjump:     {name:'Gravity Jump', e:'⤴️', key:'␣␣', kind:'move', cd:2.2}
+  p_gjump:     {name:'Gravity Jump', e:'⤴️', key:'␣␣', kind:'move', cd:2.2, hide:true}   // Space x2 in the air; not on the Skills bar
 };
 const PAIN_KEYS = {}; for (const id in PAIN_SKILLS) { const k = PAIN_SKILLS[id].key; if (k.length === 1) PAIN_KEYS[k.toLowerCase()] = id; }
 const PAIN_CFG = {
@@ -4565,21 +4568,19 @@ const PAIN_CFG = {
   aboveDelay:.9, belowDelay:.9, belowV:24,
   chibakuDur:7, chibakuR:14,
   cataCharge:8, cataFall:1.4, cataHeight:24, cataPullR:44, cataImpactR:26, cataDmg:75,
-  weightR:45, weightMax:12,
-  barrierR:4.6, barrierMax:6,
   almightyHeight:18, almightyCharge:2.4, almightyR:40, almightyDmg:60,
   rodSpeed:78, rodDmg:14,
   maxDebris:70, maxStuck:40, cataChunks:320, regrow:40
 };
-const PAIN = {fx:[], fields:[], rods:[], stuckRods:[], regrow:[], dummies:[], weight:{}, cores:[], orbits:{}, barriers:{}, shots:[], holding:{}, charge:null, aim:null};
+const PAIN = {fx:[], fields:[], rods:[], stuckRods:[], regrow:[], dummies:[], cores:[], orbits:{}, shots:[], charge:null, aim:null};
 function isPain(){ return G.mode === 'pain'; }
 function skillTable(){ return isPain() ? PAIN_SKILLS : SPECIALS; }
 function skillDef(id){ return PAIN_SKILLS[id] || SPECIALS[id]; }
 // cooldowns are a match setting (off by default): with them off every ability is ready again immediately
 function cdFor(id){ if (!G.cdOn) return 0; return (PAIN_SKILLS[id] && PAIN_SKILLS[id].cd) || CD[id] || 3; }
 function painReset(){
-  PAIN.fx = []; PAIN.fields = []; PAIN.rods = []; PAIN.stuckRods = []; PAIN.regrow = []; PAIN.dummies = []; PAIN.weight = {};
-  PAIN.cores = []; PAIN.orbits = {}; PAIN.barriers = {}; PAIN.shots = []; PAIN.holding = {}; PAIN.charge = null; PAIN.aim = null;
+  PAIN.fx = []; PAIN.fields = []; PAIN.rods = []; PAIN.stuckRods = []; PAIN.regrow = []; PAIN.dummies = [];
+  PAIN.cores = []; PAIN.orbits = {}; PAIN.shots = []; PAIN.charge = null; PAIN.aim = null;
   SpaceWarp.clear(); hideAimFX();
 }
 
@@ -5141,32 +5142,6 @@ function cataImpact(core, ground){
   flash(.9, 1.8); shakeAt(ground, 2.6, 110); sfx('boom'); sfx('thunder'); sfx('boom');
 }
 
-/* ---------- 7. Weightless World (hold G) ---------- */
-function painWeight(x){
-  const {key, team, pos} = casterInfo(), on = !x || x.h !== 0;
-  let w = PAIN.weight[key];
-  if (on) {
-    if (w && w.on) return;
-    const aura = new THREE.Mesh(new THREE.SphereGeometry(PAIN_CFG.weightR, 32, 20), warpMaterial()); aura.userData.noRay = true; roundGroup.add(aura);
-    w = PAIN.weight[key] = {key, team, on:true, k:w ? w.k : 0, t:0, origin:pos.clone(), list:propsNear(pos, PAIN_CFG.weightR).slice(0, 34), ui:0, ut:0, aura, rng:mulberry32(seedOf(pos))};
-    SpaceWarp.add({pos:() => { const P = chars[key]; return P ? P.body.position : pos; }, alive:() => PAIN.weight[key] === w, R:() => 9, s:() => w.k*.22});
-    sfx('grav'); sfx('pain');
-    if (key === G.localKey) toast('🎈 Weightless World: keep G held. Everything around you floats, you too.');
-  } else if (w && w.on) { w.on = false; sfx('thud'); }
-}
-function updateWeight(dt){
-  for (const key in PAIN.weight) {
-    const w = PAIN.weight[key]; w.t += dt;
-    if (w.on && w.t > PAIN_CFG.weightMax) { w.on = false; if (key === G.localKey) painHoldEnd('p_weight'); }
-    w.k = w.on ? Math.min(1, w.k + dt/1.2) : Math.max(0, w.k - dt/1.1);
-    w.ut += dt; while (w.on && w.ut > .12 && w.ui < w.list.length) { w.ut -= .12; liftProp(w.list[w.ui++], V3(rr(-.6, .6), 1.6 + w.rng()*1.5, rr(-.6, .6))); }
-    const P = chars[key]; if (P) w.aura.position.copy(P.body.position);
-    w.aura.scale.setScalar(.2 + .8*w.k); w.aura.material.uniforms.t.value = w.t*.4; w.aura.material.uniforms.a.value = w.k*.14;
-    if (w.on && Math.random() < w.k) { const a = Math.random()*Math.PI*2, d = Math.random()*PAIN_CFG.weightR*.6, c = w.aura.position, m = pmesh('oct', rr(.03, .07), bmat(0xB69CFF, .7)); m.position.set(c.x + Math.cos(a)*d, groundH(c.x + Math.cos(a)*d, c.z + Math.sin(a)*d) + .3, c.z + Math.sin(a)*d); m.userData.noRay = true; roundGroup.add(m); fx.push({mesh:m, v:new THREE.Vector3(0, rr(1, 3), 0), r:new THREE.Vector3(1, 2, 0), life:1.6}); }
-    if (!w.on && w.k <= 0) { roundGroup.remove(w.aura); delete PAIN.weight[key]; }
-  }
-}
-
 /* ---------- 8. Giant Push (ultimate) ---------- */
 function painAlmighty(){
   const {key, C, team, pos} = casterInfo(), O = V3(pos.x, pos.y + PAIN_CFG.almightyHeight, pos.z), T = PAIN_CFG.almightyCharge;
@@ -5341,14 +5316,12 @@ function updateOrbits(dt){
     }
   }
 }
-// rocks in flight (the barrage); they can be deflected by an enemy Deva Barrier
+// rocks in flight (the barrage)
 function updateShots(dt){
   for (const s of PAIN.shots) {
     if (s.done) continue;
     s.t += dt; s.vel.y -= 4*dt;
     const a = s.pos.clone(), b = a.clone().addScaledVector(s.vel, dt);
-    const bar = barrierCross(a, b, s.owner, s.team);
-    if (bar) { const away = b.clone().sub(bar.g.position).normalize(); s.vel.reflect(away).multiplyScalar(1.1); s.owner = bar.key; s.team = bar.team; barrierRipple(bar, b); s.pos.copy(a); continue; }
     let hit = s.t > 2.5 || b.y < groundH(b.x, b.z) + .2;
     for (const k in chars) { const P = chars[k]; if (hit) break; if (!P || k === s.owner || P.alive === false || (s.team && P.team === s.team)) continue; if (segDist(a, b, V3(P.body.position.x, P.body.position.y + 1, P.body.position.z)) < .9) hit = true; }
     if (!hit) for (const dm of PAIN.dummies) if (!dm.dead && segDist(a, b, V3(dm.body.position.x, dm.body.position.y + 1, dm.body.position.z)) < 1) { hit = true; break; }
@@ -5367,183 +5340,90 @@ function shotImpact(s, at){
   smokePuffs(V3(at.x, at.y + .2, at.z), .7, 3); sparkle(at, 0xB69CFF); warpPulse(at, 3, .25, .015); sfx('thunk'); sfx('thud');
 }
 
-/* ---------- NEW 2. Deva Barrier (hold 3): a bubble of repulsion that throws enemies out and reflects rods ---------- */
-function painBarrier(x){
-  const {key, team} = casterInfo(), on = !x || x.h !== 0;
-  let bar = PAIN.barriers[key];
-  if (on) {
-    if (bar && bar.on) return;
-    const R = PAIN_CFG.barrierR, g = new THREE.Group(); g.userData.noRay = true;
-    const shell = new THREE.Mesh(new THREE.SphereGeometry(R, 36, 24), warpMaterial());
-    const wire = new THREE.Mesh(new THREE.IcosahedronGeometry(R*1.01, 2), new THREE.MeshBasicMaterial({color:0xB69CFF, wireframe:true, transparent:true, opacity:.35, depthWrite:false}));
-    g.add(shell); g.add(wire); g.traverse(m => m.userData.noRay = true); g.scale.setScalar(.01); roundGroup.add(g);
-    bar = PAIN.barriers[key] = {key, team, on:true, t:0, k:0, g, shell, wire};
-    sfx('grav'); sfx('shinra');
-    if (key === G.localKey) toast('🛡️ Deva Barrier: keep 3 held. Enemies get thrown out and chakra rods bounce back at them.');
-  } else if (bar && bar.on) bar.on = false;
-}
-function updateBarriers(dt){
-  for (const key in PAIN.barriers) {
-    const bar = PAIN.barriers[key], C = chars[key]; bar.t += dt;
-    if (bar.on && (bar.t > PAIN_CFG.barrierMax || !C || C.alive === false)) { bar.on = false; if (key === G.localKey) painHoldEnd('p_barrier'); }
-    bar.k = bar.on ? Math.min(1, bar.k + dt/.2) : Math.max(0, bar.k - dt/.3);
-    if (C) bar.g.position.set(C.root.position.x, C.root.position.y + 1, C.root.position.z);
-    bar.g.scale.setScalar(Math.max(.01, bar.k)); bar.wire.rotation.y += dt*.8; bar.wire.rotation.x += dt*.3;
-    const own = key === G.localKey; bar.shell.material.uniforms.t.value = bar.t*1.5; bar.shell.material.uniforms.a.value = (own ? .2 : .5)*bar.k; bar.wire.material.opacity = (own ? .1 : .35)*bar.k;
-    if (!bar.on && bar.k <= 0) { roundGroup.remove(bar.g); delete PAIN.barriers[key]; continue; }
-    if (bar.k < .5) continue;
-    const c = bar.g.position, R = PAIN_CFG.barrierR;
-    const A = bodyFor(key, bar.team);
-    if (A && A.harm) { const b = A.P.body, chest = V3(b.position.x, b.position.y + 1, b.position.z), d = chest.distanceTo(c);
-      if (d < R + .6) { const away = chest.sub(c).normalize(), out = b.velocity.x*away.x + b.velocity.z*away.z; if (out < 16) { b.velocity.x += away.x*(16 - out); b.velocity.z += away.z*(16 - out); } b.velocity.y = Math.max(b.velocity.y, 3); b._onGround = false; painHurt(A.P, 4*dt, key); A.P.stun = Math.max(A.P.stun, .2); } }
-    forEachObject(b => { const d = Math.hypot(b.position.x - c.x, b.position.y - c.y, b.position.z - c.z) || .01; if (d > R + .5) return; if (b.wakeUp) b.wakeUp(); b.velocity.x += (b.position.x - c.x)/d*40*dt; b.velocity.y += 10*dt; b.velocity.z += (b.position.z - c.z)/d*40*dt; });
-    kickCores(cp => cp.distanceTo(c) < R + 3 ? cp.clone().sub(c).normalize().multiplyScalar(30*dt) : null);
+/* ---------- 6. Warp Dash (Shift x2) / Gravity Jump (Space x2 in the air) ----------
+   The dash folds space: you cross up to WARP_DIST metres in WARP_T seconds, hugging the ground, stopping short of
+   trees, rocks, ruins, heavy objects and the island's edge. The end point is worked out on the caster's screen and
+   sent with the cast, so every screen draws the same tunnel; the host rejects anything longer than WARP_DIST. */
+const WARP_DIST = 32, WARP_T = .14;
+// would a body of radius r standing at (x, y, z) be inside something solid?
+function warpBlocked(x, y, z, r){
+  for (const pr of props) {
+    if (pr.dead || Math.abs(pr.x - x) > 6 || Math.abs(pr.z - z) > 6) continue;
+    const dx = x - pr.x, dz = z - pr.z;
+    if (pr.kind === 'tree') { if (Math.hypot(dx, dz) < .3*pr.s + r) return true; }
+    else if (pr.kind === 'rock') { const top = pr.y + pr.r*1.45; if (y + .3 < top && Math.hypot(dx, dz) < pr.r*.85 + r) return true; }
+    else { const a = pr.mesh.rotation.y, c = Math.cos(a), sn = Math.sin(a), lx = dx*c - dz*sn, lz = dx*sn + dz*c; if (Math.abs(lx) < pr.hx + r && Math.abs(lz) < pr.hz + r && y < pr.y + pr.hy*2) return true; }
   }
-}
-// the enemy barrier (if any) a moving thing passes into this frame
-function barrierCross(a, b, ownerKey, team){
-  for (const key in PAIN.barriers) { const bar = PAIN.barriers[key]; if (bar.k < .5 || key === ownerKey || (team && bar.team === team)) continue; if (segDist(a, b, bar.g.position) < PAIN_CFG.barrierR) return bar; }
-  return null;
-}
-function barrierRipple(bar, at){ warpPulse(at.clone(), 2.5, .3, .02); sparkle(at, 0xD9CCFF); sfx('zapHit'); bar.k = Math.max(.6, bar.k); }
-
-/* ---------- NEW 3. Meteor Dive (aim 4): leap into the sky and crash down on the target ---------- */
-function meteorPoint(m, tt){
-  if (tt < m.Tr) { const e = 1 - Math.pow(1 - tt/m.Tr, 2); return m.start.clone().lerp(m.apex, e); }
-  if (tt < m.Tr + m.Th) return m.apex.clone();
-  const k = Math.min(1, (tt - m.Tr - m.Th)/m.Td); return m.apex.clone().lerp(m.target, Math.pow(k, 1.4));
-}
-function painMeteor(p){
-  const {key, C, team, pos} = casterInfo(), target = V3(p.x, groundH(p.x, p.z), p.z), apex = V3(pos.x, pos.y + 12, pos.z);
-  const m = {start:pos.clone(), apex, target, Tr:.55, Th:.2, Td:Math.max(.25, apex.distanceTo(target)/48), t0:G.t};
-  const T = m.Tr + m.Th + m.Td, pw = .8 + .4*Math.min(1, hdist(target, pos)/35);
-  if (C && key === G.localKey) { C.meteor = m; C.lockT = T + .15; }
-  const head = new THREE.Group(); head.userData.noRay = true;
-  head.add(new THREE.Mesh(new THREE.IcosahedronGeometry(.9, 2), new THREE.MeshBasicMaterial({color:0x07040C})));
-  head.add(new THREE.Mesh(new THREE.IcosahedronGeometry(1.5, 2), bmat(0x9D6BFF, .4))); if (key === G.localKey) head.scale.setScalar(.55); roundGroup.add(head);
-  let t = 0;
-  PAIN.fx.push({owner:key, cancel(){ t = 1e9; roundGroup.remove(head); const P = chars[key]; if (P) P.meteor = null; }, update(dt){
-    t += dt; if (t > 1e8) return false;
-    const q = meteorPoint(m, t); head.position.set(q.x, q.y + 1, q.z); head.visible = t > m.Tr;
-    if (t > m.Tr + m.Th && Math.random() < .95) { const s = pmesh('oct', rr(.1, .25), bmat(pick([0x9D6BFF, 0x2A1F3D, 0xD9CCFF]), .9)); s.position.copy(head.position); s.userData.noRay = true; roundGroup.add(s); fx.push({mesh:s, v:V3(rr(-2, 2), rr(1, 4), rr(-2, 2)), r:V3(4, 4, 0), life:.6}); }
-    if (t >= T) { roundGroup.remove(head); const P = chars[key]; if (P && key === G.localKey) { P.meteor = null; P.body.velocity.set(0, 0, 0); } meteorImpact(target, key, team, pw); return false; }
-    return true;
-  }});
-  sfx('jump2'); sfx('grav');
-}
-function meteorImpact(c, key, team, pw){
-  const R = 9*pw, P = victimFor(key, team);
-  if (P) { const b = P.body, dx = b.position.x - c.x, dz = b.position.z - c.z, d = Math.hypot(dx, dz) || .01; if (d < R && b.position.y - c.y < 8) { const f = 1 - d/R; painHurt(P, (46*f + 8)*pw, key); knock(P, dx/d*(28*f + 8)*pw, 10, dz/d*(28*f + 8)*pw, .8); } }
-  radialPush(c, R + 2, 30*pw, 12, 46*pw);
-  for (const pr of propsNear(c, R*.8).slice(0, 14)) { const dx = pr.x - c.x, dz = pr.z - c.z, d = Math.hypot(dx, dz) || .01, k = 1 - d/R; liftProp(pr, V3(dx/d*(24*k + 6), 8 + 6*k, dz/d*(24*k + 6))); }
-  kickCores(cp => cp.distanceTo(c) < R + 6 ? cp.clone().sub(c).normalize().multiplyScalar(20) : null);
-  boomVisual(V3(c.x, c.y + .8, c.z), false, 1.1, {ball:0x2A2030, core:0x8A6BFF, ring:0xC9B8FF});
-  shockRing(c, R*1.3, .6); dustRing(c, R*.6, 12); warpPulse(V3(c.x, c.y + 1.5, c.z), R*2, .55, .05);
-  flash(.4); shakeAt(c, 1.6, 60); sfx('boom'); sfx('thud');
-}
-
-/* ---------- NEW 4. Six Paths of Pain (5): six shadow bodies hunt down up to six enemies, each with its own technique ---------- */
-const PATH_MAT = new THREE.MeshToonMaterial({color:0x2A2236, gradientMap:TOON});
-const PATH_EYE = new THREE.MeshBasicMaterial({color:0xC9A8FF});
-function makePathBody(C){
-  let g;
-  if (C) {
-    g = C.root.clone(true); const drop = [];
-    g.traverse(o => { if (o.isSprite || (o.material && o.material.depthTest === false) || o === C.stars) drop.push(o); else if (o.isMesh && !o.userData.isOutline) { o.material = PATH_MAT; o.castShadow = true; } });
-    drop.forEach(o => o.parent && o.parent.remove(o));
-  } else { g = new THREE.Group(); bx(.6, 1.6, .4, 0x2A2236, 0, 1, 0, g); }
-  for (const s of [-.11, .11]) { const e = new THREE.Mesh(new THREE.SphereGeometry(.06, 8, 6), PATH_EYE); e.position.set(s, 1.78, .3); g.add(e); }
-  g.visible = true; g.scale.setScalar(.01); g.traverse(o => o.userData.noRay = true); roundGroup.add(g);
-  return g;
-}
-function pickSixTargets(){
-  const me = localP(); if (!me) return [];
-  const list = [];
-  for (const k in chars) { const P = chars[k]; if (P && k !== G.localKey && P.alive !== false && P.team !== me.team) list.push([k, hdist(P.body.position, me.body.position)]); }
-  PAIN.dummies.forEach((o, i) => { if (!o.dead) list.push(['d' + i, hdist(o.body.position, me.body.position)]); });
-  return list.filter(e => e[1] < 50).sort((a, b) => a[1] - b[1]).slice(0, 6).map(e => e[0]);
-}
-const SIX_KINDS = ['push', 'slam', 'launch', 'shinra', 'rod', 'pull'];
-// a few dark wisps (the generic smoke puff throws orange embers and filled the whole screen)
-function wisp(p, n, spread){ for (let i = 0; i < n; i++) { const m = pmesh('oct', rr(.06, .16), bmat(pick([0x2A1F3D, 0x4A3568, 0x9D6BFF]), .75)); m.position.set(p.x + rr(-1, 1)*spread, p.y + rr(0, 1.6), p.z + rr(-1, 1)*spread); m.userData.noRay = true; m.castShadow = false; roundGroup.add(m); fx.push({mesh:m, v:V3(rr(-.6, .6), rr(1, 2.5), rr(-.6, .6)), r:V3(2, 2, 0), life:.55}); } }
-function painSix(x){
-  const {key, C, team, pos} = casterInfo(), ids = (x && Array.isArray(x.tg6) ? x.tg6 : []).slice(0, 6), rng = mulberry32(seedOf(pos) ^ 0x66);
-  const paths = [];
-  for (let i = 0; i < 6; i++) {
-    const ang = i/6*Math.PI*2, start = V3(pos.x + Math.cos(ang)*2.6, 0, pos.z + Math.sin(ang)*2.6); start.y = groundH(start.x, start.z);
-    const far = V3(pos.x + Math.cos(ang)*(9 + rng()*6), 0, pos.z + Math.sin(ang)*(9 + rng()*6)); far.y = groundH(far.x, far.z);
-    paths.push({i, id:ids.length ? ids[i % ids.length] : null, kind:SIX_KINDS[i], g:makePathBody(C), p:start, far, state:'appear', st:0});
-    wisp(start, 6, .5);
+  for (const o of objs) {
+    if (o.dead || o.body.mass < 300 || isCarried(o)) continue;
+    const b = o.body; if (b.aabbNeedsUpdate) b.computeAABB(); const A = b.aabb;
+    if (x > A.lowerBound.x - r && x < A.upperBound.x + r && z > A.lowerBound.z - r && z < A.upperBound.z + r && y + 1.6 > A.lowerBound.y && y < A.upperBound.y) return true;
   }
-  const tpos = pa => { const q = pa.id ? pullTargetPos(pa.id) : null; return q ? V3(q.x, q.y, q.z) : pa.far; };
-  let t = 0;
-  PAIN.fx.push({owner:key, cancel(){ paths.forEach(pa => roundGroup.remove(pa.g)); t = 1e9; }, update(dt){
-    t += dt; if (t > 1e8) return false;
-    for (const pa of paths) {
-      pa.st += dt;
-      if (pa.state === 'appear') { pa.g.scale.setScalar(Math.min(1, pa.st/.35)); if (t > .45 + pa.i*.1) { pa.state = 'dash'; pa.st = 0; sfx('dash'); } }
-      else if (pa.state === 'dash') {
-        const q = tpos(pa), d = hdist(q, pa.p);
-        const step = Math.min(d, 34*dt); if (d > .01) { pa.p.x += (q.x - pa.p.x)/d*step; pa.p.z += (q.z - pa.p.z)/d*step; }
-        pa.p.y = Math.max(groundH(pa.p.x, pa.p.z), q.y); pa.g.rotation.y = Math.atan2(q.x - pa.p.x, q.z - pa.p.z);
-        if (Math.random() < .5) wisp(pa.p, 1, .3);
-        if (d < 1.9 || pa.st > 1.3) { pa.state = 'strike'; pa.st = 0; sixStrike(pa, q, key, team); }
-      } else if (pa.state === 'strike') { if (pa.st > .6) { pa.state = 'fade'; pa.st = 0; } }
-      else if (pa.state === 'fade') { pa.g.scale.setScalar(Math.max(.01, 1 - pa.st/.35)); if (pa.st > .35) { pa.state = 'gone'; roundGroup.remove(pa.g); wisp(pa.p, 8, .5); } }
-      pa.g.position.set(pa.p.x, pa.p.y + Math.sin(t*6 + pa.i)*.05, pa.p.z);
-    }
-    return paths.some(pa => pa.state !== 'gone');
-  }});
-  if (C) C.castPose = .8;
-  flash(.2); sfx('demon'); sfx('pain');
-  if (key === G.localKey) toast(ids.length ? `👁️ Six Paths of Pain! Hunting ${ids.length} target${ids.length > 1 ? 's' : ''}.` : '👁️ Six Paths of Pain!');
+  return false;
 }
-// each path's technique, applied around where the path stands (only the victim's own screen applies it to them)
-function sixStrike(pa, q, key, team){
-  const at = V3(pa.p.x, pa.p.y + 1, pa.p.z), R = 3.4, A = bodyFor(key, team);
-  const me = A && A.harm ? A.P : null, near = me && (me.body.position.distanceTo(at) < R || (pa.id === G.localKey && me.body.position.distanceTo(at) < R + 1.5));
-  const dir = V3(q.x - pa.p.x, 0, q.z - pa.p.z); if (dir.lengthSq() < .01) dir.set(Math.sin(pa.g.rotation.y), 0, Math.cos(pa.g.rotation.y)); dir.normalize();
-  if (pa.kind === 'rod') {
-    const from = V3(pa.p.x, pa.p.y + 1.5, pa.p.z), m = makeRodMesh(), v = V3(q.x, q.y + 1, q.z).sub(from).normalize();
-    m.position.copy(from); m.lookAt(from.clone().add(v)); roundGroup.add(m);
-    PAIN.rods.push({m, pos:from, v:v.multiplyScalar(PAIN_CFG.rodSpeed), owner:key, team, t:0, dmg:16}); sfx('rodThrow');
-  } else if (near) {
-    const b = me.body;
-    if (pa.kind === 'push') { painHurt(me, 14, key); knock(me, dir.x*24, 6, dir.z*24, .6); }
-    else if (pa.kind === 'slam') { painHurt(me, 14, key); b.velocity.y = Math.min(b.velocity.y, -30); b.velocity.x *= .2; b.velocity.z *= .2; me.pinT = 1; me.squashT = 1; }
-    else if (pa.kind === 'launch') { painHurt(me, 12, key); b.velocity.y = Math.max(b.velocity.y, 24); b._onGround = false; me.stun = Math.max(me.stun, .5); me.stars.visible = true; }
-    else if (pa.kind === 'shinra') { const away = b.position.clone ? V3(b.position.x - at.x, 0, b.position.z - at.z).normalize() : dir; painHurt(me, 12, key); knock(me, away.x*20, 7, away.z*20, .6); }
-    else if (pa.kind === 'pull') { painHurt(me, 8, key); PAIN.fields.push(pullField(() => { const m = localP(); return m && m.alive !== false && !m.body._frozen ? m.body : null; }, key, at, .8, 26, 2.5, () => {})); }
+function warpEnd(from, d){
+  const air = from.y - groundH(from.x, from.z) > .8;
+  let last = from.clone();
+  for (let st = .5; st <= WARP_DIST + .01; st += .5) {
+    const x = from.x + d.x*st, z = from.z + d.z*st, gy = groundH(x, z);
+    if (Math.hypot(x, z) > ISL - 4) break;                                // never off the island
+    const y = air ? Math.max(last.y, gy + .05) : gy + .05;
+    if (!air && gy - last.y > 1.4) break;                                 // a cliff in the way
+    if (warpBlocked(x, y, z, .45)) break;
+    last = V3(x, y, z);
   }
-  // practice dummies and loose objects react on every screen
-  forEachObject(b => { if (Math.hypot(b.position.x - at.x, b.position.y + 1 - at.y, b.position.z - at.z) > R) return; if (b.wakeUp) b.wakeUp();
-    if (pa.kind === 'launch') b.velocity.y += 22; else if (pa.kind === 'slam') b.velocity.y = Math.min(b.velocity.y, -25); else { const away = V3(b.position.x - at.x, 0, b.position.z - at.z).normalize(); b.velocity.x += (pa.kind === 'push' ? dir.x : away.x)*18; b.velocity.z += (pa.kind === 'push' ? dir.z : away.z)*18; b.velocity.y += 5; }
-    if (b.tag === 'dummy') dummyHit(b, 14); });
-  if (pa.kind === 'slam') for (const k in chars) { const P = chars[k]; if (P && P.alive !== false && P.body.position.distanceTo(at) < R) P.squashT = 1; }
-  if (pa.kind === 'shinra') for (const pr of propsNear(at, 5).slice(0, 4)) { const v = V3(pr.x - at.x, 0, pr.z - at.z).normalize(); liftProp(pr, V3(v.x*16, 7, v.z*16)); }
-  warpPulse(at, 5, .35, .025); shockRing(at, R*1.4, .35); sfx(pa.kind === 'launch' ? 'fire' : pa.kind === 'slam' ? 'thud' : 'shinra');
+  return last;
 }
-
-/* ---------- 6. Gravity Dash / Gravity Jump ---------- */
 function painDash(){
-  const P = activeChar(); if (!P || P.stun > 0 || P.body._frozen || P.lockT > 0 || P.alive === false) return;
+  const P = activeChar(); if (!P || P.stun > 0 || P.body._frozen || P.lockT > 0 || P.alive === false || P.warp) return;
   if ((G.cd.p_gdash || 0) > 0) return;
   const inp = readInput(); let x = inp.x, z = inp.z; if (!x && !z) z = 1;
   const fx0 = Math.sin(G.yaw), fz0 = Math.cos(G.yaw), rx = -Math.cos(G.yaw), rz = Math.sin(G.yaw);
   let dx = fx0*z + rx*x, dz = fz0*z + rz*x; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
-  localCast('p_gdash', null, {d:[+dx.toFixed(3), +dz.toFixed(3)]});
+  const b = P.body.position, e = warpEnd(V3(b.x, b.y, b.z), V3(dx, 0, dz));
+  localCast('p_gdash', null, {d:[+dx.toFixed(3), +dz.toFixed(3)], e:[+e.x.toFixed(2), +e.y.toFixed(2), +e.z.toFixed(2)]});
+}
+// a dark see-through copy of the character, frozen in its current pose
+function warpGhost(C, mat){
+  const g = C.root.clone(true), drop = [];
+  g.traverse(o => { if (o.isSprite || (o.material && o.material.depthTest === false) || o === C.stars || o === C.mark) drop.push(o); else if (o.isMesh) { if (o.userData.isOutline) drop.push(o); else { o.material = mat; o.castShadow = false; } } o.userData.noRay = true; });
+  drop.forEach(o => o.parent && o.parent.remove(o));
+  roundGroup.add(g); return g;
 }
 function runGravityDash(x){
-  const {key, C} = casterInfo(); if (!C) return;
+  const {key, C, team} = casterInfo(); if (!C) return;
   const d = x && x.d ? V3(x.d[0], 0, x.d[1]).normalize() : V3(Math.sin(G.yaw), 0, Math.cos(G.yaw));
-  if (key === G.localKey) {
-    C.dashT = .2; C.dashDir = d; C.ghostT = 0; C.dashId = Math.random(); G.fovKick = 1;
-    C.dashStart = V3(C.body.position.x, C.body.position.y, C.body.position.z); if (C.trail) { roundGroup.remove(C.trail.g); C.trail = null; }   // same set-up the normal dash does for its trail
-  }
-  const p = C.body.position, at = V3(p.x, p.y + 1, p.z);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(.5, .75, 36), bmat(0x9D6BFF, .9)); ring.position.copy(at); ring.lookAt(at.clone().add(d)); ring.userData.noRay = true; roundGroup.add(ring);
-  booms.push({t:0, parts:[ring], custom(b){ ring.scale.setScalar(1 + b.t*10); ring.material.opacity = Math.max(0, .9 - b.t*3); return b.t > .32; }});
-  sfx('dash');
+  const from = V3(C.body.position.x, C.body.position.y, C.body.position.z);
+  const to = x && Array.isArray(x.e) ? V3(x.e[0], x.e[1], x.e[2]) : warpEnd(from, d);
+  const len = hdist(from, to);
+  if (key === G.localKey) { C.warp = {from, to, d, t:0}; C.face = Math.atan2(d.x, d.z); G.fovKick = 1.8; G.shake = Math.max(G.shake, reduceMotion ? 0 : .12); }
+  // space folds: lenses at both ends, a ripple tunnel between them, and shadow copies left along the way
+  const a0 = V3(from.x, from.y + 1, from.z), a1 = V3(to.x, to.y + 1, to.z);
+  let t = 0;
+  SpaceWarp.add({pos:() => a0, alive:() => t < .35, R:() => 5, s:() => .5*(1 - t/.35)});
+  SpaceWarp.add({pos:() => a1, alive:() => t < .45, R:() => 6, s:() => .6*Math.min(1, t/.12)*(1 - t/.45)});
+  warpPulse(a0, 7, .35, .05); setTimeout(() => warpPulse(a1, 9, .45, .06), WARP_T*1000);
+  const tube = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, Math.max(.5, len), 24, 1, true), warpMaterial());
+  tube.position.copy(a0).lerp(a1, .5); tube.quaternion.setFromUnitVectors(V3(0, 1, 0), a1.clone().sub(a0).normalize()); tube.userData.noRay = true; roundGroup.add(tube);
+  const gmat = new THREE.MeshBasicMaterial({color:0x8A6BFF, transparent:true, opacity:.55, depthWrite:false});
+  const ghosts = len > 3 ? [.15, .4, .65, .88].map(f => { const g = warpGhost(C, gmat); g.position.copy(from).lerp(to, f); g.rotation.y = Math.atan2(d.x, d.z); return g; }) : [];
+  const ring = new THREE.Mesh(new THREE.RingGeometry(.6, .9, 40), bmat(0xC9B8FF, .9)); ring.rotation.x = -Math.PI/2; ring.position.set(from.x, groundH(from.x, from.z) + .08, from.z); ring.userData.noRay = true; roundGroup.add(ring);
+  const ring2 = ring.clone(); ring2.material = ring.material.clone(); ring2.position.set(to.x, groundH(to.x, to.z) + .08, to.z); roundGroup.add(ring2);
+  booms.push({t:0, parts:[tube, ring, ring2, ...ghosts], custom(bm){
+    t = bm.t;
+    tube.material.uniforms.t.value = t*3; tube.material.uniforms.a.value = Math.max(0, 1 - t/.4)*.9; tube.scale.set(1 + t*2, 1, 1 + t*2);
+    gmat.opacity = Math.max(0, .55 - t*1.3); ghosts.forEach((g, i) => { g.scale.setScalar(Math.max(.01, 1 - t*1.4)); g.position.y += .004*(i + 1); });
+    ring.scale.setScalar(1 + t*14); ring.material.opacity = Math.max(0, .9 - t*2.2);
+    ring2.visible = t > WARP_T; ring2.scale.setScalar(1 + Math.max(0, t - WARP_T)*16); ring2.material.opacity = Math.max(0, .9 - Math.max(0, t - WARP_T)*2.2);
+    return t > .6;
+  }});
+  for (let i = 0; i < 18; i++) { const q = from.clone().lerp(to, Math.random()); const m = pmesh('oct', rr(.05, .14), bmat(pick([0x2A1F3D, 0x9D6BFF, 0xD9CCFF]), .8)); m.position.set(q.x + rr(-.6, .6), q.y + rr(.2, 1.8), q.z + rr(-.6, .6)); m.userData.noRay = true; roundGroup.add(m); fx.push({mesh:m, v:V3(d.x*rr(2, 6), rr(.5, 2), d.z*rr(2, 6)), r:V3(3, 3, 0), life:.5}); }
+  // whatever was in the way gets flung aside: enemies on their own screen, loose things and dummies everywhere
+  const side = V3(d.z, 0, -d.x), segD = q => { const v = V3(q.x - from.x, 0, q.z - from.z), f = clamp(v.x*d.x + v.z*d.z, 0, len); return {f, off:v.x*side.x + v.z*side.z, dist:hdist(q, V3(from.x + d.x*f, 0, from.z + d.z*f))}; };
+  const P = victimFor(key, team);
+  if (P) { const s0 = segD(P.body.position); if (s0.dist < 1.6 && Math.abs(P.body.position.y - from.y) < 3) { const sg = s0.off >= 0 ? 1 : -1; painHurt(P, 10, key); knock(P, side.x*sg*14 + d.x*8, 6, side.z*sg*14 + d.z*8, .5); } }
+  forEachObject(b => { const s0 = segD(b.position); if (s0.dist > 1.8 || Math.abs(b.position.y - from.y) > 3) return; const sg = s0.off >= 0 ? 1 : -1; if (b.wakeUp) b.wakeUp(); b.velocity.x += side.x*sg*12 + d.x*6; b.velocity.z += side.z*sg*12 + d.z*6; b.velocity.y += 8; if (b.tag === 'dummy') dummyHit(b, 10); });
+  sfx('dash'); sfx('grav');
 }
 function gravityJump(){ if ((G.cd.p_gjump || 0) > 0) return false; localCast('p_gjump', null); return true; }
 function runGravityJump(){
@@ -5595,10 +5475,6 @@ function updateRods(dt){
     r.t += dt; r.v.y -= 7*dt;
     const a = r.pos.clone(), b = a.clone().addScaledVector(r.v, dt);
     const dmg = r.dmg || PAIN_CFG.rodDmg;
-    // an enemy Deva Barrier sends it straight back at whoever threw it, now theirs
-    const bar = barrierCross(a, b, r.owner, r.team);
-    if (bar) { const T = chars[r.owner], sp = r.v.length()*1.25, back = T ? V3(T.body.position.x, T.body.position.y + 1, T.body.position.z).sub(a).normalize() : r.v.clone().normalize().negate();
-      r.v.copy(back.multiplyScalar(sp)); r.owner = bar.key; r.team = bar.team; r.t = 0; barrierRipple(bar, a); r.m.lookAt(a.clone().add(r.v)); continue; }
     // rocks orbiting an enemy block it
     let blocked = null;
     for (const k in PAIN.orbits) { const o = PAIN.orbits[k]; if (k === r.owner || (r.team && o.team === r.team)) continue; blocked = o.rocks.find(rk => !rk.gone && !rk.shot && segDist(a, b, rk.m.position) < .7); if (blocked) break; }
@@ -5654,7 +5530,7 @@ function updateDummies(dt){
   });
 }
 
-/* ---------- input: charge (hold, release to cast), aim-hold (Pull), hold (Weightless World, Deva Barrier) ---------- */
+/* ---------- input: charge (hold, release to cast), aim-hold (Pull) ---------- */
 function chargeStart(id, key){
   const P = localP(); if (!P || P.alive === false || P.stun > 0 || P.lockT > 0 || PAIN.charge) return;
   if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
@@ -5666,37 +5542,27 @@ function chargeRelease(key){
   const c = +chargeSecs().toFixed(2); PAIN.charge = null;
   if (ch.id === 'p_rod') fireRod(c); else localCast(ch.id, null, {c});
 }
-function painHoldStart(id, key){
-  if (PAIN.holding[id]) return;
-  if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
-  PAIN.holding[id] = key || 'bar'; localCast(id, null, {h:1});
-}
-function painHoldEnd(id){ if (!PAIN.holding[id]) return; delete PAIN.holding[id]; localCast(id, null, {h:0}); }
 function painKeyDown(id, k){
   const d = PAIN_SKILLS[id], P = localP(); if (!d || !P || P.alive === false || P.stun > 0 || P.lockT > 0) return;
   if (d.kind === 'charge') chargeStart(id, k);
   else if (d.kind === 'aimhold') { if ((G.cd[id] || 0) > 0) { cdToast(id); return; } PAIN.aim = {id, key:k}; }
-  else if (d.kind === 'hold') painHoldStart(id, k);
   else useSpecial(id);
 }
 // k = the released key, or null to drop everything (window lost focus)
 function painKeyUp(k){
   if (PAIN.charge && (k == null || PAIN.charge.key === k)) { if (k == null) PAIN.charge = null; else chargeRelease(k); }
   if (PAIN.aim && (k == null || PAIN.aim.key === k)) { const a = PAIN.aim; PAIN.aim = null; if (k != null) localCast(a.id, null, {tg:pickPullTarget()}); }
-  for (const id in PAIN.holding) if (k == null || PAIN.holding[id] === k) painHoldEnd(id);
 }
 // clicks on the Skills bar
 function painUse(id){
   const d = PAIN_SKILLS[id];
   if (d.kind === 'move') { toast(id === 'p_gdash' ? '💨 Gravity Dash: double-tap Shift while moving (works sideways and backward).' : '⤴️ Gravity Jump: press Space again in the air.'); return; }
-  if (d.kind === 'hold') { if (PAIN.holding[id]) painHoldEnd(id); else painHoldStart(id, null); return; }
   if (id === 'p_orbit' && PAIN.orbits[G.localKey] && !PAIN.orbits[G.localKey].fired) { localCast('p_orbit', aimPoint(60), {fire:1}); return; }
   if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
   if (d.kind === 'aim') { setTargeting(id); return; }
   if (G.spCd > 0) return; G.spCd = .15;
   if (id === 'p_rod') fireRod(0);
   else if (id === 'p_pull') localCast(id, null, {tg:pickPullTarget()});
-  else if (id === 'p_six') localCast(id, null, {tg6:pickSixTargets()});
   else if (d.kind === 'charge') localCast(id, null, {c:0});
   else localCast(id, null);
 }
@@ -5762,8 +5628,8 @@ function runPain(id, p, x){
   if (id === 'p_gdash') { runGravityDash(x); return; }
   if (id === 'p_gjump') { runGravityJump(); return; }
   if (id === 'p_rod') { painRod(p, x); return; }
-  const release = (id === 'p_weight' || id === 'p_barrier') && x && x.h === 0, fire = id === 'p_orbit' && x && x.fire;
-  if (!release && !fire) painCastFX(C);
+  const fire = id === 'p_orbit' && x && x.fire;
+  if (!fire) painCastFX(C);
   if (id === 'p_push') painPush();
   else if (id === 'p_pull') painPull(x);
   else if (id === 'p_shinra') painShinraFront(x);
@@ -5772,11 +5638,7 @@ function runPain(id, p, x){
   else if (id === 'p_below' && p) painBelow(p);
   else if (id === 'p_chibaku' && p) painChibaku(p);
   else if (id === 'p_cata' && p) painCatastrophic(p);
-  else if (id === 'p_weight') painWeight(x);
-  else if (id === 'p_barrier') painBarrier(x);
   else if (id === 'p_orbit') painOrbit(p, x);
-  else if (id === 'p_meteor' && p) painMeteor(p);
-  else if (id === 'p_six') painSix(x);
   else if (id === 'p_almighty') painAlmighty();
 }
 // called every physics step from applyForces
@@ -5785,27 +5647,11 @@ function applyPainForces(){
   const g = -world.gravity.y, me = localP();
   if (me && me.alive !== false) {
     const b = me.body;
-    // Meteor Dive: the caster follows the dive path exactly
-    if (me.meteor) { const q = meteorPoint(me.meteor, G.t - me.meteor.t0 + 1/30); b.force.y += g*b.mass; b.velocity.set((q.x - b.position.x)*14, (q.y + .1 - b.position.y)*14, (q.z - b.position.z)*14); b._onGround = false; }
     // Giant Push: the caster flies to the charge point and hangs there
-    else if (me.fly) { const t = me.fly.target; b.force.y += g*b.mass; b.velocity.set((t.x - b.position.x)*3, (t.y - b.position.y)*3, (t.z - b.position.z)*3); b._onGround = false; }
+    if (me.fly) { const t = me.fly.target; b.force.y += g*b.mass; b.velocity.set((t.x - b.position.x)*3, (t.y - b.position.y)*3, (t.z - b.position.z)*3); b._onGround = false; }
     else if (me.floatT > 0) b.force.y += g*b.mass*.72;
   }
   for (const f of PAIN.fields) if (!f.done && f.apply) f.apply(g);
-  // Weightless World: objects lose their weight smoothly and settle into a hover ~9 m up; players inside (the caster too) get floaty
-  for (const key in PAIN.weight) {
-    const w = PAIN.weight[key]; if (w.k <= 0) continue;
-    const C = chars[key], c = C ? C.body.position : w.origin, R = PAIN_CFG.weightR;
-    forEachObject(b => {
-      const d = Math.hypot(b.position.x - c.x, b.position.z - c.z); if (d > R) return;
-      const h = b.position.y - groundH(b.position.x, b.position.z), lift = w.k*(1 + .14*clamp((9 - h)/9, -1, 1));
-      if (b.sleepState === CANNON.Body.SLEEPING) b.wakeUp();
-      b.force.y += g*b.mass*lift; if (b.velocity.y > 3) b.velocity.y *= .96;
-      if (!b.fixedRotation && b.angularVelocity.lengthSquared() < .3) spin(b, .4*w.k);
-    });
-    const A = bodyFor(key, w.team);
-    if (A && Math.hypot(A.P.body.position.x - c.x, A.P.body.position.z - c.z) < R) A.P.body.force.y += g*A.P.body.mass*w.k*.7;
-  }
 }
 function painFrame(dt){
   const me = localP();
@@ -5815,20 +5661,18 @@ function painFrame(dt){
   for (const f of PAIN.fields) { if (f.done || f.dur == null) continue; f.t += dt; if (f.t > f.dur) f.done = true; }
   PAIN.fields = PAIN.fields.filter(f => !f.done);
   PAIN.fx = PAIN.fx.filter(e => e.update(dt) !== false);
-  updateWeight(dt); updateRods(dt); updateOrbits(dt); updateShots(dt); updateBarriers(dt); regrowProps(); updateDummies(dt); updateChargeUI();
+  updateRods(dt); updateOrbits(dt); updateShots(dt); regrowProps(); updateDummies(dt); updateChargeUI();
 }
 // a player was knocked out: their ongoing channelled abilities stop on every screen
 function painOwnerDied(id){
   if (!isPain()) return;
   PAIN.fx.forEach(e => { if (e.owner === id && e.cancel) e.cancel(); });
-  if (PAIN.weight[id]) PAIN.weight[id].on = false;
-  if (PAIN.barriers[id]) PAIN.barriers[id].on = false;
-  if (id === G.localKey) { PAIN.holding = {}; PAIN.charge = null; PAIN.aim = null; const P = localP(); if (P) { P.fly = null; P.meteor = null; P.lockT = 0; P.floatT = 0; } }
+  if (id === G.localKey) { PAIN.charge = null; PAIN.aim = null; const P = localP(); if (P) { P.fly = null; P.warp = null; P.lockT = 0; P.floatT = 0; } }
 }
 function painHelp(){
-  return '<b>WASD</b> move, <b>Shift ×2</b> gravity dash, <b>Space ×2</b> gravity jump · hold <b>Click</b>/<b>1</b> to charge a chakra rod (no limit)<br>' +
+  return '<b>WASD</b> move, <b>Shift ×2</b> warp dash (32 m), <b>Space ×2</b> gravity jump · hold <b>Click</b>/<b>1</b> to charge a chakra rod (no limit)<br>' +
     '<b>F</b> gravity push · hold <b>Q</b> to aim a pull · hold <b>R</b> Shinra Tensei (front) · hold <b>T</b> Shinra Tensei 360° · <b>V</b>/<b>B</b> gravity from above/below<br>' +
-    '<b>C</b> Chibaku Tensei · <b>X</b> Catastrophic Chibaku · hold <b>G</b> Weightless World · <b>2</b> Planetary Orbit (again to fire) · hold <b>3</b> Deva Barrier · <b>4</b> Meteor Dive · <b>5</b> Six Paths · <b>Z</b> Giant Push';
+    '<b>C</b> Chibaku Tensei · <b>X</b> Catastrophic Chibaku · <b>2</b> Planetary Orbit (again to fire) · <b>Z</b> Giant Push';
 }
 
 /* ---------- host-side cast validation (both modes) ----------
@@ -5840,13 +5684,13 @@ function castOK(c, m){
   const P = chars[m.id]; if (!P || P.alive === false || !G.pvp || G.phase !== 'attack') return false;
   if (eggOn() && (G.egg.over || (m.id === G.egg.def && m.s !== 'ki'))) return false;   // the defender only shoots
   const def = m.s === 'ki' ? null : skillTable()[m.s]; if (m.s !== 'ki' && !def) return false;   // the skill must exist in this mode
-  if (m.o && P.net && Math.hypot(m.o[0] - P.net.x, m.o[2] - P.net.z) > 16) return false;          // cast from where they actually are
+  const tNow = performance.now()/1000, warped = P.warpCastT && tNow - P.warpCastT < .8;           // a warp dash moves you 32 m between position updates
+  if (m.o && P.net && Math.hypot(m.o[0] - P.net.x, m.o[2] - P.net.z) > (warped ? 16 + WARP_DIST : 16)) return false;   // cast from where they actually are
+  if (m.s === 'p_gdash') { if (m.e && (!Array.isArray(m.e) || !m.o || Math.hypot(m.e[0] - m.o[0], m.e[2] - m.o[2]) > WARP_DIST + 1.5)) return false; P.warpCastT = tNow; }
   if (def && def.range && m.p && m.o && Math.hypot(m.p[0] - m.o[0], m.p[2] - m.o[2]) > def.range + 6) return false;
-  if (m.tg6 != null && (!Array.isArray(m.tg6) || m.tg6.length > 6)) return false;
   const now = performance.now()/1000;
   const r = castRate[m.id] = (castRate[m.id] || []).filter(t => now - t < 1); if (r.length >= 14) return false;   // flood guard, even with cooldowns off
   r.push(now);
-  if ((m.s === 'p_weight' || m.s === 'p_barrier') && m.h === 0) return true;  // releasing a hold is always fine
   if (m.s === 'p_orbit' && m.fire) return !!(PAIN.orbits[m.id] && !PAIN.orbits[m.id].fired);
   const key = m.id + '|' + m.s, last = castLog[key];
   // a charged cast can't claim more charge than the time since that player's last cast of it (or the match start)
@@ -6379,7 +6223,8 @@ function renderTray(){
     $('rotB').onclick = () => { G.ghostRot += Math.PI/4; };
     $('doneB').onclick = finishBuild;
   } else if (G.phase === 'attack') {
-    t.innerHTML = `<div class="bar sticker"><div class="tl">Skills</div><div class="skills" style="--cols:${Math.ceil(Object.keys(skillTable()).length/2)}">${Object.entries(skillTable()).map(([id,sp]) => `<button class="skill" data-sp="${id}" aria-pressed="${G.targeting===id}" title="${sp.name} (${sp.key})" aria-label="${sp.name}"><span class="si">${sp.e}</span><span class="sn">${SHORT[id] || sp.name}</span><kbd>${sp.key}</kbd></button>`).join('')}</div></div>`;
+    const shown = Object.entries(skillTable()).filter(([, sp]) => !sp.hide);
+    t.innerHTML = `<div class="bar sticker"><div class="tl">Skills</div><div class="skills" style="--cols:${Math.ceil(shown.length/2)}">${shown.map(([id,sp]) => `<button class="skill" data-sp="${id}" aria-pressed="${G.targeting===id}" title="${sp.name} (${sp.key})" aria-label="${sp.name}"><span class="si">${sp.e}</span><span class="sn">${SHORT[id] || sp.name}</span><kbd>${sp.key}</kbd></button>`).join('')}</div></div>`;
     t.querySelectorAll('[data-sp]').forEach(b => b.onclick = e => { e.stopPropagation(); useSpecial(b.dataset.sp); });
     if (!G.pvp) { const gb = document.createElement('button'); gb.className = 'btn'; gb.id = 'giveB'; gb.textContent = '🏳️ Give up'; gb.style.alignSelf = 'center'; t.querySelector('.bar').appendChild(gb);
       gb.onclick = e => { e.stopPropagation(); if (G.phase === 'attack') { toast(`${teamName(attacker())} gave up. The egg survives!`); endRound(G.defender, 'giveup', false); } }; }
