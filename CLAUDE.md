@@ -141,8 +141,8 @@ click/aim/throw/target/now, cd, range, r, lim, hide), add its id to `CLASS_IDS` 
 its keys in the keydown handler and its click in `actionDown`, dispatch it in `runSkill`.
 
 **Bomber** (module "BOMBER", before "casting, locally and for other players"): 20 powers, `b_*` ids.
-Click = bazooka; keys 1-0, Q R F G T Z X C V (`BOMBER_KEYS`). Bomber cooldowns always apply, even when
-the match setting turns cooldowns off (`cdFor`, `castOK`). Flying bombs are plain objects in `BX.bombs`
+Click = bazooka; keys 1-0, Q R F G T Z X C V (`BOMBER_KEYS`). Cooldowns follow the match setting like
+every other power (`cdFor`, `castOK`); the limits below always apply. Flying bombs are plain objects in `BX.bombs`
 (`addBomb`/`updateBombs`: gravity, drag, bomb magnets, hits on ground/dome/enemies/egg/props via
 `bSolid`), scripted things in `BX.fx` ({update(dt) -> false when done}; effects may start effects),
 plus `BX.mines` and `BX.buttons`. Explosions go through `bBoom`: `blastAt` with `G.blastNoPlayers`
@@ -153,11 +153,35 @@ clears the host's castLog), `b_press` (anyone pressing a Big Red Button with E).
 mortar, 1 button per player. Egg defenders may use only the bazooka (and press buttons). Laser turrets
 shoot down Bomber bombs. Explosion scorch marks fade after ~12 s (all modes).
 
+**Swordsman** (module "SWORDSMAN", after the Bomber): `s_*` ids in `SWORD`; click = 3-hit combo
+(`swordSwing`, `SW.combo`), 19 powers on 1-0 / Q R F G T Z X C V, ultimate World Severance on B.
+Charged powers (Gate of Babylon, World Splitter) use `SW.charge` (key down/up). Melee hits are
+victim-side cones/spheres (`swordHit`, `swordArea`); `cutProjectiles` deletes bombs/shots/rods.
+Per-character state in `C.sw` (blade buff, orbiting blades, mirror copies); the sword in hand is
+`setHandSword` (others see it via 'st' flag bit 16). Hidden follow-ups: s_orbitx, s_prisonx, s_surfx,
+s_counterx, s_ldash. Perfect Counter hooks `hurt()` (`P.parryT` -> `parried`). Blade Surfing reuses
+the carpet (`P.carpet.type === 'sword'`). **World Severance** really rebuilds the heightfield:
+`severWorld` snapshots `terrH`, remaps each half away from the cut by `SEVER_GAP` (7 m each), sets the
+gap to -60 (dark in `terrainColor`, craters skip it), and moves props, objects, egg, pedestal, dome,
+mines, buttons and the local player with their half. `G.splits` / `inVoid` / `voidSteer` (skeletons,
+Satan, bettys and dashes avoid the gap); falling in kills (`swordFrame`). Once per player per round
+(`G.severUsed`, host-checked); a new round regenerates the terrain.
+
+## Network checks (castOK)
+
+Casts carry `o` (where the caster stood *before* the power moved them) and `ts` (the caster's own
+clock). The host judges cooldowns and charge times on `ts` (bursts from a laggy link are fine; a clock
+running more than 1.5 s ahead of real arrival times falls back to arrival timing), and allows the
+position check to stretch with speed, update age and teleporting powers (`TELEPORTS`). `localCast`
+sends even if the local effect throws. Test with scratch `duoall.mjs` (every power both ways) and
+`lagnet.mjs` (bursty link).
+
 ## Physics (all modes)
 
 Earth gravity everywhere (9.81 m/s², the low-gravity "Moon Day" map was removed). Masses are real
 kilograms: player 80, brick wall 4000, cow 650, turret 400, chicken 2.5, egg 20, nuke 400. Jump is
-4.7 m/s (~1.1 m), double jump 4.2 m/s. Because most powers push by changing velocity directly, those
+4.7 m/s (~1.1 m), one air jump of 4.2 m/s (Pain: the Gravity Jump is the air jump), reset only by
+landing at least 0.25 s after take-off (`P.jumpT`). Because most powers push by changing velocity directly, those
 pushes go through `heft(body, e)` = min(1, (80/mass)^e): explosions (`blastAt`) e=.4, dash and fireball
 e=.75, Chaos Shinra/sword/punch and every Pain push (wrapped in `forEachObject`) e=.5. Forces written
 as `accel * b.mass` (fields, wind, fans, magnets) stay mass-independent on purpose. `controlPlayer`
