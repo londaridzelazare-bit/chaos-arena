@@ -253,7 +253,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-03.3';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-03.4';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -323,7 +323,20 @@ const SFX = {
   win(){ [523,659,784,1046].forEach((f,i)=>tone('triangle',f,f,.2,.18,i*.11)); },
   lose(){ [392,330,262,196].forEach((f,i)=>tone('triangle',f,f*0.98,.25,.16,i*.14)); },
   pain(){ tone('sine',90,26,1.1,.6); noise(.9,.45,380,'lowpass'); tone('triangle',420,60,.5,.07); },
-  rodThrow(){ noise(.12,.3,5000,'highpass'); tone('sawtooth',700,180,.14,.06); }
+  rodThrow(){ noise(.12,.3,5000,'highpass'); tone('sawtooth',700,180,.14,.06); },
+  rocket(){ noise(.5,.55,2600,'bandpass'); tone('sawtooth',300,90,.45,.12); },
+  bboom(){ noise(.9,.75,500,'lowpass'); tone('sine',130,38,.7,.45); },
+  jet(){ noise(3,.45,900,'bandpass'); tone('sawtooth',180,120,2.6,.05); },
+  prop(){ for (let i=0;i<8;i++) tone('square',70,66,.18,.06,i*.22); noise(3,.3,300,'lowpass'); },
+  whistle(){ tone('sine',1500,450,1.2,.1); },
+  beep(){ tone('square',1250,1250,.07,.08); },
+  click(){ tone('square',200,90,.06,.2); tone('triangle',1600,1600,.04,.08,.03); },
+  pop(){ tone('triangle',700,180,.12,.25); noise(.15,.4,2000,'bandpass'); },
+  crackle(){ noise(.25,.25,3000,'highpass'); },
+  drill(){ tone('sawtooth',90,140,1.5,.12); noise(1.6,.45,700,'bandpass'); },
+  magnet(){ tone('sine',110,110,1.6,.2); tone('sine',220,230,1.6,.08); },
+  carpet(){ [660,880,990,1320].forEach((f,i) => tone('triangle',f,f*1.02,.4,.07,i*.08)); },
+  reverse(){ tone('sine',40,520,1.6,.35); noise(1.6,.4,600,'lowpass'); }
 };
 function sfx(n){
   if (muted || !actx) return;
@@ -769,6 +782,7 @@ function controlPlayer(P, dt, input){
   const b = P.body;
   if (G.pvp && P.alive === false) return;
   if (G.pvp && P.stun > .9) P.stun = .9;
+  if (P.carpet) { if (!P.remote) flyCarpet(P, dt, input); return; }   // Bomber: riding the flying carpet
   if (P.warp) {   // Pain warp dash: carried along the folded path, then thrown out the far end with some speed
     const w = P.warp; w.t += dt; const k = Math.min(1, w.t/WARP_T), e = 1 - Math.pow(1 - k, 2);
     b.position.set(lerp(w.from.x, w.to.x, e), lerp(w.from.y, w.to.y, e) + Math.sin(k*Math.PI)*.25, lerp(w.from.z, w.to.z, e)); b.velocity.set(0, 0, 0);
@@ -1423,6 +1437,7 @@ const SPECIALS = {
 const specialsLeft = () => G.specials ? Object.values(G.specials).reduce((a,b) => a+b, 0) : 0;
 const effectsActive = () => holes.some(h => !h.done) || comets.some(c => !c.done) || G.gravOff > 0 || skels.some(k => !k.dead) || tornados.some(t => !t.done) || volcanoes.some(v => v.state === 'rise' || v.state === 'erupt') || bolts.some(b => !b.done) || gcows.some(c => !c.done) || frogs.some(f => !f.done) || storms.some(s => !s.done) || hands.some(h => !h.done) || fireballs.some(f => !f.done) || judgements.some(j => !j.done) || comings.some(c => !c.done) || satans.some(x => !x.done) || swords.some(x => !x.done) || novas.some(x => !x.done) || vacs.some(x => !x.done) || evas.some(x => !x.done) || G.freeze > 0 || G.flip > 0 || objs.some(o => !o.dead && (o.tag === 'nuke' || o.tag === 'chibaku' || o.tag === 'comet' || o.tag === 'bijuu' || o.tag === 'lava' || o.tag === 'knife' || o.tag === 'milk' || o.tag === 'antimatter' || o.tag === 'doomnuke'));
 function useSpecial(id){
+  if (BOMBER[id]) { bomberUse(id); return; }
   if (G.phase !== 'attack' || !G.specials || !G.specials[id] || G.atkTime <= 0) return;
   const P = chars[attacker()]; if (!P || P.stun > 0 || P.lockT > 0) return;
   if (amDefender()) { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('🛡️ You defend: click for energy blasts, E to grab and throw things.'); } return; }
@@ -1447,6 +1462,7 @@ function blastAt(p, R, power, killR, reason){
   for (const b of world.bodies.slice()) {
     if (b.mass === 0) continue;
     if (inD0(b.position)) continue;
+    if (b.player && G.blastNoPlayers) continue;
     { const o = bodyObj.get(b); if (o && o.key === 'decoy' && Math.hypot(b.position.x-p.x, b.position.y-p.y, b.position.z-p.z) < R*.6) o.popPending = true; }
     const dx = b.position.x-p.x, dy = b.position.y-p.y, dz = b.position.z-p.z, d = Math.hypot(dx,dy,dz) || .01;
     if (d > R) continue;
@@ -1478,7 +1494,8 @@ function boomVisual(p, mushroom, size, pal){
     parts.push(bm.stem, bm.cap, bm.capGlow);
   }
   parts.forEach(m => { m.userData.noRay = true; roundGroup.add(m); });
-  if (Math.hypot(p.x,p.z) < ISL && p.y < 3.5) { const sc = new THREE.Mesh(new THREE.CircleGeometry(5*size,24), bmat(0x2B2621,.55)); sc.rotation.x = -Math.PI/2; sc.position.set(p.x, .025, p.z); sc.userData.noRay = true; roundGroup.add(sc); }
+  if (Math.hypot(p.x,p.z) < ISL && p.y < 3.5) { const sc = new THREE.Mesh(new THREE.CircleGeometry(5*size,24), bmat(0x2B2621,.55)); sc.rotation.x = -Math.PI/2; sc.position.set(p.x, .025, p.z); sc.userData.noRay = true; roundGroup.add(sc);
+    booms.push({t:0, parts:[sc], custom(bm){ sc.material.opacity = .55*clamp((14 - bm.t)/4, 0, 1); return bm.t > 14; }}); }   // scorch marks fade so the ground stays readable
   booms.push(bm);
   if (size >= .3) smokePuffs(new THREE.Vector3(p.x, Math.max(.5, p.y), p.z), Math.min(4, size*2), Math.round(4 + size*4));
 }
@@ -1976,7 +1993,7 @@ function updateTargeting(){
   const p = h.point; let why = '';
   if (Math.abs(p.x) > ISL || Math.abs(p.z) > ISL) why = 'Aim at the island.';
   else if (id === 'volcano' && Math.hypot(p.x, p.z) < 12) why = 'Too close to the egg. Volcanoes need at least 12 meters.';
-  else if (PAIN_SKILLS[id] && PAIN_SKILLS[id].range) { const me = localP(); if (me && Math.hypot(p.x - me.body.position.x, p.z - me.body.position.z) > PAIN_SKILLS[id].range) why = `Too far. ${PAIN_SKILLS[id].name} reaches ${PAIN_SKILLS[id].range} m.`; }
+  else if (skillDef(id) && skillDef(id).range) { const me = localP(), sd = skillDef(id); if (me && Math.hypot(p.x - me.body.position.x, p.z - me.body.position.z) > sd.range) why = `Too far. ${sd.name} reaches ${sd.range} m.`; }
   if (!why && !['gravity','flip','slow','freeze','night'].includes(id) && jammedAt(p)) why = '📡 Jammed! Knock the signal jammer over first.';
   G.targetWhy = why;
   if (!why) G.targetPoint = p.clone();
@@ -2373,7 +2390,8 @@ function updateTurrets(dt){
     let skel = null;
     if (!best) { for (const s of skels) { if (s.dead || s.state !== 'walk') continue; const d = Math.hypot(s.body.position.x - hp.x, s.body.position.z - hp.z); if (d < 14) { skel = s; break; } } }
     let sat = null; if (!best && !skel) sat = satans.find(x => !x.done && x.state === 'walk' && Math.hypot(x.pos.x - hp.x, x.pos.z - hp.z) < (G.night > 0 ? 10 : 22));
-    const tgt = best ? best.body.position : skel ? skel.body.position : sat ? {x:sat.pos.x, y:9, z:sat.pos.z} : null;
+    let bxb = null; if (!best && !skel && !sat) bxb = BX.bombs.find(q => !q.dead && q.age > .15 && q.owner !== (G.egg && G.egg.def) && q.p.distanceTo(hp) < (G.night > 0 ? 10 : 22));
+    const tgt = best ? best.body.position : skel ? skel.body.position : sat ? {x:sat.pos.x, y:9, z:sat.pos.z} : bxb ? bxb.p : null;
     if (!tgt) continue;
     const tp = new THREE.Vector3(tgt.x, tgt.y + (skel ? 1.2 : 0), tgt.z);
     head.lookAt(tp);
@@ -2382,6 +2400,7 @@ function updateTurrets(dt){
     laserBeam(hp, tp);
     if (skel) { crumble(skel); continue; }
     if (sat) { hurtSatan(sat); continue; }
+    if (bxb) { bxb.dead = true; roundGroup.remove(bxb.m); boomVisual(bxb.p.clone(), false, .15, {ball:0xFF6A5A, core:0xFFFFFF, ring:0xFF9A8F}); continue; }
     const o = best;
     if (['nuke','bijuu','chibaku','comet','lava','antimatter','doomnuke'].includes(o.tag)) { o.boomPending = true; o.armT = 0; toast(pick(['🔫 Turret shot it down!', '🔫 Intercepted!'])); }
     else { boomVisual(new THREE.Vector3(tgt.x, tgt.y, tgt.z), false, .15, {ball:0xFF6A5A, core:0xFFFFFF, ring:0xFF9A8F}); removeObj(o); }
@@ -3886,7 +3905,7 @@ function throwSkill(id, target){
 function updateThrowArc(){
   if (!G.dots) return;
   const id = G.targeting;
-  if (G.phase !== 'attack' || !id || !THROWN.has(id) || !G.targetPoint || G.freeze > 0) return;
+  if (G.phase !== 'attack' || !id || !(THROWN.has(id) || B_THROWN.has(id)) || !G.targetPoint || G.freeze > 0) return;
   const a = throwStart(); if (!a) return;
   const {T, vel, gy} = ballistic(a, G.targetPoint, id);
   G.dots.forEach((d,i) => { const t = (i+1)/G.dots.length*T; d.visible = true; d.position.set(a.x + vel.x*t, a.y + vel.y*t + .5*gy*t*t, a.z + vel.z*t); });
@@ -4250,7 +4269,7 @@ function hurt(P, dmg){
   updateHud();
 }
 function die(P){
-  painOwnerDied(G.localKey); P.slowT = P.pinT = 0;
+  painOwnerDied(G.localKey); bomberOwnerDied(G.localKey); P.slowT = P.pinT = 0;
   P.alive = false; P.deadT = 4; P.root.visible = false; if (P.carry) P.carry = null;
   const b = P.body; b.type = CANNON.Body.KINEMATIC; b.mass = 0; b.updateMassProperties(); b.velocity.set(0,0,0); b.collisionFilterMask = 0;
   sfx('splat'); G.shake = reduceMotion ? 0 : .8;
@@ -4325,7 +4344,7 @@ function startMatch(seed, list, score, mode, cdOn, eg){
   G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' ? mode : 'chaos'; G.cdOn = G.mode === 'egg' || !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
   if (G.mode === 'egg' && !eg) eg = {def:G.localKey, round:1, total:1, pts:{}};
   buildRound(seed);
-  painReset(); painAmbience();
+  painReset(); painAmbience(); bomberReset();
   if (G.mode !== 'egg') {   // only Egg mode keeps the egg and its pedestal
     if (egg) { removeObj(egg); egg = null; }
     world.bodies.slice().forEach(b => { if (b.tag === 'pedestal') world.removeBody(b); }); if (G.pedMesh) roundGroup.remove(G.pedMesh);
@@ -4333,7 +4352,7 @@ function startMatch(seed, list, score, mode, cdOn, eg){
   for (const k of Object.keys(chars)) { const P = chars[k]; if (P) { roundGroup.remove(P.root); if (P.body.world) world.removeBody(P.body); } delete chars[k]; }
   G.atkChar = {name:'', e:'', atk:{}}; G.defChar = {name:'', e:'', def:{}};
   list.forEach(info => addPlayer(G.mode === 'egg' ? Object.assign({}, info, {team:info.id === eg.def ? 'blue' : 'red'}) : info, info.id === G.localKey));
-  G.phase = 'attack'; G.atkTime = Infinity; G.specials = {}; Object.keys(skillTable()).forEach(k => G.specials[k] = Infinity);
+  G.phase = 'attack'; G.atkTime = Infinity; G.specials = {}; Object.keys(modeTable()).forEach(k => G.specials[k] = Infinity);
   G.targeting = null; G.cd = {}; G.spCd = 0; G.kiCd = 0; G.slowmo = 0; G.eggCam = 0;
   G.score = score || {blue:0, red:0}; G.matchOver = false; G.spawnShield = 2;
   zoneRing.visible = false; $('who').style.display = 'none'; $('respawn').style.display = 'none';
@@ -4385,7 +4404,7 @@ function eggAttack(left){
   if (G.phase === 'build') { const P = localP(); if (P && P.carry) dropCarry(P, false); }
   setGhost(null); G.defPlace = null;
   G.phase = 'attack'; E.ph = 'attack'; E.endT = G.t + left;
-  G.specials = {}; Object.keys(skillTable()).forEach(k => G.specials[k] = Infinity); G.targeting = null; G.atkTime = Infinity; G.cd = {};
+  G.specials = {}; Object.keys(modeTable()).forEach(k => G.specials[k] = Infinity); G.targeting = null; G.atkTime = Infinity; G.cd = {};
   if (!NET.peer && E.def === G.localKey) {
     // practice: you built it, now try to break it from outside the ring
     // stand where nothing blocks the view of the egg
@@ -4574,10 +4593,11 @@ const PAIN_CFG = {
 };
 const PAIN = {fx:[], fields:[], rods:[], stuckRods:[], regrow:[], dummies:[], cores:[], orbits:{}, shots:[], charge:null, aim:null};
 function isPain(){ return G.mode === 'pain'; }
-function skillTable(){ return isPain() ? PAIN_SKILLS : SPECIALS; }
-function skillDef(id){ return PAIN_SKILLS[id] || SPECIALS[id]; }
+function skillTable(){ return G.cls === 'bomber' ? BOMBER : isPain() ? PAIN_SKILLS : SPECIALS; }
+function skillDef(id){ return PAIN_SKILLS[id] || SPECIALS[id] || BOMBER[id]; }
 // cooldowns are a match setting (off by default): with them off every ability is ready again immediately
-function cdFor(id){ if (!G.cdOn) return 0; return (PAIN_SKILLS[id] && PAIN_SKILLS[id].cd) || CD[id] || 3; }
+function cdFor(id){ if (BOMBER[id]) return BOMBER[id].cd;   // Bomber cooldowns always apply
+  if (!G.cdOn) return 0; return (PAIN_SKILLS[id] && PAIN_SKILLS[id].cd) || CD[id] || 3; }
 function painReset(){
   PAIN.fx = []; PAIN.fields = []; PAIN.rods = []; PAIN.stuckRods = []; PAIN.regrow = []; PAIN.dummies = [];
   PAIN.cores = []; PAIN.orbits = {}; PAIN.shots = []; PAIN.charge = null; PAIN.aim = null;
@@ -5682,8 +5702,8 @@ function castOK(c, m){
   if (!m || m.id !== c.peer) return false;                                  // nobody can cast as someone else
   if (m.s === 'd_use' || m.s === 'd_place') return eggDefOK(c, m);       // Egg mode protection powers
   const P = chars[m.id]; if (!P || P.alive === false || !G.pvp || G.phase !== 'attack') return false;
-  if (eggOn() && (G.egg.over || (m.id === G.egg.def && m.s !== 'ki'))) return false;   // the defender only shoots
-  const def = m.s === 'ki' ? null : skillTable()[m.s]; if (m.s !== 'ki' && !def) return false;   // the skill must exist in this mode
+  if (eggOn() && (G.egg.over || (m.id === G.egg.def && !['ki', 'b_bazooka', 'b_press'].includes(m.s)))) return false;   // the defender only shoots
+  const def = m.s === 'ki' ? null : (BOMBER[m.s] || modeTable()[m.s]); if (m.s !== 'ki' && !def) return false;   // the mode's own kit or a class (anyone may switch class any time)
   const tNow = performance.now()/1000, warped = P.warpCastT && tNow - P.warpCastT < .8;           // a warp dash moves you 32 m between position updates
   if (m.o && P.net && Math.hypot(m.o[0] - P.net.x, m.o[2] - P.net.z) > (warped ? 16 + WARP_DIST : 16)) return false;   // cast from where they actually are
   if (m.s === 'p_gdash') { if (m.e && (!Array.isArray(m.e) || !m.o || Math.hypot(m.e[0] - m.o[0], m.e[2] - m.o[2]) > WARP_DIST + 1.5)) return false; P.warpCastT = tNow; }
@@ -5695,14 +5715,771 @@ function castOK(c, m){
   const key = m.id + '|' + m.s, last = castLog[key];
   // a charged cast can't claim more charge than the time since that player's last cast of it (or the match start)
   if (m.c != null && (typeof m.c !== 'number' || !(m.c >= 0) || m.c > now - (last || G.matchT0 || 0) + .6)) return false;
-  if (G.cdOn) { const cd = m.s === 'ki' ? .28 : (def && def.cd) || CD[m.s] || 3; if (last && now - last < cd*.75 - .08) return false; }   // cooldown, with slack for network jitter
+  if (G.cdOn || BOMBER[m.s]) { const cd = m.s === 'ki' ? .28 : def && def.cd != null ? def.cd : CD[m.s] || 3; if (last && now - last < cd*.75 - .08) return false; }   // cooldown, with slack for network jitter
+  if (m.s === 'b_boomx' && m.k === 1) delete castLog[m.id + '|b_boomer'];   // a caught boomerang is ready again
   castLog[key] = now; return true;
+}
+
+/* ===================================== CLASSES =====================================
+   A class is the set of powers on your Skills bar. Every mode starts you in its own kit ('native': the Chaos
+   specials, or the Pain powers in Pain mode); Bomber is the first extra class. Swap any time during play with Tab
+   or the class button on the Skills bar. Cooldowns are kept per power id in G.cd (and in the host's castLog), so
+   swapping away and back never resets them. The host accepts a cast if the power exists in the mode's kit or in
+   any class, so players can swap freely without telling anyone. */
+const CLASS_IDS = ['native', 'bomber'];
+function classInfo(c){ return c === 'bomber' ? {name:'Bomber', e:'💣'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
+function modeTable(){ return isPain() ? PAIN_SKILLS : SPECIALS; }
+G.cls = (() => { try { return localStorage.getItem('ca-cls') === 'bomber' ? 'bomber' : 'native'; } catch (e) { return 'native'; } })();
+function switchClass(to){
+  const next = to || CLASS_IDS[(CLASS_IDS.indexOf(G.cls) + 1) % CLASS_IDS.length];
+  if (next === G.cls) return;
+  G.cls = next; G.targeting = null; G.armed = null; marker.visible = false;
+  PAIN.charge = null; PAIN.aim = null;
+  try { localStorage.setItem('ca-cls', next); } catch (e) {}
+  // practice: give the bombs something to hit
+  if (next === 'bomber' && G.pvp && !NET.peer && G.phase === 'attack' && !PAIN.dummies.some(o => !o.dead)) spawnDummies();
+  renderTray(); renderPhase();
+  const ci = classInfo(next); toast(`${ci.e} Class: ${ci.name}. Tab switches back. Cooldowns carry over.`); sfx('grab');
+}
+
+/* ===================================== BOMBER =====================================
+   Twenty explosive powers. Click fires the Bazooka; the rest sit on 1-0 and Q R F G T Z X C V.
+   Everything a bomber makes lives in BX: flying bombs (BX.bombs, simple ballistic objects that every screen
+   simulates the same way), and scripted things (planes, mines, the mortar, the button...) in BX.fx as
+   {update(dt) -> false when done}. As everywhere in this game each screen only damages its OWN player
+   (bBoom -> victimFor), and random spreads use a seed from the cast so every screen draws the same pattern.
+   Follow-up actions that only the caster can decide are their own hidden casts: b_carpetx (get off the
+   carpet), b_boomx (catch or miss the boomerang), b_press (anyone pressing a Big Red Button). */
+const BOMBER = {
+  b_bazooka:{name:'Bazooka', e:'🚀', key:'🖱', kind:'click', cd:1.1},
+  b_b2:     {name:'B2 Bomber', e:'🛩️', key:'1', kind:'aim', cd:40, range:80, r:5},
+  b_nuke:   {name:'Nuke', e:'☢️', key:'2', kind:'throw', cd:25, range:60, r:4.5},
+  b_doom:   {name:'World-Ending Nuke', e:'💥', key:'3', kind:'throw', cd:120, range:50, r:14},
+  b_air:    {name:'Airstrike', e:'✈️', key:'4', kind:'aim', cd:30, range:90, r:7},
+  b_cluster:{name:'Cluster Bomb', e:'🎆', key:'5', kind:'aim', cd:18, range:80, r:9},
+  b_fire:   {name:'Fire Bomb', e:'🔥', key:'6', kind:'aim', cd:16, range:80, r:7},
+  b_betty:  {name:'Bouncing Betty Brigade', e:'🦵', key:'7', kind:'now', cd:22},
+  b_boomer: {name:'Boomerang Missile', e:'🪃', key:'8', kind:'now', cd:9},
+  b_matry:  {name:'Matryoshka Bomb', e:'🪆', key:'9', kind:'throw', cd:24, range:55, r:8},
+  b_cloud:  {name:'Bomb Rain Cloud', e:'🌧️', key:'0', kind:'target', cd:26},
+  b_reverse:{name:'Reverse Explosion', e:'🌀', key:'Q', kind:'throw', cd:14, range:50, r:9},
+  b_carpet: {name:'Flying Carpet Bomber', e:'🧞', key:'R', kind:'now', cd:40},
+  b_mine:   {name:'Landmines', e:'💮', key:'F', kind:'aim', cd:2.5, range:14, r:1.3, lim:6},
+  b_cracker:{name:'Planet Cracker', e:'⛏️', key:'G', kind:'aim', cd:18, range:60, r:6.5},
+  b_mortar: {name:'Auto Mortar', e:'🎯', key:'T', kind:'aim', cd:35, range:15, r:1.5, lim:1},
+  b_bowl:   {name:'Orbital Bowling', e:'🎳', key:'Z', kind:'aim', cd:30, range:60, r:3},
+  b_magnet: {name:'Bomb Magnet', e:'🧲', key:'X', kind:'aim', cd:20, range:70, r:2.5},
+  b_cargo:  {name:'Emergency Delivery', e:'📦', key:'C', kind:'aim', cd:35, range:80, r:5},
+  b_button: {name:'The Big Red Button', e:'🔴', key:'V', kind:'aim', cd:60, range:12, r:1.2, lim:1},
+  b_carpetx:{name:'Jump off the carpet', e:'🧞', hide:true, cd:0},
+  b_boomx:  {name:'Boomerang catch', e:'🪃', hide:true, cd:0},
+  b_press:  {name:'Press the button', e:'🔴', hide:true, cd:0}
+};
+const BOMBER_KEYS = {}; for (const id in BOMBER) { const k = BOMBER[id].key; if (k && k.length === 1 && /[0-9A-Z]/.test(k)) BOMBER_KEYS[k.toLowerCase()] = id; }
+const B_THROWN = new Set(['b_nuke', 'b_doom', 'b_matry', 'b_reverse']);
+for (const id in BOMBER) if (BOMBER[id].r) TARGET_R[id] = BOMBER[id].r;
+const BX = {bombs:[], fx:[], mines:[], magnets:[], buttons:[], boomers:{}};
+function bomberReset(){ BX.bombs = []; BX.fx = []; BX.mines = []; BX.magnets = []; BX.buttons = []; BX.boomers = {}; }
+function bomberHelp(){
+  return '<b>Click</b> bazooka · <b>1</b> B2 bomber · <b>2</b> nuke · <b>3</b> world-ending nuke · <b>4</b> airstrike · <b>5</b> cluster · <b>6</b> fire bomb<br>' +
+    '<b>7</b> bouncing bettys · <b>8</b> boomerang (press 8 again to catch) · <b>9</b> matryoshka · <b>0</b> rain cloud · <b>Q</b> reverse explosion<br>' +
+    '<b>R</b> flying carpet (Space or R to jump off) · <b>F</b> landmine · <b>G</b> planet cracker · <b>T</b> auto mortar · <b>Z</b> orbital bowling<br>' +
+    '<b>X</b> bomb magnet · <b>C</b> emergency delivery · <b>V</b> big red button (anyone presses it with <b>E</b>) · <b>Tab</b> switch class';
+}
+
+/* ---------- meshes ---------- */
+const BXM = {flame:bmat(0xFFB02E, .9), smoke:0xD9D2C5};
+function noRayAll(g){ g.traverse(o => { o.userData.noRay = true; o.castShadow = false; }); return g; }
+function bombMesh(s, col){
+  const g = new THREE.Group(); sp(.3*s, col || 0x22252B, 0, 0, 0, g, 1);
+  const t = new THREE.Mesh(new THREE.CylinderGeometry(.09*s, .15*s, .32*s, 6), M3(0x3A3F48)); t.rotation.x = Math.PI/2; t.position.z = -.36*s; g.add(t);
+  for (const a of [0, Math.PI/2]) { const f = bx(.46*s, .03*s + .01, .18*s, 0x3A3F48, 0, 0, -.48*s, g); f.rotation.z = a; }
+  const spark = new THREE.Mesh(new THREE.IcosahedronGeometry(.07*s + .02, 0), new THREE.MeshBasicMaterial({color:0xFFD84D})); spark.position.z = .32*s; g.add(spark);
+  return noRayAll(g);
+}
+function rocketMesh(s){
+  const g = new THREE.Group();
+  const b = new THREE.Mesh(new THREE.CylinderGeometry(.09*s, .09*s, .9*s, 8), M3(0x5E6B3A)); b.rotation.x = Math.PI/2; g.add(b);
+  const n = new THREE.Mesh(new THREE.ConeGeometry(.09*s, .3*s, 8), M3(0xD8432F)); n.rotation.x = Math.PI/2; n.position.z = .6*s; g.add(n);
+  for (const a of [0, Math.PI/2]) { const f = bx(.32*s, .02, .18*s, 0x3A3F48, 0, 0, -.38*s, g); f.rotation.z = a; }
+  const fl = new THREE.Mesh(new THREE.ConeGeometry(.1*s, .5*s, 8), BXM.flame); fl.rotation.x = -Math.PI/2; fl.position.z = -.68*s; g.add(fl);
+  return noRayAll(g);
+}
+function dollMesh(s){
+  const g = new THREE.Group(); const body = sp(.62*s, 0xC8232C, 0, 0, 0, g, 1); body.scale.set(1, 1.15, 1);
+  sp(.4*s, 0xF3D7B6, 0, .78*s, 0, g, 1); sp(.42*s, 0xC8232C, 0, .9*s, -.05*s, g, 1).scale.set(1, .8, .9);
+  bx(.5*s, .12*s, .05*s, 0xFFD84D, 0, .05*s, .6*s, g); sp(.06*s, 0x111111, -.12*s, .8*s, .36*s, g, 0); sp(.06*s, 0x111111, .12*s, .8*s, .36*s, g, 0);
+  return noRayAll(g);
+}
+function planeShape(pts){ const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) s.lineTo(pts[i][0], pts[i][1]); return s; }
+function b2Mesh(){
+  const half = [[0, 7], [12, -2.5], [9, -4.2], [6, -2.7], [3, -4.2], [0, -3]], pts = half.concat(half.slice(1, -1).reverse().map(([x, y]) => [-x, y]));
+  const geo = new THREE.ExtrudeGeometry(planeShape(pts), {depth:.6, bevelEnabled:false}); geo.rotateX(Math.PI/2); geo.translate(0, .3, 0);
+  const g = new THREE.Group(); g.add(new THREE.Mesh(geo, M3(0x2B2F36))); sp(1.3, 0x3A3F48, 0, .3, 2.5, g, 1).scale.set(1, .45, 1.8);
+  return noRayAll(g);
+}
+function jetMesh(){
+  const g = new THREE.Group(); const f = new THREE.Mesh(new THREE.CylinderGeometry(.35, .5, 6, 8), M3(0x8A939C)); f.rotation.x = Math.PI/2; g.add(f);
+  const n = new THREE.Mesh(new THREE.ConeGeometry(.35, 1.4, 8), M3(0x6B7480)); n.rotation.x = Math.PI/2; n.position.z = 3.7; g.add(n);
+  const wing = new THREE.ExtrudeGeometry(planeShape([[0, 1.2], [3.6, -1.4], [3.6, -1.9], [0, -1.6], [-3.6, -1.9], [-3.6, -1.4]]), {depth:.12, bevelEnabled:false}); wing.rotateX(Math.PI/2); g.add(new THREE.Mesh(wing, M3(0x6B7480)));
+  bx(.12, 1.3, 1.1, 0x6B7480, 0, .7, -2.3, g); sp(.3, 0x4FC3FF, 0, .35, 1.6, g, 1).scale.set(1, .7, 2);
+  const fl = new THREE.Mesh(new THREE.ConeGeometry(.35, 1.4, 8), BXM.flame); fl.rotation.x = -Math.PI/2; fl.position.z = -3.6; g.add(fl);
+  return noRayAll(g);
+}
+function cargoMesh(){
+  const g = new THREE.Group(); const f = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.4, 16, 10), M3(0x6B7A4A)); f.rotation.x = Math.PI/2; g.add(f);
+  sp(1.6, 0x6B7A4A, 0, 0, 8, g, 1).scale.set(1, 1, .8);
+  bx(22, .3, 3, 0x5A6840, 0, .9, 1, g); bx(7, .25, 2, 0x5A6840, 0, .6, -7, g); bx(.25, 3, 2.2, 0x5A6840, 0, 2, -7, g);
+  for (const x of [-7, -3.5, 3.5, 7]) { const e = new THREE.Mesh(new THREE.CylinderGeometry(.5, .5, 2, 8), M3(0x3A3F48)); e.rotation.x = Math.PI/2; e.position.set(x, .4, 2.2); g.add(e); }
+  return noRayAll(g);
+}
+function carpetMesh(){
+  const g = new THREE.Group(); bx(1.6, .07, 2.5, 0xB3262E, 0, 0, 0, g); bx(1.3, .075, 2.2, 0xE0A63A, 0, 0, 0, g); bx(1, .08, 1.9, 0x6A1F7A, 0, 0, 0, g);
+  for (const s of [-1, 1]) for (const x of [-.6, 0, .6]) bx(.06, .04, .3, 0xFFD84D, x, 0, s*1.38, g);
+  return noRayAll(g);
+}
+function barrelMesh(){
+  const g = new THREE.Group(); const c = new THREE.Mesh(new THREE.CylinderGeometry(.45, .45, 1.1, 12), M3(0xC8232C)); g.add(c);
+  for (const y of [-.3, .3]) { const r = new THREE.Mesh(new THREE.TorusGeometry(.46, .04, 4, 16), M3(0x3A3F48)); r.rotation.x = Math.PI/2; r.position.y = y; g.add(r); }
+  bx(.5, .3, .02, 0xFFD84D, 0, 0, .46, g);
+  return noRayAll(g);
+}
+// a pulsing ring on the ground that says "something is about to land here"
+function warnRing(p, R, col){ const m = new THREE.Mesh(new THREE.RingGeometry(R*.88, R, 40), bmat(col || 0xFF3B30, .7)); m.rotation.x = -Math.PI/2; m.position.set(p.x, groundH(p.x, p.z) + .07, p.z); m.userData.noRay = true; roundGroup.add(m); return m; }
+function textSprite(){
+  const c = document.createElement('canvas'); c.width = 256; c.height = 96; const tex = new THREE.CanvasTexture(c);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, transparent:true, depthWrite:false, depthTest:false})); s.renderOrder = 40; s.scale.set(3.2, 1.2, 1); s.userData.noRay = true;
+  s.userData.set = (txt, col) => { if (s.userData.last === txt + col) return; s.userData.last = txt + col; const x = c.getContext('2d'); x.clearRect(0, 0, 256, 96); x.font = '900 54px Nunito, system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineWidth = 9; x.strokeStyle = '#05090D'; x.strokeText(txt, 128, 48); x.fillStyle = col || '#FFFFFF'; x.fillText(txt, 128, 48); tex.needsUpdate = true; };
+  return s;
+}
+function puff(p, col, s){ const m = pmesh('oct', (s || .25)*rr(.7, 1.3), bmat(col || 0xD9D2C5, .6)); m.position.set(p.x + rr(-.1, .1), p.y + rr(-.1, .1), p.z + rr(-.1, .1)); m.userData.noRay = true; roundGroup.add(m); fx.push({mesh:m, v:V3(rr(-.4, .4), rr(.3, 1.2), rr(-.4, .4)), r:V3(1, 1, 0), life:.45}); }
+
+/* ---------- targets and hits ---------- */
+// everyone this owner's powers go after, as seen on this screen (plus practice dummies)
+function bEnemies(key, team){
+  const out = [];
+  for (const k in chars) { const P = chars[k]; if (!P || k === key || P.alive === false || (team && P.team === team)) continue; out.push({id:k, pos:P.body.position}); }
+  PAIN.dummies.forEach((o, i) => { if (!o.dead) out.push({id:'d' + i, pos:o.body.position}); });
+  return out;
+}
+function bNearest(key, team, at, R){ let best = null, bd = R; for (const e of bEnemies(key, team)) { const d = hdist(e.pos, at); if (d < bd) { bd = d; best = e; } } return best; }
+// the enemy closest to the crosshair, up to `range` metres away
+function bPickTarget(range){
+  const me = localP(); if (!me) return null;
+  const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd);
+  let best = null, bestA = .4;
+  for (const e of bEnemies(G.localKey, me.team)) { const d = hdist(e.pos, me.body.position); if (d > range || d < 1.5) continue; const v = V3(e.pos.x, e.pos.y + 1, e.pos.z).sub(camera.position).normalize(), a = Math.acos(clamp(v.dot(fwd), -1, 1)); if (a < bestA) { bestA = a; best = e.id; } }
+  return best;
+}
+// is a point inside a tree, rock, ruin or heavy object?
+function bSolid(p, r){
+  for (const pr of props) {
+    if (pr.dead || Math.abs(pr.x - p.x) > 6 || Math.abs(pr.z - p.z) > 6) continue;
+    const dx = p.x - pr.x, dz = p.z - pr.z;
+    if (pr.kind === 'tree') { if (p.y < pr.y + 4*pr.s && Math.hypot(dx, dz) < (p.y > pr.y + 1.6*pr.s ? .9*pr.s : .3*pr.s) + r) return true; }
+    else if (pr.kind === 'rock') { if (Math.hypot(dx, p.y - (pr.y + pr.r*.55), dz) < pr.r*.9 + r) return true; }
+    else { const a = pr.mesh.rotation.y, c = Math.cos(a), s = Math.sin(a), lx = dx*c - dz*s, lz = dx*s + dz*c; if (Math.abs(lx) < pr.hx + r && Math.abs(lz) < pr.hz + r && p.y < pr.y + pr.hy*2 + .2) return true; }
+  }
+  for (const o of objs) {
+    if (o.dead || !(o.body.mass > 300) || isCarried(o)) continue;
+    const b = o.body; if (b.aabbNeedsUpdate) b.computeAABB(); const A = b.aabb;
+    if (p.x > A.lowerBound.x - r && p.x < A.upperBound.x + r && p.y > A.lowerBound.y - r && p.y < A.upperBound.y + r && p.z > A.lowerBound.z - r && p.z < A.upperBound.z + r) return true;
+  }
+  return false;
+}
+// an explosion: terrain, props, loose objects and the egg through blastAt; players only on their own screen
+function bBoom(at, R, dmg, kb, owner, team, o){
+  o = o || {};
+  const gy = groundH(at.x, at.z); at = V3(at.x, Math.max(at.y, gy + .25), at.z);
+  G.blastNoPlayers = true; try { blastAt(at, R, Math.min(40, kb*.9 + 4), o.killR != null ? o.killR : R*.32, 'bomber'); } finally { G.blastNoPlayers = false; }
+  const P = victimFor(owner, team);
+  if (P) { const b = P.body, c = V3(b.position.x, b.position.y + 1, b.position.z), d = c.distanceTo(at);
+    if (d < R + .4) { const f = clamp(1 - d/(R + .4), 0, 1), away = c.clone().sub(at).setY(0); if (away.lengthSq() < .01) away.set(Math.sin(G.yaw), 0, Math.cos(G.yaw)); away.normalize();
+      painHurt(P, dmg*(.3 + .7*f), owner); knock(P, away.x*kb*(.4 + .6*f), (o.up || 4) + kb*.3*f, away.z*kb*(.4 + .6*f), .3 + .3*f); } }
+  PAIN.dummies.forEach(dm => { if (!dm.dead && dm.body.position.distanceTo(at) < R + 1) dummyHit(dm.body, dmg); });
+  if (!o.quiet) { boomVisual(at, !!o.mush, o.size || clamp(R/9, .14, 1.4), o.pal); sfx(o.snd || (R > 5 ? 'boom' : 'bboom')); shakeAt(at, clamp(R/6, .15, 1.6), 25 + R*4); }
+}
+/* flying bombs: {p, v, m, owner, team, R, dmg, kb, g (gravity scale), r (hit radius), fuse, arm, drag, trail, splitAt, onHit, onSplit, fx} */
+function addBomb(o){
+  o.age = 0; o.dead = false; if (o.g == null) o.g = 1; if (o.r == null) o.r = .35;
+  o.m.position.copy(o.p); roundGroup.add(o.m); BX.bombs.push(o);
+  if (BX.bombs.length > 160) { const old = BX.bombs.find(b => !b.dead); if (old) { old.dead = true; roundGroup.remove(old.m); } }
+  return o;
+}
+function bombHit(b, at){ if (b.onHit) b.onHit(b, at); else bBoom(at, b.R || 3, b.dmg || 10, b.kb || 8, b.owner, b.team, b.fx); }
+function updateBombs(dt){
+  for (const b of BX.bombs) {
+    if (b.dead) continue;
+    b.age += dt;
+    for (const mg of BX.magnets) { if (mg.done || b.magnet === false) continue; const d = mg.p.distanceTo(b.p); if (d < mg.R && d > .6) b.v.addScaledVector(mg.p.clone().sub(b.p).normalize(), (40*(1 - d/mg.R) + 14)*dt); }
+    if (b.drag) b.v.multiplyScalar(Math.max(0, 1 - b.drag*dt));
+    b.v.y += world.gravity.y*b.g*dt;
+    const a = b.p, n = a.clone().addScaledVector(b.v, dt), gy = groundH(n.x, n.z);
+    let hit = null;
+    if (b.splitAt != null && n.y - gy < b.splitAt) { b.dead = true; roundGroup.remove(b.m); b.onSplit(b, n); continue; }
+    if (b.fuse != null && b.age >= b.fuse) hit = a.clone();
+    else if (n.y <= gy + b.r) hit = V3(n.x, gy + .1, n.z);
+    else if (b.age > 25 || Math.abs(n.x) > ISL + 40 || Math.abs(n.z) > ISL + 40) { b.dead = true; roundGroup.remove(b.m); continue; }
+    else if (domeUp() && inDome(n) && !inDome(a)) hit = a.clone();
+    else if (b.age > (b.arm || .06)) {
+      for (const e of bEnemies(b.owner, b.team)) { if (segDist(a, n, V3(e.pos.x, e.pos.y + 1, e.pos.z)) < b.r + .55) { hit = n.clone(); break; } }
+      if (!hit && egg && egg.alive && segDist(a, n, V3(egg.body.position.x, egg.body.position.y, egg.body.position.z)) < b.r + .45) hit = n.clone();
+      if (!hit && bSolid(n, b.r)) hit = a.clone();
+    }
+    if (hit) { b.dead = true; roundGroup.remove(b.m); bombHit(b, hit); continue; }
+    b.p.copy(n); b.m.position.copy(n);
+    if (b.face !== false && b.v.lengthSq() > .25) { b.m.lookAt(n.x + b.v.x, n.y + b.v.y, n.z + b.v.z); if (b.spin) b.m.rotateZ(b.age*b.spin); }
+    if (b.trail && Math.random() < .75) puff(b.p, b.trail, b.trailS);
+  }
+  BX.bombs = BX.bombs.filter(b => !b.dead);
+}
+// how fast to launch something from a to land on b after T seconds
+function lobVel(a, b, T){ const gy = world.gravity.y; return V3((b.x - a.x)/T, (b.y - a.y)/T - .5*gy*T, (b.z - a.z)/T); }
+function fxAdd(e){ BX.fx.push(e); return e; }
+function skyFall(p, h, vy){ const g = groundH(p.x, p.z); return {p:V3(p.x, g + h, p.z), v:V3(0, -(vy || 30), 0)}; }
+
+/* ---------- input ---------- */
+function bomberUse(id){
+  const d = BOMBER[id], P = localP(); if (!d || d.hide || !P || P.alive === false || P.stun > 0 || P.lockT > 0) return;
+  if (G.phase !== 'attack' || (G.egg && G.egg.over)) return;
+  if (amDefender() && id !== 'b_bazooka') { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('🛡️ Defenders only get the bazooka (click).'); } return; }
+  if (id === 'b_bazooka') { fireBazooka(); return; }
+  if (id === 'b_boomer' && BX.boomers[G.localKey]) { boomerCatch(); return; }
+  if (id === 'b_carpet' && P.carpet) { carpetOff(); return; }
+  if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
+  if (d.kind === 'aim' || d.kind === 'throw') { setTargeting(id); return; }
+  if (G.spCd > 0) return; G.spCd = .2;
+  if (id === 'b_cloud') { const tg = bPickTarget(80); localCast(id, aimPoint(80), {tg}); return; }
+  localCast(id, null, id === 'b_button' ? {} : null);
+}
+function fireBazooka(){
+  if ((G.cd.b_bazooka || 0) > 0 || G.spCd > 0) return;
+  const P = localP(); if (!P || P.alive === false || P.stun > 0) return;
+  G.spCd = .1; localCast('b_bazooka', aimPoint(90));
+}
+function bomberKeyDown(k){
+  if (k === 'b' || k === 'tab') return false;
+  const id = BOMBER_KEYS[k]; if (!id) return false;
+  bomberUse(id); return true;
+}
+function bomberOwnerDied(id){
+  const P = chars[id];
+  if (P && P.carpet) { if (P.carpet.mesh.parent) P.carpet.mesh.parent.remove(P.carpet.mesh); P.carpet = null; }
+  const bm = BX.boomers[id]; if (bm) { bm.done = true; roundGroup.remove(bm.m); delete BX.boomers[id]; }
+}
+
+/* ---------- dispatch ---------- */
+function runBomber(id, p, x){
+  const ci = casterInfo(); if (!ci.C) return;
+  ci.rng = mulberry32((p ? seedOf(p) : seedOf(ci.pos)) ^ 0xB0B);
+  switch (id) {
+    case 'b_bazooka': bBazooka(ci, p); break;
+    case 'b_b2': if (p) bB2(ci, p); break;
+    case 'b_nuke': if (p) { throwSkill('nuke', p); toast('☢️ Nuke thrown!'); } break;
+    case 'b_doom': if (p) bDoom(ci, p); break;
+    case 'b_air': if (p) bAir(ci, p); break;
+    case 'b_cluster': if (p) bCluster(ci, p); break;
+    case 'b_fire': if (p) bFire(ci, p); break;
+    case 'b_betty': bBetty(ci); break;
+    case 'b_boomer': bBoomer(ci); break;
+    case 'b_boomx': boomerEnd(ci, x, p); break;
+    case 'b_matry': if (p) bMatry(ci, p); break;
+    case 'b_cloud': bCloud(ci, p, x); break;
+    case 'b_reverse': if (p) bReverse(ci, p); break;
+    case 'b_carpet': bCarpet(ci); break;
+    case 'b_carpetx': bCarpetOff(ci, x); break;
+    case 'b_mine': if (p) bMine(ci, p); break;
+    case 'b_cracker': if (p) bCracker(ci, p); break;
+    case 'b_mortar': if (p) bMortar(ci, p); break;
+    case 'b_bowl': if (p) bBowl(ci, p); break;
+    case 'b_magnet': if (p) bMagnet(ci, p); break;
+    case 'b_cargo': if (p) bCargo(ci, p); break;
+    case 'b_button': if (p) bButton(ci, p, x); break;
+    case 'b_press': bPress(ci, x); break;
+  }
+  if (!BOMBER[id].hide && ci.C && id !== 'b_bazooka') ci.C.castPose = Math.max(ci.C.castPose || 0, .3);
+}
+
+/* 1. Bazooka */
+function bBazooka({key, C, team, pos, yaw}, p){
+  const f = V3(Math.sin(yaw), 0, Math.cos(yaw)), start = V3(pos.x + f.x*.7 + f.z*.35, pos.y + 1.55, pos.z + f.z*.7 - f.x*.35);
+  const dir = p ? p.clone().sub(start).normalize() : f;
+  addBomb({p:start, v:dir.clone().multiplyScalar(58), g:.05, m:rocketMesh(1), owner:key, team, r:.3, R:4.2, dmg:24, kb:20, trail:0xD9D2C5, trailS:.2, arm:.03, fx:{snd:'bboom', pal:{ball:0xFF7A2E, core:0xFFF3B0, ring:0xFFFFFF}}});
+  for (let i = 0; i < 4; i++) puff(start, 0xEDE6D8, .3);
+  C.pushPose = .25; sfx('rocket');
+}
+/* 2. B2 Bomber: flies along your facing over the target and carpets it with heavy bombs */
+function bB2({key, team, yaw}, p){
+  const d = V3(Math.sin(yaw), 0, Math.cos(yaw)), H = groundH(p.x, p.z) + 34, speed = 50, start = p.clone().addScaledVector(d, -120);
+  const plane = b2Mesh(); plane.rotation.y = yaw; roundGroup.add(plane);
+  const shadow = new THREE.Mesh(new THREE.CircleGeometry(6, 3), bmat(0x000000, .25)); shadow.rotation.x = -Math.PI/2; shadow.userData.noRay = true; roundGroup.add(shadow);
+  const ring = warnRing(p, 5);
+  const drops = []; for (let s = -15; s <= 15.01; s += 3.75) drops.push(s);
+  let t = 0, di = 0; sfx('jet');
+  fxAdd({update(dt){
+    t += dt; const along = -120 + speed*t, at = p.clone().addScaledVector(d, along); at.y = H;
+    plane.position.copy(at); shadow.position.set(at.x, groundH(at.x, at.z) + .1, at.z); ring.material.opacity = .4 + Math.sin(t*12)*.3;
+    while (di < drops.length && along >= drops[di] - 2) {
+      const q = at.clone(); q.y -= 1; di++;
+      addBomb({p:q, v:d.clone().multiplyScalar(4).setY(-3), g:1, drag:.2, m:bombMesh(1.5), owner:key, team, r:.5, R:5.5, dmg:30, kb:18, fx:{size:.7}});
+      if (di === 1) sfx('whistle');
+    }
+    if (di >= drops.length && ring.parent) roundGroup.remove(ring);
+    if (along > 140) { roundGroup.remove(plane); roundGroup.remove(shadow); if (ring.parent) roundGroup.remove(ring); return false; }
+  }});
+  toast('🛩️ B2 bomber inbound!');
+}
+/* 4. World-Ending Nuke: thrown, sits ticking for 4 s, then flash, shockwave and mushroom cloud */
+function bDoom({key, team}, p){
+  const a = throwStart(); if (!a) return;
+  const {T, vel} = ballistic(a, p, 'b_doom');
+  const m = bombMesh(3.4, 0x4A5A2A); const band = new THREE.Mesh(new THREE.TorusGeometry(1.05, .12, 6, 24), M3(0xFFD84D)); band.rotation.y = Math.PI/2; m.add(band);
+  addBomb({p:a, v:vel, m, owner:key, team, r:1, face:false, magnet:false, onHit:(b, at) => doomPlant(at, key, team)});
+  sfx('fire'); sfx('siren'); toast('💥 WORLD-ENDING NUKE THROWN. Everyone run.');
+}
+function doomPlant(at, key, team){
+  const m = bombMesh(3.4, 0x4A5A2A); m.position.set(at.x, groundH(at.x, at.z) + 1.1, at.z); m.rotation.x = -Math.PI/2; roundGroup.add(m);
+  const light = new THREE.Mesh(new THREE.IcosahedronGeometry(.35, 1), new THREE.MeshBasicMaterial({color:0xFF2020})); light.position.set(0, 0, 1.15); m.add(light);
+  const ring = warnRing(at, 30), label = textSprite(); label.position.set(at.x, groundH(at.x, at.z) + 4.5, at.z); roundGroup.add(label);
+  let t = 0, beep = 0, waveR = -1, wave = null, hitWave = false; const FUSE = 4;
+  fxAdd({update(dt){
+    t += dt;
+    if (t < FUSE) { const left = FUSE - t; label.userData.set(left.toFixed(1), '#FF4B3E'); light.visible = Math.sin(t*(6 + t*6)) > 0; ring.material.opacity = .3 + Math.sin(t*10)*.3; beep -= dt; if (beep <= 0) { beep = Math.max(.12, left*.25); sfx('beep'); } return true; }
+    if (!wave) {
+      roundGroup.remove(m); roundGroup.remove(ring); roundGroup.remove(label);
+      flash(1, 3); sfx('boom'); setTimeout(() => sfx('boom'), 300); setTimeout(() => sfx('thunder'), 600); tintSky(0xFF9A5A, 6);
+      bBoom(V3(at.x, at.y + 1, at.z), 30, 95, 34, key, team, {mush:true, size:3.2, killR:12, up:12, snd:'boom'});
+      debris(at, 30, [0x4A3B35, 0x6B5A4E, 0xFF7A2E]);
+      wave = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 20, 0, Math.PI*2, 0, Math.PI/2), bmat(0xFFE2B0, .35)); wave.position.set(at.x, groundH(at.x, at.z), at.z); wave.userData.noRay = true; roundGroup.add(wave);
+      shockRing(at, 75, 1.8); shakeAt(at, 3, 160); waveR = 0;
+    }
+    // the shockwave front keeps rolling outward and throws anyone it reaches
+    waveR += dt*48; wave.scale.set(waveR, waveR*.35, waveR); wave.material.opacity = Math.max(0, .35*(1 - waveR/75));
+    const P = victimFor(key, team); if (P && !hitWave) { const d = hdist(P.body.position, at); if (d < waveR && d > 30) { hitWave = true; const away = V3(P.body.position.x - at.x, 0, P.body.position.z - at.z).normalize(); painHurt(P, 15, key); knock(P, away.x*20, 9, away.z*20, .6); } }
+    if (waveR > 75) { roundGroup.remove(wave); return false; }
+  }});
+}
+/* 5. Airstrike: three fighter jets each fire missiles into the marked area */
+function bAir({key, team, rng}, p){
+  const ring = warnRing(p, 7), base = rng()*Math.PI*2;
+  sfx('jet'); toast('✈️ Airstrike called in!');
+  for (let j = 0; j < 3; j++) {
+    const a = base + (j - 1)*.35, d = V3(Math.sin(a), 0, Math.cos(a)), side = V3(d.z, 0, -d.x), H = groundH(p.x, p.z) + 26, jet = jetMesh(); jet.rotation.y = a; jet.visible = false; roundGroup.add(jet);
+    const off = (j - 1)*6, spots = [0, 1, 2].map(() => V3(p.x + (rng() - .5)*12, 0, p.z + (rng() - .5)*12));
+    let t = -j*.55, fired = 0;
+    fxAdd({update(dt){
+      t += dt; if (t < 0) return true;
+      const along = -110 + 75*t, at = p.clone().addScaledVector(d, along).addScaledVector(side, off); at.y = H - Math.max(0, 1 - Math.abs(along)/60)*6;
+      jet.visible = true; jet.position.copy(at); jet.rotation.z = Math.sin(t*3)*.15;
+      while (fired < 3 && along > -48 + fired*7) { const q = spots[fired++]; q.y = groundH(q.x, q.z); const v = q.clone().sub(at).normalize().multiplyScalar(62);
+        addBomb({p:at.clone().setY(at.y - 1), v, g:.05, m:rocketMesh(1.1), owner:key, team, r:.3, R:4.2, dmg:20, kb:14, trail:0xE6E0D4, trailS:.22}); sfx('rocket'); }
+      if (j === 2 && fired >= 3 && ring.parent) roundGroup.remove(ring); else if (ring.parent) ring.material.opacity = .35 + Math.sin(G.t*12)*.3;
+      if (along > 130) { roundGroup.remove(jet); return false; }
+    }});
+  }
+}
+/* 6. Cluster Bomb: splits high up into two dozen bomblets */
+function bCluster({key, team, rng}, p){
+  const s = skyFall(p, 70, 34), ring = warnRing(p, 9, 0xFFB02E);
+  addBomb({p:s.p, v:s.v, m:bombMesh(1.6, 0x5A6170), owner:key, team, r:.5, trail:0xE6E0D4, splitAt:16, onSplit:(b, at) => {
+    roundGroup.remove(ring); sfx('pop'); boomVisual(at, false, .25, {ball:0xFFD84D, core:0xFFFFFF, ring:0xFFB02E}); shockRing(at, 6, .35, 0xFFD84D);
+    for (let i = 0; i < 24; i++) { const a = rng()*Math.PI*2, r = 1 + rng()*5.5;
+      addBomb({p:at.clone(), v:V3(Math.cos(a)*r, -4 - rng()*6, Math.sin(a)*r), m:bombMesh(.45, 0x8A939C), owner:key, team, r:.2, R:3, dmg:11, kb:9, arm:.25, fx:{size:.22, snd:'bboom'}}); }
+  }});
+  sfx('whistle'); toast('🎆 Cluster bomb away!');
+}
+/* 7. Fire Bomb: an incendiary that leaves a spreading field of fire */
+function bFire({key, team, rng}, p){
+  const s = skyFall(p, 60, 32), m = bombMesh(1.4, 0xC8232C);
+  addBomb({p:s.p, v:s.v, m, owner:key, team, r:.45, trail:0xFF8A2E, trailS:.3, onHit:(b, at) => {
+    bBoom(at, 5, 18, 10, key, team, {pal:{ball:0xFF5A1F, core:0xFFE14D, ring:0xFF9A2E}, snd:'fireball'});
+    const scorch = new THREE.Mesh(new THREE.CircleGeometry(1, 32), bmat(0x3A1A0A, .55)); scorch.rotation.x = -Math.PI/2; scorch.position.set(at.x, groundH(at.x, at.z) + .05, at.z); scorch.userData.noRay = true; roundGroup.add(scorch);
+    const glow = new THREE.Mesh(new THREE.RingGeometry(.8, 1, 40), bmat(0xFF6A1F, .6)); glow.rotation.x = -Math.PI/2; glow.position.copy(scorch.position); glow.position.y += .02; glow.userData.noRay = true; roundGroup.add(glow);
+    let t = 0, spawn = 0, tick = 0; const DUR = 8;
+    fxAdd({update(dt){
+      t += dt; const R = Math.min(8, 3 + t*2.2), fade = t > DUR - 1 ? Math.max(0, DUR - t) : 1;
+      scorch.scale.setScalar(R); glow.scale.setScalar(R); glow.material.opacity = .6*fade*(.7 + Math.sin(t*9)*.3);
+      spawn -= dt; if (spawn <= 0 && t < DUR - .5) { spawn = .07; const a = rng()*Math.PI*2, r = Math.sqrt(rng())*R, q = V3(at.x + Math.cos(a)*r, 0, at.z + Math.sin(a)*r); q.y = groundH(q.x, q.z);
+        const f = new THREE.Mesh(new THREE.ConeGeometry(rr(.25, .5), rr(.8, 1.8), 6), bmat(pick([0xFF6A1F, 0xFFB02E, 0xFF3B1F]), .85)); f.position.set(q.x, q.y + .5, q.z); f.userData.noRay = true; roundGroup.add(f);
+        booms.push({t:0, parts:[f], custom(bm){ f.scale.y = 1 + Math.sin(bm.t*20)*.3; f.position.y += .01; f.material.opacity = Math.max(0, .85 - bm.t*1.2); return bm.t > .7; }}); }
+      tick -= dt; if (tick <= 0) { tick = .25;
+        const P = victimFor(key, team); if (P && hdist(P.body.position, at) < R && P.body.position.y - groundH(P.body.position.x, P.body.position.z) < 2.5) { painHurt(P, 3.5, key); G.hurtFlash = Math.min(1, (G.hurtFlash || 0) + .15); }
+        if ((t*4 | 0) % 3 === 0) PAIN.dummies.forEach(dm => { if (!dm.dead && hdist(dm.body.position, at) < R) dummyHit(dm.body, 10); });
+        if (Math.random() < .5) sfx('crackle'); }
+      if (t > DUR) { roundGroup.remove(scorch); roundGroup.remove(glow); return false; }
+    }});
+  }});
+  sfx('whistle'); toast('🔥 Fire bomb!');
+}
+/* 8. Bouncing Betty Brigade: little bombs on legs that hop after enemies */
+function bBetty({key, team, pos, yaw, rng}){
+  for (let i = 0; i < 6; i++) {
+    const a = yaw + (i - 2.5)*.5, q = V3(pos.x + Math.sin(a)*1.6, 0, pos.z + Math.cos(a)*1.6); q.y = groundH(q.x, q.z) + .3;
+    const g = bombMesh(.85, 0x2B2F36); const legs = [-1, 1].map(s => { const l = bx(.06, .45, .06, 0xFFB02E, s*.14, -.3, 0, g); return l; });
+    for (const s of [-1, 1]) sp(.07, 0xFFFFFF, s*.1, .12, .24, g, 0);
+    g.position.copy(q); roundGroup.add(g);
+    const bt = {p:q, v:V3(0, 4 + rng()*2, 0), t:0, fuse:9 + rng(), hop:rng()*.3};
+    fxAdd({update(dt){
+      bt.t += dt; bt.v.y += world.gravity.y*dt; bt.p.addScaledVector(bt.v, dt);
+      const gy = groundH(bt.p.x, bt.p.z) + .3;
+      const tg = bNearest(key, team, bt.p, 45), tp = tg ? tg.pos : null;
+      let boom = bt.t > bt.fuse;
+      if (bt.p.y <= gy) { bt.p.y = gy;
+        if (tp) { const d = V3(tp.x - bt.p.x, 0, tp.z - bt.p.z), dist = d.length(); d.normalize(); if (dist < 2.4) { bt.v.set(d.x*9, 5.5, d.z*9); bt.leap = true; } else { bt.v.set(d.x*7.5, 4 + rng()*1.5, d.z*7.5); } if (bt.leap && bt.t > .3 && dist < 1.6) boom = true; }
+        else { bt.v.set(Math.sin(yaw)*5, 3.5, Math.cos(yaw)*5); }
+        if (rng() < .3) sfx('beep');
+      }
+      if (tp && Math.hypot(tp.x - bt.p.x, tp.y + .8 - bt.p.y, tp.z - bt.p.z) < 1.2) boom = true;
+      g.position.copy(bt.p); g.rotation.y = Math.atan2(bt.v.x, bt.v.z); const sw = Math.sin(bt.t*22)*.6; legs[0].rotation.x = sw; legs[1].rotation.x = -sw;
+      if (boom) { roundGroup.remove(g); bBoom(bt.p, 3.6, 20, 14, key, team, {size:.32, snd:'bboom'}); return false; }
+    }});
+  }
+  sfx('beep'); toast('🦵 Bouncing Betty Brigade, go!');
+}
+/* 9. Boomerang Missile: loops out through enemies and comes back; press 8 again near you to catch it */
+function bBoomer({key, team, pos, yaw}){
+  if (BX.boomers[key]) return;
+  const f = V3(Math.sin(yaw), 0, Math.cos(yaw)), side = V3(f.z, 0, -f.x), start = V3(pos.x, pos.y + 1.4, pos.z), m = rocketMesh(1.4); roundGroup.add(m);
+  const bm = BX.boomers[key] = {m, t:0, p:start.clone(), hit:{}, phase:'out', ret:0, minD:99, done:false};
+  const OUT = 2, D = 30, W = 9;
+  fxAdd({update(dt){
+    if (bm.done) return false;
+    bm.t += dt; const prev = bm.p.clone();
+    if (bm.phase === 'out') {
+      const s = Math.min(1, bm.t/OUT), q = start.clone().addScaledVector(f, D*Math.sin(Math.PI*s)).addScaledVector(side, W*Math.sin(2*Math.PI*s)*.5 + W*Math.sin(Math.PI*s)*.5);
+      q.y = Math.max(groundH(q.x, q.z) + 1.3, start.y); bm.p.copy(q); if (s >= 1) bm.phase = 'back';
+    } else {
+      const O = chars[key], tgt = O && O.alive !== false ? V3(O.body.position.x, O.body.position.y + 1.4, O.body.position.z) : start;
+      const dir = tgt.clone().sub(bm.p), dist = dir.length(); bm.p.addScaledVector(dir.normalize(), Math.min(dist, 26*dt)); bm.ret += dt;
+      if (key === G.localKey) {
+        if (dist < 3.2 && !bm.prompt) { bm.prompt = true; toast('🪃 Catch it! Press 8'); sfx('beep'); }
+        bm.minD = Math.min(bm.minD, dist);
+        // the caster's screen decides a miss and tells everyone where it lands
+        if ((bm.minD < 3.2 && bm.ret > .9) || bm.ret > 3) { const fw = dir.clone().setY(0).normalize(), land = bm.p.clone().addScaledVector(fw, 4); land.y = groundH(land.x, land.z); localCast('b_boomx', land, {k:2}); return false; }
+      } else if (bm.ret > 5) { roundGroup.remove(bm.m); delete BX.boomers[key]; return false; }
+    }
+    m.position.copy(bm.p); const v = bm.p.clone().sub(prev); if (v.lengthSq() > 1e-6) { m.lookAt(bm.p.clone().add(v)); m.rotateZ(bm.t*14); }
+    if (Math.random() < .8) puff(bm.p, 0xFF9A8F, .22);
+    // it cuts straight through anyone in its path
+    const P = victimFor(key, team); if (P && !bm.hit.me && V3(P.body.position.x, P.body.position.y + 1, P.body.position.z).distanceTo(bm.p) < 1.7) { bm.hit.me = true; const s = V3(bm.p.x - prev.x, 0, bm.p.z - prev.z).normalize(); painHurt(P, 18, key); knock(P, s.x*12, 6, s.z*12, .4); sfx('bonk'); }
+    PAIN.dummies.forEach((dm, i) => { if (!dm.dead && !bm.hit['d' + i] && V3(dm.body.position.x, dm.body.position.y + 1, dm.body.position.z).distanceTo(bm.p) < 1.9) { bm.hit['d' + i] = true; dummyHit(dm.body, 18); dm.body.velocity.x += (bm.p.x - prev.x)*20; dm.body.velocity.z += (bm.p.z - prev.z)*20; dm.body.velocity.y += 5; } });
+  }});
+  sfx('rocket'); if (key === G.localKey) toast('🪃 Boomerang missile out. Press 8 when it comes back to catch it.');
+}
+function boomerCatch(){
+  const bm = BX.boomers[G.localKey]; if (!bm || bm.phase !== 'back') { toast('🪃 It is still on its way out.'); return; }
+  const me = localP(); if (!me || V3(me.body.position.x, me.body.position.y + 1.4, me.body.position.z).distanceTo(bm.p) > 4) { toast('🪃 Too far. Let it get closer.'); return; }
+  localCast('b_boomx', null, {k:1});
+}
+function boomerEnd({key, team}, x, p){
+  const bm = BX.boomers[key]; if (!bm) return;
+  bm.done = true; roundGroup.remove(bm.m); delete BX.boomers[key];
+  if (x && x.k === 1) { sparkle(bm.p, 0xFFD84D); sfx('grab'); if (key === G.localKey) { G.cd.b_boomer = 0; toast('🪃 Caught! Cooldown reset.'); } }
+  else { const at = p || bm.p; bBoom(at, 5, 26, 18, key, team, {size:.5}); if (key === G.localKey) toast('🪃 Missed the catch. It blew up where it landed.'); }
+}
+/* 10. Matryoshka Bomb: three waves, each bomb hatching smaller ones */
+function bMatry({key, team, rng}, p){
+  const a = throwStart(); if (!a) return;
+  const {vel} = ballistic(a, p, 'b_matry');
+  const wave = (q, v, lvl) => addBomb({p:q, v, m:dollMesh([1.2, .7, .42][lvl]), owner:key, team, r:[.7, .4, .25][lvl], arm:lvl ? .3 : .1, face:false, magnet:true,
+    onHit:(b, at) => {
+      bBoom(at, [6.5, 4.4, 3][lvl], [26, 16, 9][lvl], [18, 12, 8][lvl], key, team, {size:[.7, .4, .22][lvl], pal:{ball:0xFF5A4F, core:0xFFE14D, ring:0xFFFFFF}, snd:lvl === 2 ? 'pop' : lvl ? 'bboom' : 'boom'});
+      if (lvl < 2) { const n = lvl ? 4 : 5; for (let i = 0; i < n; i++) { const an = (i + rng()*.6)/n*Math.PI*2, sp0 = (lvl ? 6 : 9) + rng()*3; wave(V3(at.x, groundH(at.x, at.z) + .8, at.z), V3(Math.cos(an)*sp0, 8 + rng()*3, Math.sin(an)*sp0), lvl + 1); } }
+    }});
+  wave(a, vel, 0);
+  sfx('fire'); toast('🪆 Matryoshka bomb!');
+}
+/* 11. Bomb Rain Cloud: follows its target and rains small bombs */
+function bCloud({key, team, rng}, p, x){
+  const tg = x && typeof x.tg === 'string' ? x.tg : null;
+  const g = new THREE.Group(); for (let i = 0; i < 8; i++) sp(rr(1.2, 2), new THREE.MeshBasicMaterial({color:pick([0x5B6270, 0x6B7380, 0x4A505C])}), rr(-2.5, 2.5), rr(-.4, .6), rr(-1.6, 1.6), g, 1);
+  noRayAll(g); const home = p ? p.clone() : V3(0, 0, 0); g.position.set(home.x, groundH(home.x, home.z) + 14, home.z); g.scale.setScalar(.1); roundGroup.add(g);
+  let t = 0, drop = .6, zap = 1; const DUR = 9;
+  fxAdd({update(dt){
+    t += dt; const tp = tg ? pullTargetPos(tg) : null, goal = tp ? V3(tp.x, groundH(tp.x, tp.z) + 13, tp.z) : V3(home.x, groundH(home.x, home.z) + 13, home.z);
+    const d = goal.clone().sub(g.position); g.position.addScaledVector(d, Math.min(1, dt*2.2)); g.scale.setScalar(Math.min(1, t*2)*(t > DUR - .6 ? Math.max(.01, (DUR - t)/.6) : 1)); g.rotation.y += dt*.3;
+    drop -= dt; if (drop <= 0 && t < DUR - .5) { drop = .3; const q = g.position.clone(); q.x += (rng() - .5)*4.5; q.z += (rng() - .5)*4.5; q.y -= 1.2;
+      addBomb({p:q, v:V3(0, -12, 0), m:bombMesh(.55, 0x3A3F48), owner:key, team, r:.25, R:2.8, dmg:8, kb:6, arm:.1, fx:{size:.2, snd:'bboom'}}); }
+    zap -= dt; if (zap <= 0) { zap = .8 + rng()*.8; const q = g.position.clone(); q.y = groundH(q.x, q.z); arcBeam(g.position.clone().setY(g.position.y - 1), q.add(V3((rng() - .5)*5, 0, (rng() - .5)*5)), 0xD9E6FF); }
+    if (t > DUR) { roundGroup.remove(g); return false; }
+  }});
+  sfx('thunder'); toast(tg ? '🌧️ A bomb cloud is following its target.' : '🌧️ Bomb cloud!');
+}
+/* 12. Reverse Explosion: sucks everything in, then blows it all out */
+function bReverse({key, team}, p){
+  const a = throwStart(); if (!a) return;
+  const {vel} = ballistic(a, p, 'b_reverse');
+  const m = bombMesh(1.3, 0x5A2E8A); const halo = new THREE.Mesh(new THREE.TorusGeometry(.55, .06, 6, 24), new THREE.MeshBasicMaterial({color:0xD9CCFF})); m.add(halo);
+  addBomb({p:a, v:vel, m, owner:key, team, r:.45, face:false, onHit:(b, at) => {
+    const c = V3(at.x, groundH(at.x, at.z) + 1, at.z), R = 15, core = new THREE.Mesh(new THREE.IcosahedronGeometry(.6, 2), new THREE.MeshBasicMaterial({color:0x0A0412})); core.position.copy(c); core.userData.noRay = true; roundGroup.add(core);
+    let t = 0; const PULL = 1.7;
+    SpaceWarp.add({pos:() => c, alive:() => t < PULL + .1, R:() => 6, s:() => .55*Math.min(1, t/PULL)});
+    sfx('reverse');
+    fxAdd({update(dt){
+      t += dt;
+      if (t < PULL) {
+        core.scale.setScalar(1 + t*1.4); core.rotation.y += dt*6;
+        const P = victimFor(key, team); if (P) { const bp = P.body.position, d = hdist(bp, c); if (d < R && d > 1) { const k = (30*(1 - d/R) + 8)*dt; P.body.velocity.x += (c.x - bp.x)/d*k; P.body.velocity.z += (c.z - bp.z)/d*k; P.slowT = Math.max(P.slowT || 0, .2); } }
+        forEachObject(b => { const d = Math.hypot(b.position.x - c.x, b.position.z - c.z) || .01; if (d > R) return; if (b.wakeUp) b.wakeUp(); const k = 26*dt; b.velocity.x += (c.x - b.position.x)/d*k; b.velocity.z += (c.z - b.position.z)/d*k; b.velocity.y += 3*dt; });
+        for (let i = 0; i < 3; i++) { const an = Math.random()*Math.PI*2, r = R*(.6 + Math.random()*.4), q = V3(c.x + Math.cos(an)*r, 0, c.z + Math.sin(an)*r); q.y = groundH(q.x, q.z) + .3;
+          const mm = pmesh('oct', rr(.08, .2), bmat(pick([0x9D6BFF, 0x4A3568, 0xD9CCFF]), .8)); mm.position.copy(q); mm.userData.noRay = true; roundGroup.add(mm); fx.push({mesh:mm, v:c.clone().sub(q).multiplyScalar(1/PULL*1.1).setY(2), r:V3(3, 3, 0), life:.8}); }
+        return true;
+      }
+      roundGroup.remove(core);
+      bBoom(c, 9, 34, 28, key, team, {size:.9, pal:{ball:0x9D6BFF, core:0xFFFFFF, ring:0xD9CCFF}}); shockRing(c, 16, .5, 0xD9CCFF); warpPulse(c, 14, .5, .05);
+      return false;
+    }});
+  }});
+  sfx('fire'); toast('🌀 Reverse explosion!');
+}
+/* 13. Flying Carpet Bomber */
+function bCarpet({key, C}){
+  if (C.carpet) return;
+  const mesh = carpetMesh(); mesh.position.y = .02; C.root.add(mesh);
+  C.carpet = {t:0, dur:12, dropT:.7, mesh};
+  if (key === G.localKey) { C.body.velocity.y = 8; C.body._onGround = false; toast('🧞 Flying carpet! WASD to steer, Space or R to jump off. It dives in when you do.'); }
+  sfx('carpet');
+}
+function carpetOff(){ const P = localP(); if (!P || !P.carpet) return; localCast('b_carpetx', null, {d:[+Math.sin(G.yaw).toFixed(3), +Math.cos(G.yaw).toFixed(3)]}); }
+function bCarpetOff({key, team, C}, x){
+  if (!C || !C.carpet) return;
+  const cp = C.carpet; C.carpet = null; if (cp.mesh.parent) cp.mesh.parent.remove(cp.mesh);
+  const d = x && Array.isArray(x.d) ? V3(x.d[0], 0, x.d[1]).normalize() : V3(Math.sin(G.yaw), 0, Math.cos(G.yaw));
+  const m = carpetMesh(); const q = V3(C.body.position.x, C.body.position.y - .3, C.body.position.z);
+  addBomb({p:q, v:d.clone().multiplyScalar(24).setY(-6), g:.7, m, owner:key, team, r:.6, R:6, dmg:30, kb:20, arm:.25, trail:0xE0A63A, trailS:.25, fx:{size:.65}});
+  if (key === G.localKey) { C.body.velocity.y = Math.max(C.body.velocity.y, 3); toast('🧞 Carpet away!'); }
+  sfx('dash');
+}
+// local player: fly the carpet (called from controlPlayer)
+function flyCarpet(P, dt, input){
+  const b = P.body, c = P.carpet; c.t += dt;
+  if (c.t > c.dur || (input && G.jumpQ > 0)) { G.jumpQ = 0; carpetOff(); return; }
+  let mx = 0, mz = 0; if (input) { mx = input.x; mz = input.z; }
+  const fx0 = Math.sin(G.yaw), fz0 = Math.cos(G.yaw), rx = -Math.cos(G.yaw), rz = Math.sin(G.yaw);
+  let vx = fx0*mz + rx*mx, vz = fz0*mz + rz*mx; const l = Math.hypot(vx, vz); if (l > 1) { vx /= l; vz /= l; }
+  b.velocity.x = lerp(b.velocity.x, vx*18, .08); b.velocity.z = lerp(b.velocity.z, vz*18, .08);
+  const want = groundH(b.position.x, b.position.z) + 7; b.velocity.y = clamp((want - b.position.y)*2.5, -6, 8); b._onGround = false;
+  if (l > .1) P.moveFace = Math.atan2(vx, vz); P.moving = false; P.naruto = false;
+}
+/* 14. Landmines */
+function bMine({key, team}, p){
+  const at = V3(p.x, groundH(p.x, p.z) + .05, p.z), g = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(.42, .5, .14, 14), M3(0x4A5240)); base.position.y = .07; g.add(base);
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(.18, .22, .1, 10), M3(0x2B2F36)); top.position.y = .18; g.add(top);
+  const light = new THREE.Mesh(new THREE.IcosahedronGeometry(.07, 1), new THREE.MeshBasicMaterial({color:0xFFD84D})); light.position.y = .26; g.add(light);
+  noRayAll(g); g.position.copy(at); roundGroup.add(g);
+  const mine = {p:at, owner:key, team, g, light, arm:1.2, t:0, done:false};
+  const mine0 = BX.mines.filter(m => m.owner === key && !m.done);
+  if (mine0.length >= BOMBER.b_mine.lim) { const old = mine0[0]; old.done = true; roundGroup.remove(old.g); sparkle(old.p, 0xFFD84D); }
+  BX.mines.push(mine);
+  sfx('place'); if (key === G.localKey) toast(`💮 Mine placed (${Math.min(BOMBER.b_mine.lim, mine0.length + 1)}/${BOMBER.b_mine.lim}). It arms in a second.`);
+}
+function updateMines(dt){
+  for (const m of BX.mines) {
+    if (m.done) continue;
+    m.t += dt; const armed = m.t > m.arm;
+    m.light.material.color.setHex(armed ? 0xFF2020 : 0xFFD84D); m.light.visible = !armed || Math.sin(m.t*8) > -.3;
+    if (!armed) continue;
+    for (const e of bEnemies(m.owner, m.team)) { if (hdist(e.pos, m.p) < 1.3 && Math.abs(e.pos.y - m.p.y) < 1.6) { m.done = true; roundGroup.remove(m.g); sfx('beep'); bBoom(V3(m.p.x, m.p.y + .4, m.p.z), 4.2, 42, 18, m.owner, m.team, {up:9, size:.45}); break; } }
+  }
+  BX.mines = BX.mines.filter(m => !m.done);
+}
+/* 15. Planet Cracker: a drill burrows to the target and erupts under it */
+function bCracker({key, team, pos}, p){
+  const from = V3(pos.x, groundH(pos.x, pos.z), pos.z), to = V3(p.x, groundH(p.x, p.z), p.z), len = hdist(from, to), dir = to.clone().sub(from).setY(0).normalize();
+  const drill = new THREE.Group(); const cone = new THREE.Mesh(new THREE.ConeGeometry(.35, 1.4, 10), M3(0xB0B8C0)); cone.rotation.x = Math.PI; drill.add(cone); const fl = new THREE.Mesh(new THREE.ConeGeometry(.3, .8, 8), BXM.flame); fl.position.y = 1; drill.add(fl); noRayAll(drill);
+  drill.position.set(from.x + dir.x*1.2, from.y + 2.5, from.z + dir.z*1.2); roundGroup.add(drill);
+  const ring = warnRing(to, 6.5, 0xC28A4A);
+  let t = 0, trail = 0; const DIVE = .45, SPEED = 24, T = DIVE + len/SPEED;
+  sfx('drill');
+  fxAdd({update(dt){
+    t += dt;
+    if (t < DIVE) { drill.position.y -= dt*7; drill.rotation.y += dt*30; if (t + dt >= DIVE) { roundGroup.remove(drill); dustRing(from, 1, 5); } return true; }
+    const s = Math.min(len, (t - DIVE)*SPEED), q = from.clone().addScaledVector(dir, s); q.y = groundH(q.x, q.z);
+    trail -= dt; if (trail <= 0) { trail = .05; const m = pmesh('tet', rr(.1, .25), M3(pick([0x7E5433, 0x5E3F24, 0x9A7A50]))); m.position.set(q.x + rr(-.4, .4), q.y + .1, q.z + rr(-.4, .4)); m.userData.noRay = true; roundGroup.add(m); fx.push({mesh:m, v:V3(rr(-1, 1), rr(2, 5), rr(-1, 1)), r:V3(4, 4, 0), life:1}); }
+    shakeAt(q, .25, 12); ring.material.opacity = .3 + Math.sin(t*14)*.3;
+    if (t >= T) {
+      roundGroup.remove(ring);
+      bBoom(V3(to.x, to.y + .5, to.z), 6.5, 34, 10, key, team, {up:20, size:.6, pal:{ball:0x9A6A3A, core:0xFFB02E, ring:0xC28A4A}});
+      debris(V3(to.x, to.y + .5, to.z), 26, [0x7E5433, 0x5E3F24, 0x9AA3AD, 0x6B5A4E]);
+      for (let i = 0; i < 10; i++) { const m = pmesh('tet', rr(.4, .9), M3(pick([0x7E5433, 0x8A939C]))); m.position.set(to.x + rr(-1, 1), to.y + .5, to.z + rr(-1, 1)); m.userData.noRay = true; roundGroup.add(m); fx.push({mesh:m, v:V3(rr(-4, 4), rr(10, 18), rr(-4, 4)), r:V3(5, 5, 0), life:2.2}); }
+      sfx('rumble'); return false;
+    }
+  }});
+  toast('⛏️ Planet cracker is drilling...');
+}
+/* 16. Auto Mortar */
+function bMortar({key, team}, p){
+  BX.fx.forEach(e => { if (e.mortarOf === key) e.kill = true; });
+  const at = V3(p.x, groundH(p.x, p.z), p.z), g = new THREE.Group();
+  bx(1.4, .4, 1.4, 0x4A5240, 0, .2, 0, g); const head = new THREE.Group(); head.position.y = .5; g.add(head);
+  const tube = new THREE.Mesh(new THREE.CylinderGeometry(.22, .28, 1.4, 10), M3(0x2F3A48)); tube.rotation.x = -.6; tube.position.set(0, .45, .2); head.add(tube);
+  const dish = new THREE.Mesh(new THREE.CylinderGeometry(.3, .05, .1, 10), M3(0xDCE3EA)); dish.position.set(.55, .5, -.3); dish.rotation.z = .7; head.add(dish);
+  const timer = textSprite(); timer.position.set(0, 2.2, 0); timer.scale.set(2, .75, 1); g.add(timer); noRayAll(g);
+  g.position.copy(at); roundGroup.add(g);
+  let t = 0, cd = 1.2; const DUR = 22;
+  fxAdd({mortarOf:key, update(dt){
+    t += dt; dish.rotation.y += dt*4;
+    if (this.kill || t > DUR) { roundGroup.remove(g); sparkle(V3(at.x, at.y + 1, at.z), 0xFFD84D); return false; }
+    timer.userData.set(Math.ceil(DUR - t) + 's', '#FFD84D');
+    cd -= dt; if (cd > 0) return true;
+    const tg = bNearest(key, team, at, 50); if (!tg) { cd = .5; return true; }
+    cd = 2.6; const land = V3(tg.pos.x, groundH(tg.pos.x, tg.pos.z), tg.pos.z), from = V3(at.x, at.y + 1.6, at.z), T = 1.5;
+    head.rotation.y = Math.atan2(land.x - at.x, land.z - at.z);
+    const ring = warnRing(land, 4.2);
+    addBomb({p:from, v:lobVel(from, land, T), m:bombMesh(.55), owner:key, team, r:.25, arm:.3, magnet:true, onHit:(b, hit) => { if (ring.parent) roundGroup.remove(ring); bBoom(hit, 4.2, 22, 14, key, team, {size:.4, snd:'bboom'}); }});
+    booms.push({t:0, parts:[ring], custom(bm){ ring.material.opacity = .35 + Math.sin(bm.t*16)*.3; ring.scale.setScalar(1 - Math.min(.5, bm.t*.3)); return bm.t > T + .1; }});
+    for (let i = 0; i < 3; i++) puff(from, 0xEDE6D8, .3); sfx('thunk');
+    return true;
+  }});
+  sfx('place'); if (key === G.localKey) toast('🎯 Auto mortar deployed for 22 seconds.');
+}
+/* 17. Orbital Bowling */
+function bBowl({key, team, yaw}, p){
+  const d = V3(Math.sin(yaw), 0, Math.cos(yaw)), side = V3(d.z, 0, -d.x), R = 2.4;
+  const ball = new THREE.Group(); ball.add(new THREE.Mesh(new THREE.IcosahedronGeometry(R, 3), new THREE.MeshStandardMaterial({color:0x14121C, metalness:.6, roughness:.25})));
+  for (const [x, y] of [[-.5, .4], [.5, .4], [0, -.2]]) { const h = sp(.32, 0x050505, x, y + 1.2, R*.78, ball, 1); h.scale.z = .5; }
+  const band = new THREE.Mesh(new THREE.TorusGeometry(R*1.01, .12, 6, 40), new THREE.MeshBasicMaterial({color:0xFF3B30})); ball.add(band); noRayAll(ball);
+  const pos = V3(p.x, groundH(p.x, p.z) + 70, p.z); ball.position.copy(pos); roundGroup.add(ball);
+  const ring = warnRing(p, 3.2); let t = 0, state = 'fall', roll = 0; const hit = {};
+  sfx('whistle');
+  fxAdd({update(dt){
+    t += dt;
+    if (state === 'fall') { pos.y -= 58*dt; ball.rotation.x += dt*3; const gy = groundH(pos.x, pos.z) + R; ring.material.opacity = .4 + Math.sin(t*14)*.3;
+      if (pos.y <= gy) { pos.y = gy; state = 'roll'; roundGroup.remove(ring); bBoom(V3(pos.x, gy - R + .4, pos.z), 5, 14, 10, key, team, {size:.5, snd:'thud'}); shockRing(V3(pos.x, gy - R, pos.z), 9, .45); sfx('rumble'); } }
+    else {
+      roll += dt; const step = 16*dt, nx = pos.x + d.x*step, nz = pos.z + d.z*step;
+      const blocked = Math.hypot(nx, nz) > ISL - 3 || bSolid(V3(nx + d.x*R*.8, groundH(nx, nz) + 1, nz + d.z*R*.8), .3);
+      if (!blocked) { pos.x = nx; pos.z = nz; } pos.y = groundH(pos.x, pos.z) + R;
+      ball.rotateOnWorldAxis(side, -step/R);
+      const P = victimFor(key, team); if (P && !hit.me) { const bp = P.body.position; if (Math.hypot(bp.x - pos.x, bp.z - pos.z) < R + .9 && bp.y < pos.y + R) { hit.me = true; const sg = (bp.x - pos.x)*side.x + (bp.z - pos.z)*side.z >= 0 ? 1 : -1; painHurt(P, 22, key); knock(P, side.x*sg*18 + d.x*8, 8, side.z*sg*18 + d.z*8, .7); sfx('bonk'); } }
+      forEachObject(b => { if (Math.hypot(b.position.x - pos.x, b.position.z - pos.z) > R + 1.2) return; if (b.wakeUp) b.wakeUp(); const sg = (b.position.x - pos.x)*side.x + (b.position.z - pos.z)*side.z >= 0 ? 1 : -1; b.velocity.x += (side.x*sg*14 + d.x*10)*dt*8; b.velocity.z += (side.z*sg*14 + d.z*10)*dt*8; b.velocity.y += 6*dt*8; if (b.tag === 'dummy') dummyHit(b, 22); });
+      if (Math.random() < .5) dustRing(V3(pos.x, 0, pos.z), R*.8, 1);
+      if (roll > 3.8 || blocked) { roundGroup.remove(ball); bBoom(V3(pos.x, pos.y - R + .6, pos.z), 9, 42, 26, key, team, {size:1.1}); return false; }
+    }
+    ball.position.copy(pos);
+  }});
+  toast('🎳 Orbital bowling ball incoming!');
+}
+/* 18. Bomb Magnet: pulls every live explosive nearby (anyone's) to the beacon */
+function bMagnet({key}, p){
+  const at = V3(p.x, groundH(p.x, p.z), p.z), g = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(.08, .1, 2.4, 8), M3(0x8A939C)); pole.position.y = 1.2; g.add(pole);
+  const mag = new THREE.Mesh(new THREE.TorusGeometry(.6, .22, 8, 18, Math.PI), M3(0xE53935)); mag.position.y = 2.6; mag.rotation.z = Math.PI; g.add(mag);
+  bx(.44, .3, .45, 0xDCE3EA, -.6, 2.45, 0, g); bx(.44, .3, .45, 0xDCE3EA, .6, 2.45, 0, g); noRayAll(g); g.position.copy(at); roundGroup.add(g);
+  const mg = {p:V3(at.x, at.y + 2.5, at.z), R:36, done:false}; BX.magnets.push(mg);
+  let t = 0, pulse = 0; const DUR = 8;
+  fxAdd({update(dt){
+    t += dt; g.rotation.y += dt*2;
+    pulse -= dt; if (pulse <= 0) { pulse = .45; const r = new THREE.Mesh(new THREE.RingGeometry(.9, 1.1, 40), bmat(0x7FD8FF, .7)); r.rotation.x = -Math.PI/2; r.position.set(at.x, at.y + .1, at.z); r.userData.noRay = true; roundGroup.add(r); booms.push({t:0, parts:[r], custom(bm){ const s = mg.R*(1 - bm.t/1.2); r.scale.setScalar(Math.max(.1, s)); r.material.opacity = .7*bm.t/1.2; return bm.t > 1.2; }}); }
+    // chaos-mode bombs and shots, and Pain chakra rods, get dragged in too
+    for (const o of objs) { if (o.dead || o.kind !== 'proj' || isCarried(o)) continue; const b = o.body, dx = mg.p.x - b.position.x, dy = mg.p.y - b.position.y, dz = mg.p.z - b.position.z, d = Math.hypot(dx, dy, dz); if (d > mg.R || d < .8) continue; const k = (34*(1 - d/mg.R) + 10)*dt; b.velocity.x += dx/d*k; b.velocity.y += dy/d*k; b.velocity.z += dz/d*k; }
+    for (const r of PAIN.rods) { if (r.done) continue; const v = mg.p.clone().sub(r.pos), d = v.length(); if (d < mg.R && d > .8) r.v.addScaledVector(v.normalize(), (40*(1 - d/mg.R) + 10)*dt); }
+    if (t > DUR) { mg.done = true; roundGroup.remove(g); sparkle(mg.p, 0x7FD8FF); return false; }
+  }});
+  sfx('magnet'); toast('🧲 Bomb magnet: every explosive nearby is pulled to it.');
+}
+/* 19. Emergency Delivery: a cargo plane drops a container full of explosive barrels */
+function bCargo({key, team, yaw, rng}, p){
+  const d = V3(Math.sin(yaw), 0, Math.cos(yaw)), H = groundH(p.x, p.z) + 40, plane = cargoMesh(); plane.rotation.y = yaw; roundGroup.add(plane);
+  const ring = warnRing(p, 5, 0xFFB02E); let t = 0, dropped = false; sfx('prop');
+  fxAdd({update(dt){
+    t += dt; const along = -110 + 42*t, at = p.clone().addScaledVector(d, along); at.y = H; plane.position.copy(at);
+    if (!dropped && along >= -2) { dropped = true; cargoDrop(at.clone().setY(H - 2), p, d, key, team, rng, ring); }
+    if (along > 120) { roundGroup.remove(plane); return false; }
+  }});
+  toast('📦 Emergency delivery on its way!');
+}
+function cargoDrop(from, p, d, key, team, rng, ring){
+  const box = new THREE.Group(); const walls = [];
+  bx(2.4, .15, 5, 0x9A4A1A, 0, -1.3, 0, box);
+  for (const [w, h, dd, x, y, z] of [[.15, 2.6, 5, -1.2, 0, 0], [.15, 2.6, 5, 1.2, 0, 0], [2.4, 2.6, .15, 0, 0, 2.5], [2.4, 2.6, .15, 0, 0, -2.5], [2.4, .15, 5, 0, 1.3, 0]]) walls.push(bx(w, h, dd, 0xE07A2A, x, y, z, box));
+  const chute = new THREE.Mesh(new THREE.SphereGeometry(3.4, 16, 8, 0, Math.PI*2, 0, Math.PI/2), new THREE.MeshBasicMaterial({color:0xF2F4F7, side:THREE.DoubleSide})); chute.position.y = 6; box.add(chute);
+  noRayAll(box); box.position.copy(from); box.rotation.y = Math.atan2(d.x, d.z); roundGroup.add(box);
+  const pos = from.clone(); pos.x = p.x; pos.z = p.z; box.position.copy(pos);
+  fxAdd({update(dt){
+    pos.y -= 15*dt; box.position.copy(pos); box.rotation.z = Math.sin(G.t*2)*.05; if (ring.parent) ring.material.opacity = .35 + Math.sin(G.t*10)*.3;
+    const gy = groundH(pos.x, pos.z); if (pos.y - 1.4 > gy) return true;
+    if (ring.parent) roundGroup.remove(ring);
+    // burst open: walls fly off, barrels roll out
+    walls.forEach(w => { const wp = new THREE.Vector3(); w.getWorldPosition(wp); const wm = w.clone(); wm.position.copy(wp); wm.quaternion.copy(box.quaternion); roundGroup.add(wm); const out = wp.clone().sub(pos).setY(0); if (out.lengthSq() < .01) out.set(0, 0, 1); out.normalize(); fx.push({mesh:wm, v:V3(out.x*7, 7, out.z*7), r:V3(rr(-4, 4), rr(-4, 4), 0), life:2}); });
+    roundGroup.remove(box); sfx('thud'); sfx('pop'); dustRing(V3(pos.x, 0, pos.z), 3, 6);
+    for (let i = 0; i < 6; i++) rollBarrel(V3(pos.x, gy + .45, pos.z), (i + rng()*.4)/6*Math.PI*2, 2.4 + rng()*1.2, key, team);
+    return false;
+  }});
+}
+function rollBarrel(start, ang, fuse, key, team){
+  const dir = V3(Math.cos(ang), 0, Math.sin(ang)), pos = start.clone(), m = new THREE.Group(), tilt = new THREE.Group(), spin = barrelMesh();
+  tilt.rotation.z = Math.PI/2; tilt.add(spin); m.add(tilt); m.rotation.y = Math.atan2(dir.x, dir.z); roundGroup.add(m);
+  let t = 0;
+  fxAdd({update(dt){
+    t += dt; const nx = pos.x + dir.x*7.5*dt, nz = pos.z + dir.z*7.5*dt;
+    let boom = t > fuse || bSolid(V3(nx, groundH(nx, nz) + .5, nz), .45);
+    if (!boom) { pos.x = nx; pos.z = nz; } pos.y = groundH(pos.x, pos.z) + .45;
+    m.position.copy(pos); spin.rotation.y += dt*16;
+    if (!boom) for (const e of bEnemies(key, team)) if (hdist(e.pos, pos) < 1.4) { boom = true; break; }
+    if (t > fuse - .6) spin.visible = Math.sin(t*30) > -.4;   // blinking: about to go
+    if (boom) { roundGroup.remove(m); bBoom(V3(pos.x, pos.y + .2, pos.z), 4.2, 20, 14, key, team, {size:.4}); return false; }
+  }});
+}
+/* 20. The Big Red Button: press it (E) to start the countdown; every extra press makes the end come sooner and bigger */
+function bButton({key, team}, p, x){
+  BX.buttons.filter(b => b.owner === key && !b.done).forEach(b => { b.done = true; roundGroup.remove(b.g); });
+  const at = V3(p.x, groundH(p.x, p.z), p.z), g = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(.75, .9, .5, 16), M3(0x8A939C)); base.position.y = .25; g.add(base);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(.55, 18, 10, 0, Math.PI*2, 0, Math.PI/2), new THREE.MeshStandardMaterial({color:0xE01010, emissive:0x400000, roughness:.3})); dome.position.y = .5; g.add(dome);
+  const label = textSprite(); label.position.y = 2.2; g.add(label); label.userData.set('PRESS E', '#FFD84D');
+  noRayAll(g); g.position.copy(at); roundGroup.add(g);
+  const btn = {id:(x && x.b) || key, owner:key, team, p:at, g, dome, label, presses:0, endT:0, pow:1, rain:0, n:0, done:false, rng:mulberry32(seedOf(at) ^ 0xB77)};
+  BX.buttons.push(btn);
+  sfx('place'); if (key === G.localKey) toast('🔴 Big red button placed. Anyone can press it with E. Every press makes the end come sooner and hit harder.');
+}
+function nearButton(P){ return BX.buttons.find(b => !b.done && hdist(b.p, P.body.position) < 2.4) || null; }
+function bPress(ci, x){
+  const b = BX.buttons.find(q => !q.done && q.id === (x && x.b)); if (!b) return;
+  b.presses++; b.dome.scale.y = .4; sfx('click');
+  if (b.presses === 1) { b.endT = G.t + 10; sfx('siren'); toast('🔴 Someone pressed the button. 10 seconds!'); }
+  else { b.endT = Math.max(G.t + 1, b.endT - 2); b.pow = Math.min(4, b.pow*1.35); sfx('beep'); }
+}
+function updateButtons(dt){
+  for (const b of BX.buttons) {
+    if (b.done) continue;
+    b.dome.scale.y = Math.min(1, b.dome.scale.y + dt*3);
+    if (!b.presses) { b.dome.material.emissive.setHex(Math.sin(G.t*4) > 0 ? 0x600000 : 0x300000); continue; }
+    const left = b.endT - G.t; b.label.userData.set(left > 0 ? `${left.toFixed(1)}  ×${b.pow.toFixed(1)}` : 'BOOM', '#FF4B3E');
+    b.dome.material.emissive.setHex(Math.sin(G.t*(8 + 10/Math.max(.5, left))) > 0 ? 0xFF2020 : 0x400000);
+    // a local bombardment while it counts down
+    b.rain -= dt; if (b.rain <= 0 && left > 0) { b.rain = .45; b.n++; const r = 3 + b.rng()*9*Math.sqrt(b.pow), a = b.rng()*Math.PI*2, q = V3(b.p.x + Math.cos(a)*r, 0, b.p.z + Math.sin(a)*r);
+      addBomb({p:V3(q.x, groundH(q.x, q.z) + 28, q.z), v:V3(0, -26, 0), m:bombMesh(.6), owner:b.owner, team:b.team, r:.25, R:2.6, dmg:7, kb:6, fx:{size:.22, snd:'bboom'}}); }
+    if (left <= 0) { b.done = true; roundGroup.remove(b.g); const R = Math.min(30, 7*b.pow);
+      bBoom(V3(b.p.x, b.p.y + 1, b.p.z), R, Math.min(120, 30*b.pow), 18 + 6*b.pow, b.owner, b.team, {mush:b.pow > 1.8, size:Math.min(3, .8*b.pow), killR:R*.4});
+      if (b.pow > 1.8) { flash(.6); shockRing(b.p, R*2, .8); } }
+  }
+  BX.buttons = BX.buttons.filter(b => !b.done);
+}
+
+/* ---------- per frame ---------- */
+function bomberFrame(dt){
+  if (!G.pvp || dt <= 0) return;
+  if (!BX.bombs.length && !BX.fx.length && !BX.mines.length && !BX.buttons.length && !Object.keys(chars).some(k => chars[k] && chars[k].carpet)) return;
+  updateBombs(dt);
+  { const cur = BX.fx; BX.fx = []; const keep = cur.filter(e => e.update(dt) !== false); BX.fx = keep.concat(BX.fx); }   // effects may start new effects (plane -> container -> barrels)
+  updateMines(dt); updateButtons(dt);
+  BX.magnets = BX.magnets.filter(m => !m.done);
+  // carpets drop bombs behind them on every screen
+  for (const k in chars) { const P = chars[k]; if (!P || !P.carpet || P.alive === false) continue; const c = P.carpet;
+    c.mesh.rotation.z = Math.sin(G.t*6)*.06; c.mesh.rotation.x = Math.sin(G.t*4.3)*.05;
+    if (k !== G.localKey) c.t += dt;
+    c.dropT -= dt; if (c.dropT <= 0) { c.dropT = .5; const f = V3(Math.sin(P.face), 0, Math.cos(P.face)), q = V3(P.body.position.x - f.x*1.3, P.body.position.y - .3, P.body.position.z - f.z*1.3);
+      addBomb({p:q, v:V3(P.body.velocity.x*.3, -2, P.body.velocity.z*.3), m:bombMesh(.6), owner:k, team:P.team, r:.25, arm:.2, R:3.6, dmg:14, kb:10, fx:{size:.3, snd:'bboom'}}); }
+    if (k !== G.localKey && c.t > c.dur + 3) { if (c.mesh.parent) c.mesh.parent.remove(c.mesh); P.carpet = null; } }
 }
 
 /* casting, locally and for other players */
 function runSkill(id, p, x){
   if (id === 'ki') { kiBlast(p); return; }
   if (id === 'd_use' || id === 'd_place') { runDefense(id, p, x); return; }
+  if (BOMBER[id]) { runBomber(id, p, x); return; }
   if (PAIN_SKILLS[id]) { runPain(id, p, x); return; }
   castFX(id);
   const INST = {gravity:gravityGun, flip:flipWorld, slow:slowTime, freeze:freezeTime, night:nightTime, onepunch:() => punch(false), serious:() => punch(true)};
@@ -6123,7 +6900,7 @@ function showMatchEnd(w, text){
 }
 function killFeedText(t){ const box = $('killfeed'); if (!box) return; const d = document.createElement('div'); d.textContent = t; box.prepend(d); while (box.children.length > 5) box.removeChild(box.lastChild); setTimeout(() => d.remove(), 6000); }
 function killFeed(m){
-  if (m.v && m.v !== G.localKey) painOwnerDied(m.v);
+  if (m.v && m.v !== G.localKey) { painOwnerDied(m.v); bomberOwnerDied(m.v); }
   const v = chars[m.v], by = m.by && chars[m.by];
   const vn = v ? v.name : 'Someone', bn = by ? by.name : null;
   killFeedText(bn ? `💥 ${bn} knocked out ${vn}` : `💥 ${vn} got knocked out`);
@@ -6168,8 +6945,9 @@ function renderPhase(){
   $('phase').innerHTML = map[G.phase] + (G.phase==='build' ? `<small>Place your protection</small>` : G.phase==='attack' ? (G.pvp ? `<small>First team to ${WIN_SCORE}</small>` : `<small>Break the egg!</small>`) : '');
   const help = $('help');
   if (G.phase === 'build') { help.style.display = 'block'; help.innerHTML = '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run, <b>Shift ×2</b> dash, <b>Space ×2</b> double jump<br><b>Click</b> place, <b>R</b> rotate, <b>1–3</b> or scroll to pick<br><b>E</b> pick up or put down, <b>click</b> while carrying to throw<br>Protection: press its key (see the Protection bar)<br><b>F</b> done building'; }
-  else if (G.phase === 'attack' && G.mode === 'pain') { help.style.display = 'block'; help.innerHTML = painHelp(); }
-  else if (G.phase === 'attack') { help.style.display = 'block'; help.innerHTML = '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run<br><b>Click</b> energy blast (no skill picked)<br>Skills: press a key (see the Skills bar), aim the red marker, <b>click</b><br><b>Right-click</b> to put a skill away<br><b>E</b> grab stuff lying around, <b>click</b> to throw it'; }
+  else if (G.phase === 'attack' && G.cls === 'bomber') { help.style.display = 'block'; help.innerHTML = bomberHelp(); }
+  else if (G.phase === 'attack' && G.mode === 'pain') { help.style.display = 'block'; help.innerHTML = painHelp() + '<br><b>Tab</b> switch class'; }
+  else if (G.phase === 'attack') { help.style.display = 'block'; help.innerHTML = '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run<br><b>Click</b> energy blast (no skill picked)<br>Skills: press a key (see the Skills bar), aim the red marker, <b>click</b><br><b>Right-click</b> to put a skill away<br><b>E</b> grab stuff lying around, <b>click</b> to throw it<br><b>Tab</b> switch class'; }
   else help.style.display = 'none';
   $('tAct').textContent = G.phase === 'attack' ? 'Cast' : 'Place';
 }
@@ -6177,8 +6955,9 @@ function eggHelp(){
   const help = $('help'); help.style.display = 'block';
   help.innerHTML = G.phase === 'build' ? (amDefender() ? '<b>WASD</b> move, <b>Space</b> jump<br>Protection: press its key (see the Protection bar), aim, <b>click</b> to place, <b>R</b> rotate<br>Dome, fortress, armor and the rest work right away<br><b>F</b> done building (starts the attack early)'
       : '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> run<br>Wait for the defender to finish. You can’t enter the white ring.')
-    : amDefender() ? '<b>Click</b> energy blast<br><b>E</b> grab stuff, <b>click</b> to throw it<br>Your turrets, golems and the rest fight on their own'
-    : '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run<br>Skills: press a key (see the Skills bar), aim the red marker, <b>click</b><br>Every power has a cooldown<br><b>Right-click</b> to put a skill away';
+    : amDefender() ? '<b>Click</b> energy blast (bazooka as Bomber)<br><b>E</b> grab stuff, <b>click</b> to throw it<br><b>Tab</b> switch class<br>Your turrets, golems and the rest fight on their own'
+    : G.cls === 'bomber' ? bomberHelp()
+    : '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run<br>Skills: press a key (see the Skills bar), aim the red marker, <b>click</b><br>Every power has a cooldown<br><b>Right-click</b> to put a skill away<br><b>Tab</b> switch class (Bomber)';
 }
 function renderSide(title, html, kind){
   const side = $('side');
@@ -6209,6 +6988,7 @@ function renderTray(){
   if (eggOn() && (G.egg.over || (G.phase === 'build' && !amDefender()) || (G.phase === 'attack' && amDefender()))) {
     const msg = G.egg.over ? 'Round over.' : G.phase === 'build' ? `${eggName(G.egg.def)} is building. Look around and plan: you can’t enter the white ring.` : 'Click for energy blasts, E to grab and throw things. Keep the egg alive!';
     t.innerHTML = `<div class="bar sticker"><div class="tl">${G.phase === 'build' ? 'Get ready' : 'Defend'}</div><p style="margin:0 8px;max-width:420px;font-size:14px">${msg}</p></div>`;
+    if (G.phase === 'attack' && !G.egg.over) addClassButton(t);
     renderSide(); return;
   }
   if (G.phase === 'build') {
@@ -6224,12 +7004,21 @@ function renderTray(){
     $('doneB').onclick = finishBuild;
   } else if (G.phase === 'attack') {
     const shown = Object.entries(skillTable()).filter(([, sp]) => !sp.hide);
-    t.innerHTML = `<div class="bar sticker"><div class="tl">Skills</div><div class="skills" style="--cols:${Math.ceil(shown.length/2)}">${shown.map(([id,sp]) => `<button class="skill" data-sp="${id}" aria-pressed="${G.targeting===id}" title="${sp.name} (${sp.key})" aria-label="${sp.name}"><span class="si">${sp.e}</span><span class="sn">${SHORT[id] || sp.name}</span><kbd>${sp.key}</kbd></button>`).join('')}</div></div>`;
+    t.innerHTML = `<div class="bar sticker"><div class="tl">${classInfo(G.cls).name}</div><div class="skills" style="--cols:${Math.ceil(shown.length/2)}">${shown.map(([id,sp]) => `<button class="skill" data-sp="${id}" aria-pressed="${G.targeting===id}" title="${sp.name} (${sp.key})" aria-label="${sp.name}"><span class="si">${sp.e}</span><span class="sn">${SHORT[id] || sp.name}</span><kbd>${sp.key}</kbd></button>`).join('')}</div></div>`;
     t.querySelectorAll('[data-sp]').forEach(b => b.onclick = e => { e.stopPropagation(); useSpecial(b.dataset.sp); });
+    if (G.pvp) addClassButton(t);
     if (!G.pvp) { const gb = document.createElement('button'); gb.className = 'btn'; gb.id = 'giveB'; gb.textContent = '🏳️ Give up'; gb.style.alignSelf = 'center'; t.querySelector('.bar').appendChild(gb);
       gb.onclick = e => { e.stopPropagation(); if (G.phase === 'attack') { toast(`${teamName(attacker())} gave up. The egg survives!`); endRound(G.defender, 'giveup', false); } }; }
     renderSide();
   } else { t.innerHTML = ''; renderSide(); }
+}
+// the class switch on the Skills bar (Tab does the same)
+function addClassButton(t){
+  const bar = t.querySelector('.bar'); if (!bar) return;
+  const cur = classInfo(G.cls), nx = classInfo(CLASS_IDS[(CLASS_IDS.indexOf(G.cls) + 1) % CLASS_IDS.length]);
+  const b = document.createElement('button'); b.className = 'btn'; b.id = 'clsB'; b.style.alignSelf = 'center'; b.style.lineHeight = '1.1';
+  b.innerHTML = `${cur.e} ${cur.name}<small style="display:block;font-size:11px;font-weight:700">Tab: ${nx.e} ${nx.name}</small>`; b.title = 'Switch class (Tab)';
+  b.onclick = e => { e.stopPropagation(); switchClass(); }; bar.appendChild(b);
 }
 function toast(msg){
   const box = $('toast'); const d = document.createElement('div'); d.textContent = msg; box.appendChild(d);
@@ -6294,7 +7083,7 @@ function actionDown(){
   if (P.carry) { dropCarry(P, true); G.skipUp = true; return; }
   if (G.phase === 'attack' && G.targeting) { castAt(); G.skipUp = true; return; }
   if (G.phase === 'build') { if (!G.pvp || amDefender()) placeItem(); }
-  else if (G.phase === 'attack' && G.pvp) { if (G.mode === 'pain') chargeStart('p_rod', 'mouse'); else fireKi(); }
+  else if (G.phase === 'attack' && G.pvp) { if (G.cls === 'bomber') fireBazooka(); else if (G.mode === 'pain') chargeStart('p_rod', 'mouse'); else fireKi(); }
   else if (G.phase === 'attack') { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('Pick a skill first: press its key or tap it in the Skills bar.'); } }
 }
 function actionUp(){ if (G.mode === 'pain') chargeRelease('mouse'); if (G.skipUp) { G.skipUp = false; return; } if (G.phase === 'attack' && G.charging) fire(); }
@@ -6373,10 +7162,12 @@ addEventListener('keydown', e => {
   if (e.target && e.target.tagName === 'BUTTON' && (e.key === 'Enter' || e.key === ' ')) return;
   const k = keyName(e); keys[k] = true;
   if (!inPlay()) return;
+  if (k === 'tab') { e.preventDefault(); if (!e.repeat && G.pvp) switchClass(); return; }
   if (k === ' ') { e.preventDefault(); if (!e.repeat) G.jumpQ = .2; }
   if (k === 'shift' && !e.repeat) { if (G.t - (G.lastShift || -9) < .3) { dash(); G.lastShift = -9; } else G.lastShift = G.t; }
   if (['arrowup','arrowdown','arrowleft','arrowright'].includes(k)) e.preventDefault();
-  if (k === 'e' && !e.repeat) { const P = activeChar(); if (P && P.stun <= 0) grabNearest(P); }
+  if (k === 'e' && !e.repeat) { const P = activeChar(); if (P && P.stun <= 0) { const btn = G.phase === 'attack' && G.pvp ? nearButton(P) : null; if (btn) localCast('b_press', null, {b:btn.id}); else grabNearest(P); } }
+  if (G.phase === 'attack' && !e.repeat && G.cls === 'bomber') { bomberKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat) { if (G.mode === 'pain') { if (PAIN_KEYS[k]) painKeyDown(PAIN_KEYS[k], k); return; } const sp = {n:'nuke', b:'chibaku', g:'gravity', c:'comet', h:'army', t:'shinra', x:'bijuu', o:'tornado', v:'volcano', l:'lightning', m:'gcow', j:'frog', k:'knives', z:'antimatter', y:'hellgate', q:'fireball', p:'doomnuke', u:'judgement', i:'coming', '1':'satan', '2':'sword', '3':'flip', '4':'slow', '5':'freeze', '6':'tree', '7':'night', '8':'supernova', '9':'vacuum', '0':'eoe', f:'onepunch', r:'serious'}[k]; if (sp) useSpecial(sp); }
   if (G.phase === 'build') {
     if (k === 'r') G.ghostRot += Math.PI/4;
@@ -6670,7 +7461,7 @@ function frame(now){
   { const hm = (inPlay() && !isTouch && !G.locked && !G.eggCam) ? (G.fallback ? 2 : 1) : 0;
     if (hm !== G.hintMode) { G.hintMode = hm; const h = $('lockHint'); h.style.display = hm ? 'block' : 'none'; h.classList.toggle('fb', hm === 2);
       h.innerHTML = hm === 2 ? `🖱️ Mouse lock is blocked in this tab (${G.lockErr || 'refused'}). The camera follows your mouse; hold it at the screen edge to keep turning.<br><small>Click to retry. If it keeps happening, close this tab and open the game link again.</small>` : 'Click to control your character'; } }
-  updateVisuals(rdt); updateEdge(); pvpFrame(rdt); if (G.mode === 'pain' && G.phase === 'attack') painFrame(rdt);
+  updateVisuals(rdt); updateEdge(); pvpFrame(rdt); if (G.mode === 'pain' && G.phase === 'attack') painFrame(rdt); bomberFrame(rdt * G.fxScale);
   SpaceWarp.render();
   perfTune(performance.now() - t0, rdt);
 }

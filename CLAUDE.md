@@ -129,6 +129,30 @@ only renders through a texture while an entry is alive; `warpPulse` for one-off 
 - Cosmetic chaos (debris, smoke, flying logs, randomness inside skills) is simulated locally
   on each screen and is allowed to differ.
 
+## Classes (all modes)
+
+`G.cls` is the local player's class: 'native' (the mode's own kit: Chaos `SPECIALS` or `PAIN_SKILLS`) or
+'bomber'. Tab or the class button on the Skills bar (`switchClass`, `addClassButton`) swaps it any time;
+it's remembered in localStorage `ca-cls`. `skillTable()` follows the class; `modeTable()` is always the
+mode's kit (used for `G.specials`). Cooldowns live per power id in `G.cd` and the host's `castLog`, so
+swapping never resets them. The host accepts a cast if the id is in the mode kit or any class table
+(`BOMBER[m.s] || modeTable()[m.s]`). To add a class: a table like `BOMBER` (name, e, key, kind:
+click/aim/throw/target/now, cd, range, r, lim, hide), add its id to `CLASS_IDS` and `classInfo`, route
+its keys in the keydown handler and its click in `actionDown`, dispatch it in `runSkill`.
+
+**Bomber** (module "BOMBER", before "casting, locally and for other players"): 20 powers, `b_*` ids.
+Click = bazooka; keys 1-0, Q R F G T Z X C V (`BOMBER_KEYS`). Bomber cooldowns always apply, even when
+the match setting turns cooldowns off (`cdFor`, `castOK`). Flying bombs are plain objects in `BX.bombs`
+(`addBomb`/`updateBombs`: gravity, drag, bomb magnets, hits on ground/dome/enemies/egg/props via
+`bSolid`), scripted things in `BX.fx` ({update(dt) -> false when done}; effects may start effects),
+plus `BX.mines` and `BX.buttons`. Explosions go through `bBoom`: `blastAt` with `G.blastNoPlayers`
+for terrain/objects/egg, then victim-side, team-aware damage via `victimFor`. Spreads are seeded from
+the cast point (`ci.rng`) so every screen draws the same pattern. Follow-ups decided by one screen are
+hidden casts with cd 0: `b_carpetx` (dismount), `b_boomx` (boomerang catch k:1 / miss k:2; a catch
+clears the host's castLog), `b_press` (anyone pressing a Big Red Button with E). Limits: 6 mines, 1
+mortar, 1 button per player. Egg defenders may use only the bazooka (and press buttons). Laser turrets
+shoot down Bomber bombs. Explosion scorch marks fade after ~12 s (all modes).
+
 ## Physics (all modes)
 
 Earth gravity everywhere (9.81 m/s², the low-gravity "Moon Day" map was removed). Masses are real
