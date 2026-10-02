@@ -93,7 +93,7 @@ only renders through a texture while an entry is alive; `warpPulse` for one-off 
 - Practice in Pain mode spawns training dummies (`PAIN.dummies`, physics objects with damage numbers).
 - Abilities owned by a player stop when they're knocked out (`painOwnerDied`).
 - Input kinds (`PAIN_SKILLS[id].kind`): `charge` (hold, release casts with `c` = seconds; Chakra Rod
-  `chargeMul` has no cap, Shinra x3 at 4 s), `aimhold` (Pull: hold Q shows a lock-on via
+  `chargeMul` has no cap for any of them: rod +1x per second, both Shinra +0.5x per second; Shinra damage and reach use the full multiplier, knockback `shinraKick(m)` = m^0.55, at most `SHINRA_MAX_PROPS` props torn loose), `aimhold` (Pull: hold Q shows a lock-on via
   `pickPullTarget`, release casts `{tg}`; no target = `pullEverything`), `hold` (Weightless World,
   Deva Barrier: `h:1`/`h:0`), `aim` (red marker + click), `now`, `move` (dash/jump). Keyboard goes
   through `painKeyDown`/`painKeyUp`, Skills-bar clicks through `painUse`.
@@ -135,10 +135,12 @@ kilograms: player 80, brick wall 4000, cow 650, turret 400, chicken 2.5, egg 20,
 pushes go through `heft(body, e)` = min(1, (80/mass)^e): explosions (`blastAt`) e=.4, dash and fireball
 e=.75, Chaos Shinra/sword/punch and every Pain push (wrapped in `forEachObject`) e=.5. Forces written
 as `accel * b.mass` (fields, wind, fans, magnets) stay mass-independent on purpose. `controlPlayer`
-caps how fast the feet change your speed (28 m/s² ground, 9 in the air) so a runner can't shove a wall
-over; a dash stops with a bump when it reaches anything over 300 kg (`dashImpact`, by bounding box).
+keeps its snappy velocity lerp but drops the part of your input that pushes into a loose object over
+300 kg (`P.blockN`, side contact normals collected in `groundCheck`), so a runner can't shove a wall
+over (an acceleration cap did this before and made running feel sluggish); a dash stops with a bump when it reaches anything over 300 kg (`dashImpact`, by bounding box).
 Throw speed falls with weight; anything over 300 kg can't be picked up. When adding a body, give it a
-real mass in kg.
+real mass in kg. `cameraBoom` pulls the camera in front of trees, rocks, ruins and also loose objects
+wider than 0.9 m (walls, defenses, golems; ray vs body AABB), so it never sits behind a wall.
 
 ## Status / known issues (please check these first)
 

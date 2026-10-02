@@ -253,7 +253,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-03.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-03.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -782,12 +782,15 @@ function controlPlayer(P, dt, input){
   const speed = (run ? 15 : 5.5) * comp * (P.slowT > 0 ? .55 : 1) * (P.pinT > 0 ? .3 : 1);
   const ice = G.map && G.map.ice;
   const k = P.grounded ? (ice ? .04 : .3) : .07;
-  // feet can only push so hard (about 28 m/s2 on the ground, a little air control): without this cap the controller
-  // forced the target speed every step, so an 80 kg runner shoved a 4 t brick wall over like cardboard
-  let ax = (vx*speed - b.velocity.x)*k, az = (vz*speed - b.velocity.z)*k;
-  const amax = (P.grounded ? (ice ? 6 : 28) : 9) * comp * dt, al = Math.hypot(ax, az);
-  if (al > amax) { ax *= amax/al; az *= amax/al; }
-  b.velocity.x += ax; b.velocity.z += az;
+  // pressed against something too heavy to shove (a 4 t wall, a turret): stop pushing into it, like a person would.
+  // The controller drives velocity straight to the target, so without this a runner tipped brick walls over.
+  if (P.blockN) for (let i = 0; i < P.blockN.length; i += 2) {
+    const nl = Math.hypot(P.blockN[i], P.blockN[i + 1]) || 1, nx = P.blockN[i]/nl, nz = P.blockN[i + 1]/nl;
+    const into = vx*nx + vz*nz; if (into > 0) { vx -= into*nx; vz -= into*nz; }
+    const vin = b.velocity.x*nx + b.velocity.z*nz; if (vin > 0) { b.velocity.x -= vin*nx; b.velocity.z -= vin*nz; }
+  }
+  b.velocity.x = lerp(b.velocity.x, vx*speed, k);
+  b.velocity.z = lerp(b.velocity.z, vz*speed, k);
   if (P.grounded) P.airJumps = 0;
   // 4.7 m/s takes you about 1.1 m up under 9.81 m/s2: an athletic jump, not a moon jump
   if (input && G.jumpQ > 0 && P.grounded && !(P.pinT > 0)) { b.velocity.y = 4.7 * Math.sqrt(comp); G.jumpQ = 0; sfx('jump'); P.airJumps = 0; b._onGround = false; }
@@ -4920,9 +4923,12 @@ const SpaceWarp = (() => {
 function warpPulse(p, R, dur, amp){ let t = 0; const t0 = performance.now(); return SpaceWarp.add({pos:() => p, alive:() => (t = (performance.now() - t0)/1000) < dur, ringR:() => (1 - Math.pow(1 - Math.min(1, t/dur), 2))*R, ringA:() => amp*(1 - t/dur), ringW:Math.max(2, R*.08), R:() => R*.35*(1 - t/dur), s:() => .25*(1 - t/dur)}); }
 
 /* ---------- AbilityCharge: hold to charge ----------
-   Shinra Tensei grows to x3 over 4 s. The Chakra Rod has no limit: every second held adds its base power again. */
-const CHARGE_CAP = {p_shinra:4, p_shinra360:4};
-function chargeMul(id, c){ c = Math.max(0, +c || 0); return id === 'p_rod' ? 1 + c : 1 + Math.min(c, CHARGE_CAP[id] || 4)*.5; }
+   No limit on any of them. The Chakra Rod adds its base power again every second held; both Shinra Tensei
+   add half their base power per second (x3 at 4 s, x6 at 10 s, x31 at a minute). Damage and reach grow with
+   the full multiplier; knockback grows with shinraKick() so a huge charge still throws people, not into orbit. */
+function chargeMul(id, c){ c = Math.max(0, +c || 0); return id === 'p_rod' ? 1 + c : 1 + c*.5; }
+const shinraKick = m => Math.pow(m, .55);
+const SHINRA_MAX_PROPS = 60;   // trees and rocks torn loose per cast, so a minute-long charge can't stall the game
 
 /* ---------- 1. Gravity Push ---------- */
 function painPush(){
@@ -5014,37 +5020,37 @@ function pullEverything(key, team, pos){
 
 /* ---------- 3. Shinra Tensei (front, chargeable) ---------- */
 function painShinraFront(x){
-  const {key, C, team, pos, yaw} = casterInfo(), m = chargeMul('p_shinra', x && x.c);
+  const {key, C, team, pos, yaw} = casterInfo(), m = chargeMul('p_shinra', x && x.c), mk = shinraKick(m), mv = Math.min(m, 6);
   const dir = V3(Math.sin(yaw), 0, Math.cos(yaw)), side = V3(dir.z, 0, -dir.x), O = V3(pos.x, pos.y + 1.1, pos.z);
   const L = 14 + 10*(m - 1), W = 3.5 + 1.5*(m - 1);
   const inPath = p => { const dx = p.x - O.x, dz = p.z - O.z, f = dx*dir.x + dz*dir.z, l = Math.abs(dx*side.x + dz*side.z); return f > -1 && f < L && l < W + Math.max(0, f)*.22 ? Math.max(0, f) : null; };
   if (C && key === G.localKey) C.lockT = .25;
   const P = victimFor(key, team);
-  if (P) { const f = inPath(P.body.position); if (f != null && Math.abs(P.body.position.y - O.y) < 5) { const k = 1 - f/L, v = (26*k + 12)*m; painHurt(P, (18*k + 8)*m, key); knock(P, dir.x*v, 5 + 3*m, dir.z*v, .8); } }
-  forEachObject(b => { const f = inPath(b.position); if (f == null || Math.abs(b.position.y - O.y) > 6) return; const k = 1 - f/L; if (b.wakeUp) b.wakeUp(); b.velocity.x += dir.x*(24*k + 10)*m; b.velocity.z += dir.z*(24*k + 10)*m; b.velocity.y += 5 + 2*m; spin(b, 4); if (b.tag === 'dummy') dummyHit(b, (18*k + 8)*m); });
-  for (const pr of propsNear(O, L + 2).filter(pr => inPath(pr) != null).slice(0, Math.round(10 + 6*(m - 1)))) { const k = 1 - inPath(pr)/L; liftProp(pr, V3(dir.x*(18*k + 8)*m, 6, dir.z*(18*k + 8)*m)); }
-  kickCores(cp => inPath(cp) != null ? dir.clone().multiplyScalar(16*m) : null);
+  if (P) { const f = inPath(P.body.position); if (f != null && Math.abs(P.body.position.y - O.y) < 5) { const k = 1 - f/L, v = (26*k + 12)*mk; painHurt(P, (18*k + 8)*m, key); knock(P, dir.x*v, 5 + 3*mk, dir.z*v, .8); } }
+  forEachObject(b => { const f = inPath(b.position); if (f == null || Math.abs(b.position.y - O.y) > 6) return; const k = 1 - f/L; if (b.wakeUp) b.wakeUp(); b.velocity.x += dir.x*(24*k + 10)*mk; b.velocity.z += dir.z*(24*k + 10)*mk; b.velocity.y += 5 + 2*mk; spin(b, 4); if (b.tag === 'dummy') dummyHit(b, (18*k + 8)*m); });
+  for (const pr of propsNear(O, L + 2).filter(pr => inPath(pr) != null).slice(0, Math.min(SHINRA_MAX_PROPS, Math.round(10 + 6*(m - 1))))) { const k = 1 - inPath(pr)/L; liftProp(pr, V3(dir.x*(18*k + 8)*mk, 6, dir.z*(18*k + 8)*mk)); }
+  kickCores(cp => inPath(cp) != null ? dir.clone().multiplyScalar(16*mk) : null);
   if (C) C.pushPose = .7;
   // walls of warped space rushing forward, bigger the longer it was charged
-  const walls = [0, .1, .2].map(delay => { const w = new THREE.Mesh(new THREE.PlaneGeometry(2*W + 2, 6 + m, 24, 24), warpMaterial()); w.position.copy(O); w.lookAt(O.clone().add(dir)); w.userData.noRay = true; w.userData.delay = delay; roundGroup.add(w); return w; });
+  const walls = [0, .1, .2].map(delay => { const w = new THREE.Mesh(new THREE.PlaneGeometry(2*W + 2, 6 + mv*2, 24, 24), warpMaterial()); w.position.copy(O); w.lookAt(O.clone().add(dir)); w.userData.noRay = true; w.userData.delay = delay; roundGroup.add(w); return w; });
   booms.push({t:0, parts:walls, custom(b){ const t = b.t; walls.forEach(w => { const tt = Math.max(0, t - w.userData.delay); w.visible = t >= w.userData.delay; w.position.copy(O).addScaledVector(dir, tt*L*2.2); w.scale.set(1 + tt*1.2, 1 + tt*.6, 1); w.material.uniforms.t.value = tt; w.material.uniforms.a.value = Math.max(0, 1 - tt/.45); }); return t > .7; }});
-  warpPulse(O.clone().addScaledVector(dir, 3), 6 + 2*m, .45, .03*m); flash(.12*m); shakeAt(O, .5*m, 40); sfx('shinra'); if (m > 2) sfx('boom');
+  warpPulse(O.clone().addScaledVector(dir, 3), 6 + 2*mv, .45, .03*mv); flash(Math.min(.8, .12*m)); shakeAt(O, .5*mv, 40 + L*.5); sfx('shinra'); if (m > 2) sfx('boom');
 }
 
 /* ---------- 3b. Shinra Tensei 360 (chargeable) ---------- */
 function painShinra(x){
-  const {key, C, team, pos} = casterInfo(), m = chargeMul('p_shinra360', x && x.c), R = PAIN_CFG.shinraR + 6*(m - 1), O = V3(pos.x, pos.y + 1, pos.z), mm = Math.pow(m, .8);
+  const {key, C, team, pos} = casterInfo(), m = chargeMul('p_shinra360', x && x.c), R = PAIN_CFG.shinraR + 6*(m - 1), O = V3(pos.x, pos.y + 1, pos.z), mm = shinraKick(m);
   // the caster stays planted in the middle of it
   if (C && key === G.localKey) { C.body.velocity.set(0, Math.max(0, C.body.velocity.y), 0); C.lockT = .35; }
   const P = victimFor(key, team);
   if (P) { const b = P.body, dx = b.position.x - O.x, dz = b.position.z - O.z, d = Math.hypot(dx, dz) || .01;
-    if (d < R && Math.abs(b.position.y - O.y) < R*.7) { const f = 1 - d/R, v = (PAIN_CFG.shinraDv*Math.pow(f, .6) + 12)*mm; painHurt(P, (PAIN_CFG.shinraDmg*f + 10)*mm, key); knock(P, dx/d*v, 8 + 6*f, dz/d*v, .8); } }
-  radialPush(O, R + 2, 30*mm, 9, PAIN_CFG.shinraDmg*mm);
-  for (const pr of propsNear(O, R*.8).slice(0, Math.round(24 + 8*(m - 1)))) { const dx = pr.x - O.x, dz = pr.z - O.z, d = Math.hypot(dx, dz) || .01, k = 1 - d/R; liftProp(pr, V3(dx/d*(26*k + 8)*mm, 6 + 6*k, dz/d*(26*k + 8)*mm)); }
-  kickCores(cp => { const d = hdist(cp, O); return d < R + 4 ? cp.clone().sub(O).setY(0).normalize().multiplyScalar(18*m).setY(3) : null; });
+    if (d < R && Math.abs(b.position.y - O.y) < R*.7) { const f = 1 - d/R, v = (PAIN_CFG.shinraDv*Math.pow(f, .6) + 12)*mm; painHurt(P, (PAIN_CFG.shinraDmg*f + 10)*m, key); knock(P, dx/d*v, 8 + 6*f, dz/d*v, .8); } }
+  radialPush(O, R + 2, 30*mm, 9, PAIN_CFG.shinraDmg*m);
+  for (const pr of propsNear(O, R*.8).slice(0, Math.min(SHINRA_MAX_PROPS, Math.round(24 + 8*(m - 1))))) { const dx = pr.x - O.x, dz = pr.z - O.z, d = Math.hypot(dx, dz) || .01, k = 1 - d/R; liftProp(pr, V3(dx/d*(26*k + 8)*mm, 6 + 6*k, dz/d*(26*k + 8)*mm)); }
+  kickCores(cp => { const d = hdist(cp, O); return d < R + 4 ? cp.clone().sub(O).setY(0).normalize().multiplyScalar(18*mm).setY(3) : null; });
   if (C) C.pushPose = .7;
   warpSphere(O, R, .45); shockRing(O, R*1.15, .55); dustRing(O, R*.7, 10);
-  warpPulse(O, R*1.3, .6, .045*mm); flash(.3*mm); shakeAt(O, 1.1*mm, 45); sfx('shinra'); sfx('boom');
+  warpPulse(O, R*1.3, .6, .045*Math.min(mm, 3)); flash(Math.min(.9, .3*mm)); shakeAt(O, 1.1*Math.min(mm, 3), 45 + R); sfx('shinra'); sfx('boom');
 }
 
 /* ---------- 4. Chibaku Tensei: a black orb leaves the hand, then opens into a core ---------- */
@@ -5737,14 +5743,15 @@ function updateChargeUI(){
     bar.style.width = (s % 1)*100 + '%'; bar.style.background = `linear-gradient(90deg, hsl(${hue},80%,45%), hsl(${hue + 30},90%,75%))`;
     label.textContent = `🥢 ×${mul.toFixed(1)} power. Keep holding, no limit`;
   } else {
-    const cap = CHARGE_CAP[ch.id], full = s >= cap;
-    bar.style.width = Math.min(1, s/cap)*100 + '%'; bar.style.background = full ? '#FFD84D' : 'linear-gradient(90deg,#7B4DFF,#E0C8FF)';
-    label.textContent = full ? `${d.e} ${d.name}: MAX ×${mul.toFixed(1)}. Release!` : `${d.e} ${d.name} ×${mul.toFixed(1)}`;
+    // every 2 s the bar fills and changes colour, like the rod's
+    const lvl = Math.floor(s/2), hue = (260 + lvl*35) % 360;
+    bar.style.width = ((s/2) % 1)*100 + '%'; bar.style.background = `linear-gradient(90deg, hsl(${hue},80%,50%), hsl(${hue + 30},90%,78%))`;
+    label.textContent = `${d.e} ${d.name} ×${mul.toFixed(1)}. Keep holding, no limit`;
   }
   // a ball of compressed space grows in the caster's hand
   if (me) {
     if (!PAIN.handOrb) { const o = new THREE.Group(); o.add(new THREE.Mesh(new THREE.IcosahedronGeometry(.16, 2), new THREE.MeshBasicMaterial({color:0x07040C}))); o.add(new THREE.Mesh(new THREE.IcosahedronGeometry(.26, 2), bmat(0x9D6BFF, .5))); o.position.set(-.45, 1.35, .45); o.traverse(m => m.userData.noRay = true); me.root.add(o); PAIN.handOrb = o; }
-    const k = ch.id === 'p_rod' ? 1 + Math.log2(1 + s)*.6 : 1 + Math.min(s, 4)*.45;
+    const k = 1 + Math.log2(1 + s)*.6;
     PAIN.handOrb.scale.setScalar(k*(1 + Math.sin(G.t*20)*.05)); me.castPose = .2;
   }
 }
@@ -6563,6 +6570,22 @@ function cameraBoom(piv, want){
     else if (pr.kind === 'rock') sphere(pr.x, pr.mesh.position.y, pr.z, pr.r*.95);
     else { const m = pr.mesh.position; column(m.x, m.z, pr.kind === 'pillar' ? .7 : Math.max(pr.hx, pr.hz)*.85, m.y - pr.hy, m.y + pr.hy + .3); }
   }
+  // loose objects too: brick walls, turrets, mirrors, statues, golems (by their bounding box, the slab method)
+  const box = (A) => {
+    let t0 = 0, t1 = best;
+    for (const [o, dd, lo, hi] of [[piv.x, dx, A.lowerBound.x, A.upperBound.x], [piv.y, dy, A.lowerBound.y, A.upperBound.y], [piv.z, dz, A.lowerBound.z, A.upperBound.z]]) {
+      if (Math.abs(dd) < 1e-6) { if (o < lo || o > hi) return; continue; }
+      let a = (lo - o)/dd, c = (hi - o)/dd; if (a > c) { const t = a; a = c; c = t; }
+      t0 = Math.max(t0, a); t1 = Math.min(t1, c); if (t0 > t1) return;
+    }
+    if (t0 > .3 && t0 < best) best = t0;
+  };
+  const solid = b => { if (!b || !b.world) return; if (b.aabbNeedsUpdate) b.computeAABB(); const A = b.aabb;
+    if (A.upperBound.x - A.lowerBound.x < .9 && A.upperBound.z - A.lowerBound.z < .9) return;   // small stuff never blocks the view
+    if (A.upperBound.y < piv.y - 2.5 || Math.abs((A.lowerBound.x + A.upperBound.x)/2 - piv.x) > L + 4 || Math.abs((A.lowerBound.z + A.upperBound.z)/2 - piv.z) > L + 4) return;
+    box(A); };
+  for (const o of objs) if (!o.dead && (o.kind === 'item' || o.kind === 'debris') && !isCarried(o) && o.body.mass > 30) solid(o.body);
+  for (const g of golems) if (!g.done) solid(g.body);
   if (best < L) { const k = Math.max(.7, best - .35); want.copy(piv).addScaledVector(_boomDir, k); want.y += Math.max(0, 2.6 - k)*.45; }   // pushed in close: rise to look over the shoulder
 }
 function resize(){ const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w/h; G.baseFov = w < h ? 68 : 55; camera.fov = G.baseFov; camera.updateProjectionMatrix(); }
@@ -6584,11 +6607,14 @@ function applyForces(){
   }  applyHoles(); applyTornados(); applyRapture(); applyFlip(); applyFieldForces(); applyComboForces(); applyPainForces();
 }
 function groundCheck(){
-  for (const t of Object.keys(chars)) if (chars[t]) chars[t].grounded = false;
+  for (const t of Object.keys(chars)) if (chars[t]) { chars[t].grounded = false; chars[t].blockN = null; }
   for (const eq of world.contacts) {
     const a = eq.bi.player, b = eq.bj.player;
     if (a && eq.ni.y < -.5) a.grounded = true;
     if (b && eq.ni.y > .5) b.grounded = true;
+    // side contact with a loose object over 300 kg: remember the direction into it (ni points from bi to bj)
+    if (a && eq.bj.mass > 300 && Math.abs(eq.ni.y) < .7) (a.blockN || (a.blockN = [])).push(eq.ni.x, eq.ni.z);
+    if (b && eq.bi.mass > 300 && Math.abs(eq.ni.y) < .7) (b.blockN || (b.blockN = [])).push(-eq.ni.x, -eq.ni.z);
   }
 }
 
