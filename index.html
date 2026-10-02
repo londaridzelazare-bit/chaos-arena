@@ -253,7 +253,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-02.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-03.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -449,7 +449,7 @@ CANNON.ConvexPolyhedron.prototype.computeNormals = function(){
   for (let i=0;i<this.faces.length;i++){ const n = this.faceNormals[i] || new CANNON.Vec3(); this.getFaceNormal(i, n); n.negate(n); this.faceNormals[i] = n; }
 };
 const world = new CANNON.World();
-world.gravity.set(0,-9.82,0);
+world.gravity.set(0,-9.81,0);
 world.broadphase = new CANNON.SAPBroadphase(world);
 world.solver.iterations = 14;
 world.allowSleep = true;
@@ -508,14 +508,14 @@ function clearRound(){
 }
 
 const DEF_ITEMS = {
-  cow:{name:'Cow', e:'🐄', d:'Heavy. Stackable. Moos.', mass:8, bottom:.88, foot:1.3, boxes:[[.8,.45,.4,0,0,0],[.7,.22,.35,0,-.66,0],[.28,.28,.28,.95,.25,0]], build(g){
+  cow:{name:'Cow', e:'🐄', d:'Heavy. Stackable. Moos.', mass:650, bottom:.88, foot:1.3, boxes:[[.8,.45,.4,0,0,0],[.7,.22,.35,0,-.66,0],[.28,.28,.28,.95,.25,0]], build(g){
     bx(1.6,.9,.8,0xffffff,0,0,0,g); bx(.5,.4,.84,0x222222,-.3,.12,0,g); bx(.3,.3,.84,0x222222,.4,-.12,0,g); bx(.45,.06,.35,0x222222,.1,.46,.1,g);
     bx(.55,.55,.55,0xffffff,.95,.25,0,g); bx(.22,.3,.45,0xF6B6C8,1.3,.12,0,g);
     bx(.07,.2,.07,0xEEE3C0,.95,.6,.18,g); bx(.07,.2,.07,0xEEE3C0,.95,.6,-.18,g);
     bx(.06,.09,.06,0x111111,1.23,.36,.16,g); bx(.06,.09,.06,0x111111,1.23,.36,-.16,g);
     for (const x of [-.55,.55]) for (const z of [-.25,.25]) { bx(.18,.4,.18,0xffffff,x,-.62,z,g); bx(.2,.1,.2,0x333333,x,-.83,z,g); }
   }},
-  trex:{name:'T-rex', e:'🦖', d:'Huge, heavy, terrible balance.', mass:22, bottom:1.72, foot:2.4, boxes:[[.9,.6,.5,0,0,0],[.55,.4,.4,1.35,.85,0],[.8,.25,.25,-1.6,.05,0],[.35,.55,.45,-.1,-1.17,0]], build(g){
+  trex:{name:'T-rex', e:'🦖', d:'Huge, heavy, terrible balance.', mass:4000, bottom:1.72, foot:2.4, boxes:[[.9,.6,.5,0,0,0],[.55,.4,.4,1.35,.85,0],[.8,.25,.25,-1.6,.05,0],[.35,.55,.45,-.1,-1.17,0]], build(g){
     const G1=0x4E9A4A, G2=0x3B7A39;
     bx(1.8,1.2,1,G1,0,0,0,g); bx(1.3,.8,1.04,0x8CC47A,.15,-.2,0,g);
     bx(.6,.7,.7,G1,.9,.5,0,g); bx(1.1,.7,.8,G1,1.4,.95,0,g); bx(.9,.22,.7,G2,1.4,.5,0,g);
@@ -526,16 +526,16 @@ const DEF_ITEMS = {
     for (const z of [-.27,.27]) { bx(.35,1.05,.35,G2,-.1,-1.12,z,g); bx(.6,.14,.4,G2,.05,-1.65,z,g); }
     for (const x of [-.7,-.25,.2]) { const s = bx(.22,.22,.12,G2,x,.62,0,g); s.rotation.z = Math.PI/4; }
   }},
-  wall:{name:'Brick wall', e:'🧱', d:'Solid and wide. Blocks low shots.', mass:14, bottom:1, foot:1.6, boxes:[[1.5,1,.2,0,0,0]], build(g){
+  wall:{name:'Brick wall', e:'🧱', d:'Solid and wide. Blocks low shots.', mass:4000, bottom:1, foot:1.6, boxes:[[1.5,1,.2,0,0,0]], build(g){
     bx(3,2,.4,0xB5523B,0,0,0,g);
     for (let r=0;r<5;r++){ const y = -.8 + r*.4; bx(3.02,.04,.42,0xD9C7B0,0,y+.2,0,g); for (let k=0;k<6;k++){ const x = -1.5 + (k + (r%2 ? .5 : 0))*.6; if (x > -1.45 && x < 1.45) bx(.04,.4,.42,0xD9C7B0,x,y,0,g); } }
     bx(3.1,.12,.5,0x8E3B2A,0,1.04,0,g);
   }},
-  fence:{name:'Picket fence', e:'🪵', d:'Light and cheap. Mostly decorative.', mass:3, bottom:.55, foot:1.6, boxes:[[1.5,.55,.06,0,0,0]], build(g){
+  fence:{name:'Picket fence', e:'🪵', d:'Light and cheap. Mostly decorative.', mass:60, bottom:.55, foot:1.6, boxes:[[1.5,.55,.06,0,0,0]], build(g){
     bx(3,.1,.06,0xEDE7DA,0,.2,-.05,g); bx(3,.1,.06,0xEDE7DA,0,-.25,-.05,g);
     for (let i=0;i<10;i++){ const x = -1.35 + i*.3; bx(.16,.96,.08,0xFFFFFF,x,-.07,.02,g); const t = bx(.115,.115,.08,0xFFFFFF,x,.41,.02,g); t.rotation.z = Math.PI/4; }
   }},
-  greatwall:{name:'Great Wall of China', e:'🏯', d:'One long segment with a watchtower. Extremely heavy.', mass:45, bottom:.8, foot:3.5, boxes:[[3,.8,.6,0,0,0],[.75,.45,.75,2.6,1.25,0]], build(g){
+  greatwall:{name:'Great Wall of China', e:'🏯', d:'One long segment with a watchtower. Extremely heavy.', mass:12000, bottom:.8, foot:3.5, boxes:[[3,.8,.6,0,0,0],[.75,.45,.75,2.6,1.25,0]], build(g){
     const S=0xA89F91, D=0x8A8174;
     bx(6,1.6,1.2,S,0,0,0,g); bx(6,.06,1.0,0x9A907F,0,.83,0,g);
     for (const y of [-.4,.2]) bx(6.02,.03,1.22,D,0,y,0,g);
@@ -543,7 +543,7 @@ const DEF_ITEMS = {
     bx(1.5,.9,1.5,S,2.6,1.25,0,g); bx(.3,.4,1.52,0x3A342C,2.6,1.25,0,g); bx(1.52,.4,.3,0x3A342C,2.6,1.25,0,g);
     for (const x of [-.6,.6]) for (const z of [-.6,.6]) bx(.3,.26,.3,S,2.6+x,1.82,z,g);
   }},
-  liberty:{name:'Statue of Liberty', e:'🗽', d:'Tall and dramatic. Tips over beautifully.', mass:26, bottom:2.2, foot:1, boxes:[[.62,.6,.62,0,-1.6,0],[.38,1.3,.38,0,.3,0]], build(g){
+  liberty:{name:'Statue of Liberty', e:'🗽', d:'Tall and dramatic. Tips over beautifully.', mass:2500, bottom:2.2, foot:1, boxes:[[.62,.6,.62,0,-1.6,0],[.38,1.3,.38,0,.3,0]], build(g){
     const C=0x6FB8A0, C2=0x5AA38C, ST=0xBDB5A6;
     bx(1.24,1.2,1.24,ST,0,-1.6,0,g); bx(1.4,.15,1.4,0xA69E8F,0,-2.12,0,g); bx(1.1,.1,1.1,0xA69E8F,0,-.98,0,g);
     const robe = new THREE.Mesh(new THREE.CylinderGeometry(.3,.5,2.3,8), M3(C)); robe.position.y = .2; robe.castShadow = true; g.add(robe);
@@ -553,7 +553,7 @@ const DEF_ITEMS = {
     bx(.16,1.0,.16,C,.32,1.75,0,g); bx(.1,.28,.1,C2,.32,2.36,0,g); cone(.13,.34,0xFFC93C,.32,2.66,0,g,6);
     const tab = bx(.12,.55,.34,C2,-.38,.75,.12,g); tab.rotation.x = .3;
   }},
-  buddha:{name:'Giant Buddha', e:'🧘', d:'Big, golden and very heavy. Does not budge easily.', mass:40, bottom:1.6, foot:1.6, boxes:[[1.3,.45,.75,0,-1.15,0]], sphs:[[1.1,0,-.1,.2],[.6,0,1.45,0]], build(g){
+  buddha:{name:'Giant Buddha', e:'🧘', d:'Big, golden and very heavy. Does not budge easily.', mass:6000, bottom:1.6, foot:1.6, boxes:[[1.3,.45,.75,0,-1.15,0]], sphs:[[1.1,0,-.1,.2],[.6,0,1.45,0]], build(g){
     const gold = new THREE.MeshStandardMaterial({color:0xE3B341, metalness:.55, roughness:.35, flatShading:true});
     const base = new THREE.Mesh(new THREE.CylinderGeometry(1.5,1.65,.45,12), M3(0xC2903A)); base.position.y = -1.38; base.castShadow = true; g.add(base);
     bx(2.6,.5,1.4,gold,0,-.92,.05,g);
@@ -566,7 +566,7 @@ const DEF_ITEMS = {
     for (const s of [-1,1]) { const a = bx(.36,.95,.36,gold,s*1.02,.2,.1,g); a.rotation.z = s*.3; sp(.24,gold,s*.72,-.32,.82,g,1); }
     sp(.07,0x6B4A12,0,-.15,1.3,g,0);
   }},
-  harambe:{name:'Harambe', e:'🦍', d:'A giant gorilla. Guards the egg with his life.', mass:18, bottom:1.2, foot:1.4, boxes:[[.75,.75,.55,0,.1,0],[1.1,.25,.45,0,-.95,.15],[.4,.4,.4,0,1.15,.25]], build(g){
+  harambe:{name:'Harambe', e:'🦍', d:'A giant gorilla. Guards the egg with his life.', mass:400, bottom:1.2, foot:1.4, boxes:[[.75,.75,.55,0,.1,0],[1.1,.25,.45,0,-.95,.15],[.4,.4,.4,0,1.15,.25]], build(g){
     const F = 0x2E2A28, FACE = 0x5A4E48;
     bx(1.5,1.4,1.05,F,0,.15,0,g); bx(1.1,.7,.08,0x8A8580,0,.35,-.55,g); bx(1,.8,.1,0x3A3431,0,0,.52,g);
     bx(.82,.82,.82,F,0,1.15,.28,g); bx(.84,.16,.3,F,0,1.42,.62,g);
@@ -576,7 +576,7 @@ const DEF_ITEMS = {
     bx(.05,.06,.03,0x111111,-.16,1.24,.785,g); bx(.05,.06,.03,0x111111,.16,1.24,.785,g);
     for (const s of [-1,1]) { const a = bx(.42,1.55,.42,F,s*.95,-.2,.2,g); a.rotation.z = s*.08; bx(.48,.36,.55,FACE,s*.98,-1.02,.35,g); bx(.46,.62,.46,F,s*.4,-.85,-.12,g); }
   }},
-  poop:{name:'Giant poop', e:'💩', d:'Soft. Catches a falling egg. Smells awful.', mass:10, bottom:1.1, foot:1.5, mat:'soft', tag:'soft', boxes:[[1.2,.55,1.2,0,-.55,0],[.7,.45,.7,0,.35,0]], sphs:[[.35,0,1,0]], build(g){
+  poop:{name:'Giant poop', e:'💩', d:'Soft. Catches a falling egg. Smells awful.', mass:300, bottom:1.1, foot:1.5, mat:'soft', tag:'soft', boxes:[[1.2,.55,1.2,0,-.55,0],[.7,.45,.7,0,.35,0]], sphs:[[.35,0,1,0]], build(g){
     const B1 = 0x6B3F1F, B2 = 0x7E4B26;
     const t1 = new THREE.Mesh(new THREE.TorusGeometry(.95,.48,10,24), M3(B1)); t1.rotation.x = Math.PI/2; t1.position.y = -.62; g.add(t1);
     sp(.95,B1,0,-.62,0,g,1).scale.set(1,.5,1);
@@ -587,7 +587,7 @@ const DEF_ITEMS = {
     [t1,t2,t3].forEach(m => m.castShadow = true);
     for (const [x,y,z] of [[.9,1.4,.3],[-.7,1.7,-.4],[.2,2,.7]]) { bx(.08,.08,.08,0x111111,x,y,z,g); bx(.14,.02,.06,0xDDEEFF,x,y+.05,z,g); }
   }},
-  donkey:{name:'Ugly donkey', e:'🫏', d:'Knobbly, cross-eyed and deeply unpleasant.', mass:9, bottom:1.45, foot:1.9, boxes:[[.9,.45,.4,0,0,0],[.8,.5,.35,0,-.95,0],[.55,.3,.28,1.55,.9,0]], build(g){
+  donkey:{name:'Ugly donkey', e:'🫏', d:'Knobbly, cross-eyed and deeply unpleasant.', mass:250, bottom:1.45, foot:1.9, boxes:[[.9,.45,.4,0,0,0],[.8,.5,.35,0,-.95,0],[.55,.3,.28,1.55,.9,0]], build(g){
     const H = 0x8B7D6B, D = 0x5E5346, S = 0xB8A48C;
     bx(1.8,.9,.8,H,0,0,0,g); bx(1.2,.32,.7,H,-.05,-.5,0,g); bx(.6,.5,.82,0x7A6C5A,-.4,.15,0,g);
     for (const x of [-.65,.65]) for (const z of [-.25,.25]) { bx(.2,1,.2,H,x + (z > 0 ? .05 : -.03),-.95,z,g); bx(.24,.12,.24,0x2A2420,x,-1.4,z,g); }
@@ -605,47 +605,47 @@ const DEF_ITEMS = {
 
 };
 const AMMO = {
-  chicken:{name:'Chicken', e:'🐔', mass:1.5, sph:[.32], speed:1, tag:'chicken', build(g){
+  chicken:{name:'Chicken', e:'🐔', mass:2.5, sph:[.32], speed:1, tag:'chicken', build(g){
     const b = sp(.32,0xffffff,0,0,0,g); b.scale.set(1,.9,1.15);
     bx(.06,.14,.22,0xE53935,0,.3,.12,g); cone(.07,.18,0xFFA726,0,.08,.4,g,4).rotation.x = Math.PI/2;
     bx(.08,.2,.3,0xF1F1F1,.3,0,0,g); bx(.08,.2,.3,0xF1F1F1,-.3,0,0,g);
     bx(.05,.05,.05,0x111111,.13,.15,.3,g); bx(.05,.05,.05,0x111111,-.13,.15,.3,g);
   }},
-  duck:{name:'Rubber duck', e:'🦆', mass:.25, sph:[.36], speed:1.25, tag:'duck', build(g){
+  duck:{name:'Rubber duck', e:'🦆', mass:0.3, sph:[.36], speed:1.25, tag:'duck', build(g){
     const b = sp(.36,0xFFD83D,0,0,0,g); b.scale.set(1,.8,1.2); sp(.2,0xFFD83D,0,.3,.2,g);
     bx(.2,.06,.18,0xFF8A1F,0,.27,.42,g); bx(.05,.05,.05,0x111111,.09,.36,.33,g); bx(.05,.05,.05,0x111111,-.09,.36,.33,g);
   }},
-  anvil:{name:'Anvil', e:'⚒️', mass:25, boxes:[[.5,.3,.23,0,-.05,0]], speed:.72, tag:'anvil', build(g){
+  anvil:{name:'Anvil', e:'⚒️', mass:100, boxes:[[.5,.3,.23,0,-.05,0]], speed:.72, tag:'anvil', build(g){
     bx(1,.25,.46,0x3B4048,0,.15,0,g); bx(.45,.25,.3,0x3B4048,0,-.1,0,g); bx(.8,.14,.46,0x3B4048,0,-.28,0,g);
     cone(.2,.4,0x3B4048,.65,.15,0,g,4).rotation.z = -Math.PI/2;
   }},
-  melon:{name:'Watermelon', e:'🍉', mass:5, sph:[.42], speed:.95, tag:'melon', build(g){
+  melon:{name:'Watermelon', e:'🍉', mass:8, sph:[.42], speed:.95, tag:'melon', build(g){
     const b = sp(.42,0x2E8B3A,0,0,0,g); b.scale.set(1.2,1,1); const s = sp(.425,0x5DBB4A,0,0,0,g,0); s.scale.set(1.18,.3,1);
   }},
   bowling:{name:'Bowling ball', e:'🎳', mass:7, sph:[.3], speed:.95, tag:'bowling', build(g){
     sp(.3,0x24315C,0,0,0,g,2); bx(.06,.06,.06,0x05090D,.08,.18,.22,g); bx(.06,.06,.06,0x05090D,-.06,.2,.22,g); bx(.07,.07,.07,0x05090D,0,.08,.27,g);
   }},
-  cow:{name:'Cow', e:'🐄', mass:8, speed:.78, tag:'cow', fromDef:'cow'},
-  grandma:{name:'Grandma', e:'👵', mass:6, speed:.9, tag:'grandma', ragdoll:true},
-  chibaku:{name:'Chibaku Tensei', e:'🕳️', mass:3, sph:[.35], speed:1.05, tag:'chibaku', build(g){
+  cow:{name:'Cow', e:'🐄', mass:650, speed:.78, tag:'cow', fromDef:'cow'},
+  grandma:{name:'Grandma', e:'👵', mass:65, speed:.9, tag:'grandma', ragdoll:true},
+  chibaku:{name:'Chibaku Tensei', e:'🕳️', mass:50, sph:[.35], speed:1.05, tag:'chibaku', build(g){
     g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(.35,2), new THREE.MeshBasicMaterial({color:0x000000})));
     const r = new THREE.Mesh(new THREE.TorusGeometry(.55,.06,6,24), new THREE.MeshBasicMaterial({color:0xB069FF})); r.rotation.x = 1.2; g.add(r);
   }},
-  bijuu:{name:'Bijuu Bomb', e:'🟣', mass:40, sph:[.6], speed:.72, tag:'bijuu', build(g){
+  bijuu:{name:'Bijuu Bomb', e:'🟣', mass:500, sph:[.6], speed:.72, tag:'bijuu', build(g){
     g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(.6,2), new THREE.MeshBasicMaterial({color:0x1A0B2E})));
     g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(.85,2), new THREE.MeshBasicMaterial({color:0x7B3FE4, transparent:true, opacity:.35, depthWrite:false})));
     for (let i=0;i<3;i++){ const r = new THREE.Mesh(new THREE.TorusGeometry(.8 + i*.08,.035,6,28), new THREE.MeshBasicMaterial({color:i===1 ? 0xFFFFFF : 0xB069FF})); r.rotation.set(rr(0,3), rr(0,3), 0); g.add(r); }
   }},
-  antimatter:{name:'Anti-matter bomb', e:'⚛️', mass:25, sph:[.5], speed:.8, tag:'antimatter', build(g){
+  antimatter:{name:'Anti-matter bomb', e:'⚛️', mass:100, sph:[.5], speed:.8, tag:'antimatter', build(g){
     g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(.45,2), new THREE.MeshBasicMaterial({color:0xFFFFFF})));
     const cage = new THREE.Mesh(new THREE.IcosahedronGeometry(.62,1), new THREE.MeshBasicMaterial({color:0x3A7BFF, wireframe:true})); g.add(cage);
     for (let i=0;i<3;i++){ const r = new THREE.Mesh(new THREE.TorusGeometry(.8,.03,6,32), new THREE.MeshBasicMaterial({color:0x9FC8FF})); r.rotation.set(i*1.05, i*.7, 0); g.add(r); }
   }},
-  doomnuke:{name:'World-ending nuke', e:'💥', mass:90, sph:[.9], speed:.7, tag:'doomnuke', build(g){
+  doomnuke:{name:'World-ending nuke', e:'💥', mass:2000, sph:[.9], speed:.7, tag:'doomnuke', build(g){
     const inner = new THREE.Group(); AMMO.nuke.build(inner); inner.scale.setScalar(2.3); g.add(inner);
     for (const z of [-.6,.9]) { const b = new THREE.Mesh(new THREE.CylinderGeometry(.9,.9,.25,14).rotateX(Math.PI/2), M3(0xE53935)); b.position.z = z; g.add(b); }
   }},
-  nuke:{name:'NUKE', e:'☢️', mass:30, sph:[.42], speed:.82, tag:'nuke', build(g){
+  nuke:{name:'NUKE', e:'☢️', mass:400, sph:[.42], speed:.82, tag:'nuke', build(g){
     const body = new THREE.Mesh(new THREE.CylinderGeometry(.38,.38,1.4,12).rotateX(Math.PI/2), M3(0x5B6B4A)); body.castShadow = true; g.add(body);
     const nose = sp(.38,0x5B6B4A,0,0,.7,g,1); nose.scale.z = 1.3;
     const tail = new THREE.Mesh(new THREE.ConeGeometry(.38,.5,12), M3(0x4A5A3C)); tail.rotation.x = -Math.PI/2; tail.position.z = -.95; g.add(tail);
@@ -673,11 +673,15 @@ const CHARS = [
 ];
 const MAPS = [
   {name:'Sunny Tuesday', e:'☀️', d:'Nothing weird. Suspicious.'},
-  {name:'Moon Day', e:'🌙', d:'Low gravity for everyone. Jump!', grav:-4.2},
   {name:'Hurricane Brenda', e:'🌪️', d:'Strong wind pushes shots and light items.', wind:7},
   {name:'Golden Hour', e:'🌅', d:'A warm, peaceful evening. For now.'}
 ];
 
+/* Masses are real kilograms (a player is 80 kg, a brick wall 4 t, a cow 650 kg). Most powers push by changing
+   velocity directly, which would throw a 4 t wall exactly as far as a chicken, so those pushes go through heft():
+   full strength up to a person's weight, then falling off with mass (a wall gets about 5%, a cow about 20%). */
+const REF_KG = 80;
+const heft = (b, e) => b.player || !(b.mass > REF_KG) ? 1 : Math.pow(REF_KG/b.mass, e || .75);
 function makeBody(def, scale){
   const g = new THREE.Group(); def.build(g); g.scale.setScalar(scale);
   const mat = def.mat === 'jelly' ? PM.jelly : def.mat === 'soft' ? PM.soft : PM.def;
@@ -740,7 +744,7 @@ function makePlayer(team, cdef, pos){
   root.traverse(o => { if (o.isMesh) o.castShadow = true; });
   addOutline(root); roundGroup.add(root);
 
-  const body = new CANNON.Body({mass:6, material:PM.char, fixedRotation:true});
+  const body = new CANNON.Body({mass:80, material:PM.char, fixedRotation:true});   // a person, 80 kg
   body.addShape(new CANNON.Sphere(.3), new CANNON.Vec3(0,.3,0));
   body.addShape(new CANNON.Sphere(.32), new CANNON.Vec3(0,.95,0));
   body.addShape(new CANNON.Sphere(.28), new CANNON.Vec3(0,1.55,0));
@@ -767,6 +771,7 @@ function controlPlayer(P, dt, input){
   if (G.pvp && P.stun > .9) P.stun = .9;
   if (P.stun > 0) { P.stun -= dt; if (P.stun <= 0) P.stars.visible = false; P.dashT = 0; return; }
   if (P.lockT > 0) { P.lockT -= dt; return; }   // channelling (Pain: Shinra Tensei, Almighty Push)
+  if (P.dashT > 0 && P.dashT < .27 && Math.hypot(b.velocity.x, b.velocity.z) < 20) { P.dashT = 0; P.dashEndFx = true; G.shake = Math.max(G.shake, reduceMotion ? 0 : .2); }   // slammed into something heavy
   if (P.dashT > 0) { P.dashT -= dt; const c0 = (G.warp > 0 && (G.pvp ? P.key === G.warpOwner : P === activeChar())) ? 1/G.timeScale : 1; b.velocity.x = P.dashDir.x*58*c0; b.velocity.z = P.dashDir.z*58*c0; b.velocity.y = 0; dashImpact(P); if (P.dashT <= 0) { P.dashEndFx = true; b.velocity.x *= .25; b.velocity.z *= .25; } P.naruto = true; P.moving = true; P.moveFace = Math.atan2(P.dashDir.x, P.dashDir.z); return; }
   let mx = 0, mz = 0, run = false;
   if (input) { mx = input.x; mz = input.z; run = input.run; }
@@ -777,12 +782,17 @@ function controlPlayer(P, dt, input){
   const speed = (run ? 15 : 5.5) * comp * (P.slowT > 0 ? .55 : 1) * (P.pinT > 0 ? .3 : 1);
   const ice = G.map && G.map.ice;
   const k = P.grounded ? (ice ? .04 : .3) : .07;
-  b.velocity.x = lerp(b.velocity.x, vx*speed, k);
-  b.velocity.z = lerp(b.velocity.z, vz*speed, k);
+  // feet can only push so hard (about 28 m/s2 on the ground, a little air control): without this cap the controller
+  // forced the target speed every step, so an 80 kg runner shoved a 4 t brick wall over like cardboard
+  let ax = (vx*speed - b.velocity.x)*k, az = (vz*speed - b.velocity.z)*k;
+  const amax = (P.grounded ? (ice ? 6 : 28) : 9) * comp * dt, al = Math.hypot(ax, az);
+  if (al > amax) { ax *= amax/al; az *= amax/al; }
+  b.velocity.x += ax; b.velocity.z += az;
   if (P.grounded) P.airJumps = 0;
-  if (input && G.jumpQ > 0 && P.grounded && !(P.pinT > 0)) { b.velocity.y = (G.map && G.map.grav ? 5.2 : 7) * Math.sqrt(comp); G.jumpQ = 0; sfx('jump'); P.airJumps = 0; b._onGround = false; }
+  // 4.7 m/s takes you about 1.1 m up under 9.81 m/s2: an athletic jump, not a moon jump
+  if (input && G.jumpQ > 0 && P.grounded && !(P.pinT > 0)) { b.velocity.y = 4.7 * Math.sqrt(comp); G.jumpQ = 0; sfx('jump'); P.airJumps = 0; b._onGround = false; }
   else if (input && G.jumpQ > 0 && !P.grounded && G.mode === 'pain') { G.jumpQ = 0; if (!(P.pinT > 0)) gravityJump(); }
-  else if (input && G.jumpQ > 0 && !P.grounded && (P.airJumps || 0) < 1) { b.velocity.y = (G.map && G.map.grav ? 5.5 : 8) * Math.sqrt(comp); G.jumpQ = 0; P.airJumps = 1; doubleJumpFX(P); }
+  else if (input && G.jumpQ > 0 && !P.grounded && (P.airJumps || 0) < 1) { b.velocity.y = 4.2 * Math.sqrt(comp); G.jumpQ = 0; P.airJumps = 1; doubleJumpFX(P); }
   if (len > .1) P.moveFace = Math.atan2(vx, vz);
   P.moving = len > .1;
   P.naruto = !!(run && len > .3 && !P.carry);
@@ -859,7 +869,7 @@ function buildRound(seed, keepChars){
   G.map = pick(MAPS);
   const c1 = pick(CHARS), c2 = pick(CHARS);
   if (!keepChars) { G.defChar = c1; G.atkChar = c2; }
-  world.gravity.set(0, G.map.grav || -9.82, 0);
+  world.gravity.set(0, G.map.grav || -9.81, 0);
   CM.groundDef.friction = G.map.ice ? .03 : .6; CM.groundEgg.friction = G.map.ice ? .05 : .8;
   CM.groundDef.restitution = G.map.bouncy ? .82 : .1; CM.groundEgg.restitution = G.map.bouncy ? .6 : .05;
   islandTop.material = terrainMat; genTerrain(seed); placeGrass(); props = [];
@@ -960,7 +970,7 @@ function spawnEgg(h){
   const shell = sp(.33, new THREE.MeshStandardMaterial({color:0xFFF3DC, roughness:.5, flatShading:true}), 0,0,0,g,2);
   shell.scale.set(1,1.3,1);
   const crackG = new THREE.Group(); g.add(crackG);
-  const body = new CANNON.Body({mass:.6, material:PM.egg});
+  const body = new CANNON.Body({mass:20, material:PM.egg});
   body.addShape(new CANNON.Sphere(.33));
   body.position.set(0, h + .34, 0);
   body.linearDamping = .1; body.angularDamping = .7;
@@ -1008,7 +1018,7 @@ function breakEgg(reason){
   }
   if (reason !== 'sea') {
     const ym = sp(.2, 0xFFB300, 0,0,0, null, 1); ym.scale.set(1,.7,1);
-    const yb = new CANNON.Body({mass:.3, material:PM.soft}); yb.addShape(new CANNON.Sphere(.18)); yb.position.set(p.x,p.y,p.z);
+    const yb = new CANNON.Body({mass:3, material:PM.soft}); yb.addShape(new CANNON.Sphere(.18)); yb.position.set(p.x,p.y,p.z);
     yb.velocity.set(rr(-1,1), 2, rr(-1,1)); addObj({body:yb, mesh:ym, kind:'yolk', bottom:.2});
   }
   G.eggPos = p;
@@ -1025,7 +1035,7 @@ function makeGrandma(pos, vel){
   const parts = [];
   const skin = 0xF3C9A5, dress = 0x9C7CD8, sock = 0x55607A;
   function part(shape, mass, mesh, off){
-    const b = new CANNON.Body({mass: mass * (G.atkChar.atk.massMul||1), material:PM.def});
+    const b = new CANNON.Body({mass: mass * 13 * (G.atkChar.atk.massMul||1), material:PM.def});   // ~60 kg in all
     b.addShape(shape); b.position.set(pos.x+off[0], pos.y+off[1], pos.z+off[2]);
     b.collisionFilterGroup = GRP_GRAN; b.collisionFilterMask = 1; b.keepMask = true;
     b.velocity.set(vel.x, vel.y, vel.z); b.angularVelocity.set(rr(-4,4), rr(-4,4), rr(-4,4));
@@ -1255,6 +1265,7 @@ function grabNearest(P){
     if (d < bd) { bd = d; best = o; }
   }
   if (!best) { toast('Nothing close enough to grab.'); return; }
+  if (best.body.mass > 300) { toast(`Too heavy to lift (${Math.round(best.body.mass).toLocaleString()} kg).`); return; }
   if (best.parts) { toast('Grandma refuses to be carried. Kick her instead.'); return; }
   P.carry = best;
   world.removeBody(best.body);
@@ -1270,7 +1281,7 @@ function dropCarry(P, thrown){
   if (thrown) {
     const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
     b.position.set(pp.x + fx*1.1, pp.y + 1.9 + (o.bottom||.4), pp.z + fz*1.1);
-    const sp0 = 11 * (G.phase === 'attack' ? (G.atkChar.atk.powerMul||1) : 1);
+    const sp0 = 11 * (G.phase === 'attack' ? (G.atkChar.atk.powerMul||1) : 1) * Math.max(.25, Math.sqrt(heft(b)));
     b.velocity.set(dir.x*sp0 + P.body.velocity.x*.5, Math.max(2.5, dir.y*sp0 + 3), dir.z*sp0 + P.body.velocity.z*.5);
     b.angularVelocity.set(rr(-3,3), rr(-3,3), rr(-3,3));
     b.proj = true; o.thrownT = 1.2;
@@ -1429,7 +1440,7 @@ function blastAt(p, R, power, killR, reason){
     { const o = bodyObj.get(b); if (o && o.key === 'decoy' && Math.hypot(b.position.x-p.x, b.position.y-p.y, b.position.z-p.z) < R*.6) o.popPending = true; }
     const dx = b.position.x-p.x, dy = b.position.y-p.y, dz = b.position.z-p.z, d = Math.hypot(dx,dy,dz) || .01;
     if (d > R) continue;
-    const f = Math.pow(1 - d/R, 1.2), dv = power*f;
+    const f = Math.pow(1 - d/R, 1.2), dv = power*f*heft(b, .4);
     if (b.wakeUp) b.wakeUp();
     b.velocity.x += dx/d*dv; b.velocity.z += dz/d*dv; b.velocity.y += dv*.75 + Math.max(0, dy/d)*dv*.3;
     if (!b.fixedRotation) { b.angularVelocity.x += rr(-6,6)*f; b.angularVelocity.z += rr(-6,6)*f; }
@@ -1573,7 +1584,7 @@ function updateGravity(dt){
   G.gravOff -= dt;
   if (G.gravOff <= 0) {
     G.gravOff = 0;
-    world.gravity.set(0, (G.map && G.map.grav) || -9.82, 0);
+    world.gravity.set(0, (G.map && G.map.grav) || -9.81, 0);
     world.bodies.forEach(b => { if (b.mass > 0 && b.wakeUp) b.wakeUp(); });
     scene.background.set(baseSky()); scene.fog.color.set(baseSky()); sea.material.color.set(G.night > 0 ? 0x1B3A5C : 0x4FB3E8);
     sfx('thud'); toast('Gravity is back. Look out below.');
@@ -1601,7 +1612,7 @@ function spawnComet(c){
   g.add(new THREE.Mesh(tg, bmat(0xFFB02E,.55)));
   const tg2 = new THREE.ConeGeometry(1.4, 8, 10, 1, true); tg2.rotateX(-Math.PI/2); tg2.translate(0,0,-4.5);
   g.add(new THREE.Mesh(tg2, bmat(0xFFF1B8,.7)));
-  const body = new CANNON.Body({mass:300, material:PM.def});
+  const body = new CANNON.Body({mass:3000, material:PM.def});
   body.addShape(new CANNON.Sphere(2)); body.position.set(start.x, start.y, start.z);
   body.velocity.set(dir.x*55, dir.y*55, dir.z*55); body.allowSleep = false; body.proj = true; body.tag = 'comet';
   const o = addObj({body, mesh:g, kind:'proj', tag:'comet', life:0, armT:.2, bottom:2});
@@ -1687,7 +1698,7 @@ function summonArmy(){
 }
 function spawnSkeleton(x, y, z, delay){
   const m = makeSkeletonMesh(); m.root.position.set(x, y - 2.1, z); m.root.visible = false; roundGroup.add(m.root);
-  const body = new CANNON.Body({mass:5, material:PM.char, fixedRotation:true});
+  const body = new CANNON.Body({mass:30, material:PM.char, fixedRotation:true});
   body.addShape(new CANNON.Sphere(.26), new CANNON.Vec3(0,.26,0)); body.addShape(new CANNON.Sphere(.28), new CANNON.Vec3(0,.95,0)); body.addShape(new CANNON.Sphere(.22), new CANNON.Vec3(0,1.6,0));
   body.updateMassProperties(); body.allowSleep = false; body.tag = 'skel'; body.skel = true;
   skels.push(Object.assign(m, {ownerTeam:casterTeam(), body, x, y, z, t:-delay, state:'rise', life:18, face:Math.atan2(-x,-z), walk:rr(0,6), swingCd:0, swing:0}));
@@ -1854,7 +1865,7 @@ function lavaBomb(v){
   const T = rr(1.8, 2.8), gy = -world.gravity.y || 1;
   const vel = new CANNON.Vec3((tx - top.x)/T, (0 - top.y)/T + .5*gy*T, (tz - top.z)/T);
   const g = new THREE.Group(); sp(.45, new THREE.MeshBasicMaterial({color:0xFF6A1F}), 0,0,0, g, 1); sp(.2, 0x2B1B14, .25,.2,.2, g, 0); sp(.18, 0x2B1B14, -.25,-.1,.25, g, 0);
-  const body = new CANNON.Body({mass:4, material:PM.def}); body.addShape(new CANNON.Sphere(.45)); body.position.set(top.x, top.y + .5, top.z); body.velocity.copy(vel);
+  const body = new CANNON.Body({mass:300, material:PM.def}); body.addShape(new CANNON.Sphere(.45)); body.position.set(top.x, top.y + .5, top.z); body.velocity.copy(vel);
   body.proj = true; body.tag = 'lava'; body.collisionFilterMask = -1;
   const o = addObj({body, mesh:g, kind:'proj', tag:'lava', life:0, armT:.35, bottom:.45});
   body.addEventListener('collide', e => { if (e.body && e.body.tag === 'mirror') { o.reflectPending = true; return; } if (e.body && e.body.tag === 'drone') return; if (o.armT <= 0 && !o.boomed && !(e.body && e.body.tag === 'volcano')) { o.boomed = true; o.boomPending = true; } });
@@ -2016,7 +2027,7 @@ function shinraTensei(at){
     const f = dx*dir.x + dz*dir.z, l = Math.abs(dx*side.x + dz*side.z);
     if (f < -1.5 || f > L || l > 4.5 + Math.max(0,f)*.22) continue;
     if (inDome(b.position) && !inDome(origin)) continue;
-    let dv = 24*(1 - Math.max(0,f)/L) + 7;
+    let dv = (24*(1 - Math.max(0,f)/L) + 7)*heft(b, .5);
     if (b.tag === 'egg') dv *= eggFactor;
     if (b.wakeUp) b.wakeUp();
     const spread = (dx*side.x + dz*side.z) > 0 ? .12 : -.12;
@@ -2046,7 +2057,7 @@ function shinraTensei(at){
 let gcows = [], puddles = [];
 function summonGiantCow(p){
   const S = 3.2, def = DEF_ITEMS.cow;
-  const o = makeBody(Object.assign({}, def, {mass:60, tag:'gcow'}), S);
+  const o = makeBody(Object.assign({}, def, {mass:2000, tag:'gcow'}), S);
   o.body.position.set(p.x, p.y + def.bottom*S + 10, p.z); o.body.quaternion.setFromEuler(0, rr(0,6.28), 0);
   o.kind = 'gcow'; o.bottom = def.bottom*S;
   addObj(o);
@@ -2083,7 +2094,7 @@ function updateGiantCows(dt){
 function milkDrop(from, dx, dz){
   const sp0 = rr(14,19);
   const g = new THREE.Group(); const m = new THREE.Mesh(MILK_GEO, MILK_MAT); m.scale.set(1,1,1.5); g.add(m);
-  const body = new CANNON.Body({mass:.8, material:PM.def}); body.addShape(new CANNON.Sphere(.22));
+  const body = new CANNON.Body({mass:1, material:PM.def}); body.addShape(new CANNON.Sphere(.22));
   body.position.set(from.x + dx*.6, from.y, from.z + dz*.6); body.velocity.set(dx*sp0, rr(2,5), dz*sp0);
   body.proj = true; body.tag = 'milk';
   const o = addObj({body, mesh:g, kind:'proj', tag:'milk', life:0, armT:.05, bottom:.2});
@@ -2183,7 +2194,7 @@ function spawnKnife(st){
   const a = rr(0, Math.PI*2), r = Math.sqrt(rand())*7;
   const x = st.p.x + Math.cos(a)*r, z = st.p.z + Math.sin(a)*r;
   const g = makeKnifeMesh(); g.rotation.y = rr(0,6.28);
-  const body = new CANNON.Body({mass:1.2, material:PM.def, fixedRotation:true});
+  const body = new CANNON.Body({mass:5, material:PM.def, fixedRotation:true});
   body.addShape(new CANNON.Box(new CANNON.Vec3(.06,.45,.1)), new CANNON.Vec3(0,-.35,0));
   body.updateMassProperties(); body.quaternion.setFromEuler(0, g.rotation.y, 0);
   body.position.set(x, st.p.y + 24, z); body.velocity.set(rr(-.5,.5), -26, rr(-.5,.5));
@@ -2216,7 +2227,7 @@ const DEFENSES = {
   dome:{name:'Forcefield dome', e:'🛡️', key:'4', count:1, d:'A shield around the egg. Blocks shots and blasts until it breaks.'},
   fort:{name:'Brick fortress', e:'🏰', key:'5', count:1, d:'Four tall brick walls around the egg.'},
   turret:{name:'Laser turret', e:'🔫', key:'6', count:3, d:'Shoots down incoming shots, bombs and skeletons.', place:true,
-    mass:25, bottom:1.05, foot:.9, boxes:[[.55,.2,.55,0,-.85,0],[.14,.45,.14,0,-.2,0],[.35,.3,.35,0,.5,0]], build(g){
+    mass:400, bottom:1.05, foot:.9, boxes:[[.55,.2,.55,0,-.85,0],[.14,.45,.14,0,-.2,0],[.35,.3,.35,0,.5,0]], build(g){
       bx(1.1,.4,1.1,0x3B4452,0,-.85,0,g); bx(.28,.9,.28,0x5B6676,0,-.2,0,g);
       const head = new THREE.Group(); head.position.y = .5; g.add(head);
       sp(.36,0xDCE3EA,0,0,0,head,1); bx(.14,.14,.7,0x2B3340,0,0,.4,head);
@@ -2225,7 +2236,7 @@ const DEFENSES = {
     }},
   armor:{name:'Titanium egg armor', e:'🦾', key:'7', count:1, d:'The egg becomes twice as tough.'},
   decoy:{name:'Decoy egg', e:'🥚', key:'8', count:3, d:'A fake egg on a pedestal. Fools attackers and their summons.', place:true,
-    mass:14, bottom:.95, foot:.9, tag:'decoy', boxes:[[.6,.6,.6,0,-.35,0]], sphs:[[.33,0,.62,0]], build(g){
+    mass:300, bottom:.95, foot:.9, tag:'decoy', boxes:[[.6,.6,.6,0,-.35,0]], sphs:[[.33,0,.62,0]], build(g){
       bx(1.2,1.2,1.2,0xD9C7A3,0,-.35,0,g); bx(1.4,.2,1.4,0xC4AE85,0,-.85,0,g);
       for (const [x,z,w,d] of [[.42,0,.14,.98],[-.42,0,.14,.98],[0,.42,.98,.14],[0,-.42,.98,.14]]) bx(w,.2,d,0xA87C4F,x,.35,z,g);
       const e = sp(.33, new THREE.MeshStandardMaterial({color:0xFFF3DC, roughness:.5, flatShading:true}), 0,.62,0, g, 2); e.scale.set(1,1.3,1);
@@ -2550,7 +2561,7 @@ function updateFireballs(dt){
       if (b.mass === 0 || b._fb === f.id) continue;
       if (dist3(b.position, f.pos) > 3.2 || inDome(b.position)) continue;
       b._fb = f.id; if (b.wakeUp) b.wakeUp();
-      b.velocity.x += f.dir.x*14; b.velocity.y += 5 + Math.max(0, f.dir.y)*6; b.velocity.z += f.dir.z*14;
+      { const k = heft(b); b.velocity.x += f.dir.x*14*k; b.velocity.y += (5 + Math.max(0, f.dir.y)*6)*k; b.velocity.z += f.dir.z*14*k; }
       if (b.player) { b.player.stun = Math.max(b.player.stun, 1.8); b.player.stars.visible = true; }
     }
     const hitDome = domeUp() && dist3(f.pos, G.dome.c) < G.dome.R + 2.2 && !inDome(f.target);
@@ -2815,7 +2826,7 @@ function worldEnd(W){
 /* ---------------- tier 3: satan, sword, upside down, slow & frozen time, giant tree, night, supernova, vacuum decay, end of evangelion ---------------- */
 let satans = [], swords = [], gtrees = [], novas = [], vacs = [], evas = [], frozen = [];
 const baseSky = () => G.night > 0 ? 0x0B1026 : G.gravOff > 0 ? 0xC3B1F0 : G.mode === 'pain' ? PAIN_SKY : 0x9ED8F5;
-const baseGravity = () => (G.map && G.map.grav) || -9.82;
+const baseGravity = () => (G.map && G.map.grav) || -9.81;
 function currentGravity(){ if (G.flip > 0) return Math.abs(baseGravity())*.9; if (G.gravOff > 0) return 0; return baseGravity(); }
 function updateFilter(){ canvas.style.filter = G.freeze > 0 ? 'grayscale(1) contrast(1.15) brightness(1.05)' : G.warp > 0 ? 'saturate(.55) hue-rotate(-25deg) brightness(.95)' : G.mode === 'pain' ? 'saturate(.82) contrast(1.12) brightness(.94)' : 'saturate(1.12) contrast(1.04)'; }
 
@@ -2917,7 +2928,7 @@ function updateSwords(dt){
         if (along < 2 || along > 23 || Math.abs(lat) > 2.3 || b.position.y > 6 || inDome(b.position)) continue;
         if (b.wakeUp) b.wakeUp();
         const sg = lat >= 0 ? 1 : -1;
-        b.velocity.x += s.side.x*sg*rr(8,14); b.velocity.z += s.side.z*sg*rr(8,14); b.velocity.y += rr(6,10);
+        { const k = heft(b, .5); b.velocity.x += s.side.x*sg*rr(8,14)*k; b.velocity.z += s.side.z*sg*rr(8,14)*k; b.velocity.y += rr(6,10)*k; }
         if (!b.fixedRotation) { b.angularVelocity.x += rr(-8,8); b.angularVelocity.z += rr(-8,8); }
         if (b.player) { hurt(b.player, 65); b.player.stun = Math.max(b.player.stun, 2); b.player.stars.visible = true; }
         if (b.tag === 'egg') breakEgg('sword');
@@ -3178,43 +3189,43 @@ function turretBuild(col, lensCol){ return function(g){
 }; }
 Object.assign(DEFENSES, {
   sam:{name:'Missile battery', e:'🚀', key:'B', count:3, place:true, d:'Fires homing missiles that blow up incoming bombs and shots from 38 meters away.',
-    mass:30, bottom:.85, foot:1, boxes:[[.7,.45,.7,0,-.4,0],[.6,.4,.5,0,.4,0]], build(g){
+    mass:800, bottom:.85, foot:1, boxes:[[.7,.45,.7,0,-.4,0],[.6,.4,.5,0,.4,0]], build(g){
       bx(1.4,.9,1.4,0x4A5240,0,-.4,0,g); const head = new THREE.Group(); head.position.y = .4; g.add(head);
       bx(1.2,.8,1,0x6B7A4A,0,0,0,head); for (const [x,y] of [[-.3,.2],[.3,.2],[-.3,-.2],[.3,-.2]]) bx(.3,.3,.06,0x1A1A1A,x,y,.51,head);
       g.userData.head = head; }},
   tesla:{name:'Tesla coil', e:'⚡', key:'T', count:3, place:true, d:'Chain lightning fries skeletons, Satan, giant cows, knives and milk within 13 meters.',
-    mass:20, bottom:1.8, foot:.9, boxes:[[.6,.25,.6,0,-1.55,0],[.35,1.3,.35,0,-.1,0]], sphs:[[.6,0,1.5,0]], build(g){
+    mass:500, bottom:1.8, foot:.9, boxes:[[.6,.25,.6,0,-1.55,0],[.35,1.3,.35,0,-.1,0]], sphs:[[.6,0,1.5,0]], build(g){
       bx(1.2,.5,1.2,0x3B4452,0,-1.55,0,g); const c = new THREE.Mesh(new THREE.CylinderGeometry(.32,.4,2.6,10), M3(0xB87333)); c.position.y = -.1; c.castShadow = true; g.add(c);
       for (let i=0;i<4;i++){ const r = new THREE.Mesh(new THREE.TorusGeometry(.45,.06,6,16), M3(0x8A8F98)); r.rotation.x = Math.PI/2; r.position.y = -.9 + i*.55; g.add(r); }
       const top = new THREE.Mesh(new THREE.IcosahedronGeometry(.6,2), new THREE.MeshBasicMaterial({color:0x9FE6FF})); top.position.y = 1.5; g.add(top); g.userData.top = top; }},
   cryo:{name:'Cryo turret', e:'❄️', key:'C', count:3, place:true, d:'Freezes incoming shots and bombs in mid-air so they drop harmlessly. Also freezes skeletons and slows Satan.',
-    mass:25, bottom:1.05, foot:.9, boxes:[[.55,.2,.55,0,-.85,0],[.14,.45,.14,0,-.2,0],[.35,.3,.35,0,.5,0]], build:turretBuild(0xBFE9FF, 0x4FC3FF)},
+    mass:400, bottom:1.05, foot:.9, boxes:[[.55,.2,.55,0,-.85,0],[.14,.45,.14,0,-.2,0],[.35,.3,.35,0,.5,0]], build:turretBuild(0xBFE9FF, 0x4FC3FF)},
   fan:{name:'Giant fan', e:'🌀', key:'G', count:3, place:true, d:'Blows incoming shots, skeletons and attackers away. Point it outward with R.',
-    mass:15, bottom:1.5, foot:1.3, boxes:[[.8,.15,.5,0,-1.35,0],[.15,1,.15,0,-.3,0],[1.5,1.5,.3,0,1.2,.1]], build(g){
+    mass:250, bottom:1.5, foot:1.3, boxes:[[.8,.15,.5,0,-1.35,0],[.15,1,.15,0,-.3,0],[1.5,1.5,.3,0,1.2,.1]], build(g){
       bx(1.6,.3,1,0x5B6676,0,-1.35,0,g); bx(.3,2,.3,0x5B6676,0,-.3,0,g);
       const cage = new THREE.Mesh(new THREE.TorusGeometry(1.5,.08,6,28), M3(0xC9D1DA)); cage.position.set(0,1.2,.1); g.add(cage);
       const blades = new THREE.Group(); blades.position.set(0,1.2,.15); g.add(blades); sp(.25,0x3B4452,0,0,0,blades,1);
       for (let i=0;i<4;i++){ const b = bx(.5,1.3,.05,0x2F6BFF,0,.7,0,blades); const pv = new THREE.Group(); pv.rotation.z = i*Math.PI/2; pv.add(b); blades.add(pv); b.rotation.y = .4; }
       g.userData.blades = blades; }},
   magnet:{name:'Magnet tower', e:'🧲', key:'M', count:2, place:true, d:'Pulls incoming shots and bombs into itself. Put it away from the egg so they blow up there.',
-    mass:18, bottom:3, foot:1, boxes:[[.6,.2,.6,0,-2.8,0],[.15,2.5,.15,0,-.2,0],[1.1,.8,.3,0,2.8,0]], build(g){
+    mass:600, bottom:3, foot:1, boxes:[[.6,.2,.6,0,-2.8,0],[.15,2.5,.15,0,-.2,0],[1.1,.8,.3,0,2.8,0]], build(g){
       bx(1.2,.4,1.2,0x3B4452,0,-2.8,0,g); const pole = new THREE.Mesh(new THREE.CylinderGeometry(.15,.15,5,8), M3(0x8A8F98)); pole.position.y = -.2; g.add(pole);
       const m = new THREE.Mesh(new THREE.TorusGeometry(.8,.3,8,16,Math.PI), M3(0xE53935)); m.position.y = 2.6; m.rotation.z = Math.PI; g.add(m);
       bx(.6,.4,.62,0xDCE3EA,-.8,2.45,0,g); bx(.6,.4,.62,0xDCE3EA,.8,2.45,0,g); }},
   mirror:{name:'Mirror wall', e:'🪞', key:'N', count:3, place:true, tag:'mirror', d:'Reflects shots and bombs back at the attacker.',
-    mass:12, bottom:1.75, foot:1.7, boxes:[[1.6,1.6,.1,0,0,0],[.9,.1,.4,0,-1.65,0]], build(g){
+    mass:300, bottom:1.75, foot:1.7, boxes:[[1.6,1.6,.1,0,0,0],[.9,.1,.4,0,-1.65,0]], build(g){
       const glass = new THREE.MeshStandardMaterial({color:0xE8F0F8, metalness:1, roughness:.05, flatShading:true, emissive:0x223344, emissiveIntensity:.3});
       bx(3.2,3.2,.2,glass,0,0,0,g); for (const [x,y,w,h] of [[0,1.65,3.4,.15],[0,-1.65,3.4,.15],[1.65,0,.15,3.4],[-1.65,0,.15,3.4]]) bx(w,h,.3,0xE0B040,x,y,0,g);
       bx(1.8,.2,.8,0xE0B040,0,-1.7,0,g); }},
   jammer:{name:'Signal jammer', e:'📡', key:'J', count:2, place:true, d:'Attackers cannot drop specials within 15 meters of it until they knock it over.',
-    mass:10, bottom:.4, foot:.8, boxes:[[.5,.4,.4,0,0,0]], build(g){
+    mass:60, bottom:.4, foot:.8, boxes:[[.5,.4,.4,0,0,0]], build(g){
       bx(1,.8,.8,0x2B3340,0,0,0,g); for (const x of [-.3,0,.3]) { const a = new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,1.2,4), M3(0x8A8F98)); a.position.set(x,1,0); g.add(a); }
       const l = new THREE.Mesh(new THREE.IcosahedronGeometry(.1,1), new THREE.MeshBasicMaterial({color:0xFF3B30})); l.position.set(0,.5,.4); g.add(l); g.userData.light = l;
       cone(.35,.3,0xC9D1DA,.3,.55,0,g,10); }},
   golem:{name:'Stone golem', e:'🗿', key:'K', count:2, place:true, d:'A stone giant that patrols around the egg, blocks shots and punches skeletons, Satan and giant cows.',
     bottom:2.2, foot:1.2, build(g){ const m = makeGolemMesh(); m.root.scale.setScalar(1); g.add(m.root); }, spawn:(p) => spawnGolem(p)},
   mortar:{name:'Revenge mortar', e:'💣', key:'P', count:2, place:true, d:'Shells the attacker every 7 seconds, knocking them over.',
-    mass:20, bottom:.8, foot:.9, boxes:[[.6,.3,.6,0,-.5,0],[.3,.5,.3,0,.2,0]], build(g){
+    mass:500, bottom:.8, foot:.9, boxes:[[.6,.3,.6,0,-.5,0],[.3,.5,.3,0,.2,0]], build(g){
       bx(1.2,.6,1.2,0x4A5240,0,-.5,0,g); const t = new THREE.Mesh(new THREE.CylinderGeometry(.25,.32,1.3,10), M3(0x2F3A48)); t.position.y = .35; t.rotation.x = -.5; g.add(t); }},
   drones:{name:'Shield drones', e:'🛸', key:'O', count:1, d:'Four drones orbit the egg. They bounce shots and each can swallow one bomb.'},
   angel:{name:'Guardian angel', e:'😇', key:'L', count:1, d:'Saves the egg from destruction once.'},
@@ -3613,9 +3624,9 @@ function elementTick(c, elem, dt){
     case 'holy': { et[elem] = 1.3/k; const p = gp(); lightPillar(p, .6, false); blastAt(p, 3, 10, 1, 'holyC'); break; }
     case 'hell': { et[elem] = 4/k; if (skels.filter(s => !s.dead).length < 30) { const p = gp(); spawnSkeleton(p.x, 0, p.z, 0); } break; }
     case 'void': { et[elem] = .6;
-      for (const o of objs) { if (o.dead || !o.body || isCarried(o) || (o.key && DEFENSES[o.key] && o.body.mass > 20)) continue; const d = dist3(o.body.position, c.pos); if (inDome(o.body.position)) continue;
+      for (const o of objs) { if (o.dead || !o.body || isCarried(o) || (o.key && DEFENSES[o.key] && o.body.mass > 380)) continue; const d = dist3(o.body.position, c.pos); if (inDome(o.body.position)) continue;
         if (o === egg) { if (d < 1.6) breakEgg('vacuum'); continue; }
-        if (d < c.R*.6 && o.body.mass < 6) { sparkle(o.body.position, 0x9B5CFF); removeObj(o); } }
+        if (d < c.R*.6 && o.body.mass < 10) { sparkle(o.body.position, 0x9B5CFF); removeObj(o); } }
       break; }
     case 'milk': { et[elem] = .18/k; const a = rr(0,6.28); milkDrop(V3(c.pos.x, Math.max(1.5, c.pos.y), c.pos.z), Math.cos(a), Math.sin(a)); break; }
     case 'blade': { et[elem] = .25/k; spawnKnife({p:V3(c.pos.x, 0, c.pos.z)}); break; }
@@ -3839,7 +3850,7 @@ function makeThrownComet(start, vel){
   g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(2.6*s,2), bmat(0xFF7A2E,.45)));
   const tg = new THREE.ConeGeometry(2.3*s, 9*s, 12, 1, true); tg.rotateX(-Math.PI/2); tg.translate(0,0,-5*s); g.add(new THREE.Mesh(tg, bmat(0xFFB02E,.55)));
   const tg2 = new THREE.ConeGeometry(1.4*s, 6*s, 10, 1, true); tg2.rotateX(-Math.PI/2); tg2.translate(0,0,-3.5*s); g.add(new THREE.Mesh(tg2, bmat(0xFFF1B8,.7)));
-  const body = new CANNON.Body({mass:150, material:PM.def}); body.addShape(new CANNON.Sphere(1.3));
+  const body = new CANNON.Body({mass:20000, material:PM.def}); body.addShape(new CANNON.Sphere(1.3));
   body.position.set(start.x, start.y, start.z); body.velocity.set(vel.x, vel.y, vel.z); body.allowSleep = false; body.tag = 'comet';
   return addObj({body, mesh:g, kind:'proj', tag:'comet', life:0, bottom:1.3});
 }
@@ -3968,7 +3979,7 @@ function destroyProp(pr, from, dmg){
   const away = new THREE.Vector3(pr.x - from.x, 0, pr.z - from.z); const d = away.length() || 1; away.divideScalar(d);
   const kick = clamp(dmg*.35, 3, 16);
   if (pr.kind === 'tree') {
-    const s = pr.s, b = new CANNON.Body({mass:6*s, material:PM.def});
+    const s = pr.s, b = new CANNON.Body({mass:400*s*s*s, material:PM.def});
     b.addShape(new CANNON.Box(new CANNON.Vec3(.2*s,.8*s,.2*s)), new CANNON.Vec3(0,.8*s,0)); b.addShape(new CANNON.Sphere(.8*s), new CANNON.Vec3(0,2.7*s,0));
     b.position.set(pr.mesh.position.x, pr.mesh.position.y + .05, pr.mesh.position.z);
     b.velocity.set(away.x*kick, kick*.55, away.z*kick); b.angularVelocity.set(away.z*3, rr(-1,1), -away.x*3);
@@ -3978,14 +3989,14 @@ function destroyProp(pr, from, dmg){
     roundGroup.remove(pr.mesh);
     for (let i=0;i<4;i++){
       const r = pr.r*rr(.3,.5), m = sp(r, pick([0x9AA3AD,0x8A939C,0xB1B8C0]), 0,0,0, null, 0); addOutline(m);
-      const b = new CANNON.Body({mass:Math.max(.5, 3*r*r), material:PM.def}); b.addShape(new CANNON.Sphere(r*.9));
+      const b = new CANNON.Body({mass:Math.max(5, 2000*r*r*r), material:PM.def}); b.addShape(new CANNON.Sphere(r*.9));
       b.position.set(pr.x + rr(-.5,.5)*pr.r, pr.y + pr.r*.6 + rr(0,.5), pr.z + rr(-.5,.5)*pr.r);
       b.velocity.set(away.x*kick + rr(-4,4), kick*.6 + rr(1,5), away.z*kick + rr(-4,4)); b.angularVelocity.set(rr(-6,6), rr(-6,6), rr(-6,6));
       addObj({body:b, mesh:m, kind:'debris', bottom:r});
     }
   } else {
     if (pr.cap) roundGroup.remove(pr.cap);
-    const b = new CANNON.Body({mass:pr.kind === 'wall' ? 30 : 12, material:PM.def});
+    const b = new CANNON.Body({mass:pr.kind === 'wall' ? 5000 : 3000, material:PM.def});
     b.addShape(new CANNON.Box(new CANNON.Vec3(pr.hx, pr.hy, pr.hz)));
     b.position.set(pr.mesh.position.x, pr.mesh.position.y, pr.mesh.position.z); b.quaternion.setFromEuler(0, pr.mesh.rotation.y, 0);
     b.velocity.set(away.x*kick*.6, kick*.3, away.z*kick*.6); b.angularVelocity.set(away.z*2.5, 0, -away.x*2.5);
@@ -4041,7 +4052,7 @@ function firePunch(pk){
     const o = bodyObj.get(b);
     if (S && o && o !== egg && o.kind !== 'gcow' && rand() < .45) { sparkle(b.position, 0x9B5CFF); removeObj(o); continue; }
     if (b.wakeUp) b.wakeUp();
-    const f = 1 - al/L*.5;
+    const f = (1 - al/L*.5)*heft(b, .5);
     b.velocity.x += pk.dir.x*push*f + rr(-3,3); b.velocity.z += pk.dir.z*push*f + rr(-3,3); b.velocity.y += (S ? 18 : 9)*f;
     if (!b.fixedRotation) { b.angularVelocity.x += rr(-10,10); b.angularVelocity.z += rr(-10,10); }
     if (b.player) { hurt(b.player, S ? 150 : 75); b.player.stun = Math.max(b.player.stun, S ? 4 : 2.5); b.player.stars.visible = true; }
@@ -4187,10 +4198,19 @@ function dashImpact(P){
   for (const q of world.bodies) {
     if (q.mass === 0 || q === b || q._frozen || inDome(q.position)) continue;
     const dx = q.position.x - b.position.x, dz = q.position.z - b.position.z, d = Math.hypot(dx, dz);
+    // too heavy to bowl over (a wall, a cow, a turret): the dash stops short with a bump instead of ramming through.
+    // Measured to the object's bounding box, since a long wall's middle can be far away when you hit its end.
+    if (q.mass > 300 && q._dashHit !== P.dashId) {
+      if (q.aabbNeedsUpdate) q.computeAABB();
+      const A = q.aabb, ex = clamp(b.position.x, A.lowerBound.x, A.upperBound.x) - b.position.x, ez = clamp(b.position.z, A.lowerBound.z, A.upperBound.z) - b.position.z;
+      const near = Math.hypot(ex, ez) < 1.3 && ex*P.dashDir.x + ez*P.dashDir.z > -.05 && A.upperBound.y > b.position.y + .2 && A.lowerBound.y < b.position.y + 1.8;
+      if (near) { q._dashHit = P.dashId; P.dashT = 0; P.dashEndFx = true; b.velocity.x = -P.dashDir.x*2; b.velocity.z = -P.dashDir.z*2; G.shake = Math.max(G.shake, reduceMotion ? 0 : .2); sfx('thud'); if (q.wakeUp) q.wakeUp(); q.velocity.x += P.dashDir.x*14*heft(q); q.velocity.z += P.dashDir.z*14*heft(q); }
+      continue;
+    }
     if (d > 1.9 || Math.abs(q.position.y - b.position.y - 1) > 2.2 || q._dashHit === P.dashId) continue;
     q._dashHit = P.dashId; if (q.wakeUp) q.wakeUp();
     const sd = (dx*P.dashDir.z - dz*P.dashDir.x) >= 0 ? 1 : -1;
-    q.velocity.x += P.dashDir.x*14 + P.dashDir.z*sd*8; q.velocity.z += P.dashDir.z*14 - P.dashDir.x*sd*8; q.velocity.y += 6;
+    { const k = heft(q); q.velocity.x += (P.dashDir.x*14 + P.dashDir.z*sd*8)*k; q.velocity.z += (P.dashDir.z*14 - P.dashDir.x*sd*8)*k; q.velocity.y += 6*k; }
     if (q.player) { q.player.stun = Math.max(q.player.stun, 1); q.player.stars.visible = true; }
   }
   skels.forEach(k => { if (!k.dead && k.state === 'walk' && Math.hypot(k.body.position.x - b.position.x, k.body.position.z - b.position.z) < 1.7) crumble(k); });
@@ -4232,7 +4252,7 @@ function die(P){
 }
 function respawn(P){
   const s = teamSpawn(P.team), b = P.body;
-  b.type = CANNON.Body.DYNAMIC; b.mass = 6; b.updateMassProperties(); b.collisionFilterMask = -1 ^ 8;
+  b.type = CANNON.Body.DYNAMIC; b.mass = 80; b.updateMassProperties(); b.collisionFilterMask = -1 ^ 8;
   b.position.set(s.x, s.y, s.z); b.velocity.set(0,0,0); b._onGround = false;
   P.hp = 100; P.alive = true; P.stun = 0; P.slowT = P.pinT = P.lockT = P.floatT = 0; P.fly = null; P.stars.visible = false; P.root.visible = true; G.spawnShield = 2;
   G.yaw = Math.atan2(-s.x, -s.z); $('respawn').style.display = 'none'; updateHud();
@@ -4609,7 +4629,14 @@ function popText(p, txt, col){
 }
 
 /* ---------- GravityForce: instant impulses on physics objects (debris, uprooted props, dummies) ---------- */
-function forEachObject(fn){ for (const b of world.bodies.slice()) { if (b.mass === 0 || b.player || b._frozen) continue; fn(b); } }
+function forEachObject(fn){
+  for (const b of world.bodies.slice()) {
+    if (b.mass === 0 || b.player || b._frozen) continue;
+    const k = heft(b, .5), vx = b.velocity.x, vy = b.velocity.y, vz = b.velocity.z;
+    fn(b);
+    if (k < 1) { b.velocity.x = vx + (b.velocity.x - vx)*k; b.velocity.y = vy + (b.velocity.y - vy)*k; b.velocity.z = vz + (b.velocity.z - vz)*k; }   // heavy things budge less
+  }
+}
 function spin(b, s){ if (!b.fixedRotation) { b.angularVelocity.x += rr(-s, s); b.angularVelocity.y += rr(-s, s); b.angularVelocity.z += rr(-s, s); } }
 function dummyHit(b, amount){
   const o = bodyObj.get(b); if (!o || G.t - (o.hitT || -9) < .2) return; o.hitT = G.t;
@@ -4648,9 +4675,9 @@ function liftProp(pr, v){
   if (!pr.home) pr.home = {p:pr.mesh.position.clone(), q:pr.mesh.quaternion.clone(), s:pr.mesh.scale.x, cp:pr.cap ? pr.cap.position.clone() : null};
   pr.dead = true; if (pr.body.world) world.removeBody(pr.body); if (pr.cap) roundGroup.remove(pr.cap);
   const m = pr.mesh; let b;
-  if (pr.kind === 'tree') { const s = pr.s; b = new CANNON.Body({mass:6*s, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(.2*s, .8*s, .2*s)), new CANNON.Vec3(0, .8*s, 0)); b.addShape(new CANNON.Sphere(.8*s), new CANNON.Vec3(0, 2.7*s, 0)); }
-  else if (pr.kind === 'rock') { b = new CANNON.Body({mass:Math.max(2, 4*pr.r*pr.r), material:PM.def}); b.addShape(new CANNON.Sphere(pr.r*.9)); }
-  else { b = new CANNON.Body({mass:pr.kind === 'wall' ? 30 : 12, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(pr.hx, pr.hy, pr.hz))); }
+  if (pr.kind === 'tree') { const s = pr.s; b = new CANNON.Body({mass:400*s*s*s, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(.2*s, .8*s, .2*s)), new CANNON.Vec3(0, .8*s, 0)); b.addShape(new CANNON.Sphere(.8*s), new CANNON.Vec3(0, 2.7*s, 0)); }
+  else if (pr.kind === 'rock') { b = new CANNON.Body({mass:Math.max(20, 2000*pr.r*pr.r*pr.r), material:PM.def}); b.addShape(new CANNON.Sphere(pr.r*.9)); }
+  else { b = new CANNON.Body({mass:pr.kind === 'wall' ? 5000 : 3000, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(pr.hx, pr.hy, pr.hz))); }
   b.position.set(m.position.x, m.position.y + .05, m.position.z); b.quaternion.set(m.quaternion.x, m.quaternion.y, m.quaternion.z, m.quaternion.w);
   b.velocity.set(v.x, v.y, v.z); spin(b, 2);
   b.allowSleep = true; b.sleepSpeedLimit = .5; b.sleepTimeLimit = .4; b.linearDamping = .08; b.angularDamping = .25;
@@ -5601,7 +5628,7 @@ function makeDummy(x, z){
   const y = groundH(x, z), g = new THREE.Group();
   bx(.55, 1.1, .38, 0x3A3340, 0, .95, 0, g); sp(.3, 0xC9B48A, 0, 1.82, 0, g, 1); bx(1.4, .14, .14, 0x5A4A3A, 0, 1.3, 0, g); bx(.14, .45, .14, 0x5A4A3A, 0, .22, 0, g);
   addOutline(g);
-  const b = new CANNON.Body({mass:5, material:PM.def});
+  const b = new CANNON.Body({mass:80, material:PM.def});
   b.addShape(new CANNON.Box(new CANNON.Vec3(.3, .75, .22)), new CANNON.Vec3(0, .95, 0)); b.addShape(new CANNON.Sphere(.3), new CANNON.Vec3(0, 1.82, 0));
   b.position.set(x, y + .05, z); b.allowSleep = true; b.sleepSpeedLimit = .4; b.angularDamping = .45; b.linearDamping = .05; b.tag = 'dummy';
   const o = addObj({body:b, mesh:g, kind:'dummy', bottom:0}); o.home = {x, z};
@@ -5887,7 +5914,7 @@ function kiBlast(target){
   const start = new THREE.Vector3(P.body.position.x + f.x*.9, P.body.position.y + 1.5, P.body.position.z + f.z*.9);
   const dir = target ? target.clone().sub(start).normalize() : f;
   const g = new THREE.Group(); g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(.2,1), new THREE.MeshBasicMaterial({color:0xFFFFFF}))); g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(.4,1), bmat(0x5FD4FF,.55)));
-  const body = new CANNON.Body({mass:.4, material:PM.def}); body.addShape(new CANNON.Sphere(.22));
+  const body = new CANNON.Body({mass:1, material:PM.def}); body.addShape(new CANNON.Sphere(.22));
   body.position.set(start.x, start.y, start.z); body.velocity.set(dir.x*72, dir.y*72 + 1.5, dir.z*72); body.allowSleep = false; body.proj = true; body.tag = 'ki';
   const o = addObj({body, mesh:g, kind:'proj', tag:'ki', life:0, bottom:.2}); o.ownerBody = P.body;
   body.addEventListener('collide', e => { if (e.body === o.ownerBody || o.boomed) return; o.boomed = true; o.boomPending = true; });
@@ -6551,7 +6578,7 @@ function applyForces(){
     if (b.proj) {
       if (G.map && G.map.wind) { b.force.x += wind.x*b.mass*.35; b.force.z += wind.z*b.mass*.35; }
       if (ag && G.phase === 'attack') b.force.y += -world.gravity.y * b.mass * ag;
-    } else if (G.map && G.map.wind && b.mass < 3 && b.tag !== 'char' && b.velocity.norm() > .3) {
+    } else if (G.map && G.map.wind && b.mass < 30 && b.tag !== 'char' && b.velocity.norm() > .3) {
       b.force.x += wind.x*b.mass*.12; b.force.z += wind.z*b.mass*.12;
     }
   }  applyHoles(); applyTornados(); applyRapture(); applyFlip(); applyFieldForces(); applyComboForces(); applyPainForces();

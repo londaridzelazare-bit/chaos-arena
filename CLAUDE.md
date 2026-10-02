@@ -127,6 +127,19 @@ only renders through a texture while an entry is alive; `warpPulse` for one-off 
 - Cosmetic chaos (debris, smoke, flying logs, randomness inside skills) is simulated locally
   on each screen and is allowed to differ.
 
+## Physics (all modes)
+
+Earth gravity everywhere (9.81 m/s², the low-gravity "Moon Day" map was removed). Masses are real
+kilograms: player 80, brick wall 4000, cow 650, turret 400, chicken 2.5, egg 20, nuke 400. Jump is
+4.7 m/s (~1.1 m), double jump 4.2 m/s. Because most powers push by changing velocity directly, those
+pushes go through `heft(body, e)` = min(1, (80/mass)^e): explosions (`blastAt`) e=.4, dash and fireball
+e=.75, Chaos Shinra/sword/punch and every Pain push (wrapped in `forEachObject`) e=.5. Forces written
+as `accel * b.mass` (fields, wind, fans, magnets) stay mass-independent on purpose. `controlPlayer`
+caps how fast the feet change your speed (28 m/s² ground, 9 in the air) so a runner can't shove a wall
+over; a dash stops with a bump when it reaches anything over 300 kg (`dashImpact`, by bounding box).
+Throw speed falls with weight; anything over 300 kg can't be picked up. When adding a body, give it a
+real mass in kg.
+
 ## Status / known issues (please check these first)
 
 1. **Verified, not a bug (2026-10-01):** the knocked-out player's score/kill feed. Tested
