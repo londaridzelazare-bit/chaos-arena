@@ -132,7 +132,9 @@ only renders through a texture while an entry is alive; `warpPulse` for one-off 
 ## Classes (all modes)
 
 `G.cls` is the local player's class: 'native' (the mode's own kit: Chaos `SPECIALS` or `PAIN_SKILLS`) or
-'bomber'. Tab or the class button on the Skills bar (`switchClass`, `addClassButton`) swaps it any time;
+'bomber'. Tab, or the row of class tabs on top of the Skills bar (`addClassButton` builds `.classTabs`; tabs
+switch on pointerdown because the bar redraws right after), swaps it any time; while tabs show,
+`body:has(.classTabs)` lifts `#hpBar` and `#micB` so they don't cover them;
 it's remembered in localStorage `ca-cls`. `skillTable()` follows the class; `modeTable()` is always the
 mode's kit (used for `G.specials`). Cooldowns live per power id in `G.cd` and the host's `castLog`, so
 swapping never resets them. The host accepts a cast if the id is in the mode kit or any class table
@@ -205,6 +207,25 @@ stay tied to Pain mode (`isPain()`). In Pain mode the class is skipped (`classCy
 Egg mode follows the cooldown setting like the other modes (it used to force cooldowns on).
 
 The Skills bar fills row by row and is sorted by key: click, 1-9, 0, then letters A-Z.
+
+## Protection (Egg mode defender)
+
+Module "PROTECTION", just before "casting, locally and for other players". Ten barrier types
+(`BAR_TYPES`: wood, stone, steel, energy, frost, fire, spike, thorn, bounce, crystal) are `DEFENSES['bar_*']`
+with `barrier:k`; `placeDefense` hands them to `placeBarrier`, which **merges** into any barrier within
+1.2 m (`mergeTrait`: tier +1, HP and size grow, traits stack, name like "Burning Spiked Stone Wall").
+`BARS = {list, destroyed, fields}`, reset in `startMatch`. Barriers are static cannon boxes (tag
+'barrier'), block bombs (`bSolid`) and summons (`eMove`), and take damage through
+`summonsTakeArea/Cone` -> `barriersTakeArea/Cone` -> `barHurt` (steel layers ×0.75 each). At 0 HP the
+egg's authority (host online) sends hidden cast `g_break` (clients' `g_break` is always rejected).
+`barrierFrame` runs the traits (energy regen + swallows bombs, frost freezes bombs and slows, crystal
+repairs neighbours and heals egg cracks, fire/spike/thorn/bounce on touch) and HP bars.
+`GUARD` is the defender's 20-skill kit in the attack phase (`guardActive()`; `skillTable` returns it
+first, keys via `guardKeyDown`, effects in `runGuard`): repair beam, mend egg, emergency wall, reinforce
+(steel), dome recharge, interceptor, turret overdrive (`G.overdriveT`), freeze, repulsor, egg teleport,
+holy shield (`G.eggInvulnT`), barrier fusion, golem, drones, tar pit / lightning rod / shockwave trap
+(`guardField`), smoke, rebuild (`BARS.destroyed`), last stand. castOK only accepts GUARD casts from
+`G.egg.def`. Test: scratch `guard.mjs`.
 
 ## Network checks (castOK)
 

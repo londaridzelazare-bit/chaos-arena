@@ -173,6 +173,7 @@ body.touch #toast{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 180px)}
 @media (max-width:640px){ .skill{width:50px;height:48px} .skill .si{font-size:16px} .skill .sn{font-size:8.5px} }
 
 #hpBar{position:fixed;left:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 150px);width:min(260px,40vw);height:26px;border:3px solid var(--edge);border-radius:999px;background:var(--panel);overflow:hidden;box-shadow:3px 3px 0 var(--edge);z-index:5}
+body:has(.classTabs) #hpBar{bottom:calc(env(safe-area-inset-bottom,0px) + 184px)}
 #hpFill{height:100%;width:100%;background:#6CB24A;transition:width .15s}
 #hpText{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:15px;color:#1E2A38;text-shadow:0 1px 0 #fff}
 #fps{position:fixed;left:12px;top:calc(env(safe-area-inset-top,0px) + 58px);z-index:5;pointer-events:none;font:800 12px/1 var(--display,system-ui),system-ui,sans-serif;padding:4px 8px;border-radius:999px;background:rgba(5,9,13,.72);color:#8BE28B;font-variant-numeric:tabular-nums;letter-spacing:.02em}
@@ -187,10 +188,15 @@ body.touch #toast{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 180px)}
 #eggBanner{position:fixed;left:50%;top:22%;transform:translateX(-50%);z-index:8;display:none;text-align:center;pointer-events:none;max-width:min(440px,92vw)}
 #eggBanner .title{font-size:clamp(34px,7vw,52px)}
 #micB{position:fixed;left:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 186px);z-index:30;display:flex;align-items:center;gap:6px;padding:6px 12px;border:3px solid var(--edge);border-radius:999px;background:var(--panel);color:var(--text);font:inherit;font-weight:900;font-size:13px;cursor:pointer;box-shadow:3px 3px 0 var(--edge)}
+body:has(.classTabs) #micB{bottom:calc(env(safe-area-inset-bottom,0px) + 220px)}
 #micB .mi{font-size:18px}#micB.on{background:#2E7D32;color:#fff}
 #talkers{position:fixed;left:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 228px);z-index:30;display:none;padding:4px 10px;font-size:13px;pointer-events:none}
 body.touch #micB{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 96px);left:12px}
 body.touch #talkers{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 140px)}
+.classTabs{position:absolute;bottom:100%;left:14px;right:14px;display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;margin-bottom:-3px}
+.classTabs button{flex:none;border:3px solid var(--edge);border-bottom:none;border-radius:10px 10px 0 0;background:var(--panel);color:var(--text);font:inherit;font-weight:800;font-size:12px;padding:4px 10px;cursor:pointer;opacity:.85}
+.classTabs button:first-child{margin-left:auto}.classTabs button:last-child{margin-right:auto}
+.classTabs button.on{background:var(--yolk);color:#1A1A1A;opacity:1}
 #killfeed div{background:rgba(20,30,45,.82);color:#fff;padding:4px 10px;border-radius:999px;font-size:13px;animation:pop .2s ease-out}
 #blindFx{position:fixed;inset:0;pointer-events:none;z-index:3;opacity:0;background:radial-gradient(ellipse at center, rgba(5,5,12,.88) 30%, rgba(5,5,12,1) 80%)}
 #dmgFlash{position:fixed;inset:0;pointer-events:none;z-index:3;opacity:0;background:radial-gradient(ellipse at center, rgba(255,40,30,0) 45%, rgba(255,40,30,.75) 100%)}
@@ -262,7 +268,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-03.9';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-03.10';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -1033,7 +1039,7 @@ function spawnEgg(h){
   Object.assign(egg, {cracks:0, alive:true, grace:1.2, pending:null, crackG, crackCd:0});
   body.addEventListener('collide', e => {
     if (!egg.alive || egg.grace > 0 || egg.pending) return;
-    if (G.pvp && G.mode === 'egg' && (!eggAuth() || G.phase !== 'attack')) return;
+    if (G.pvp && G.mode === 'egg' && (!eggAuth() || G.phase !== 'attack' || G.eggInvulnT > G.t)) return;
     let v = Math.abs(e.contact.getImpactVelocityAlongNormal());
     const other = e.body;
     if (other && (other.tag === 'mattress' || other.tag === 'soft')) v *= .35;
@@ -1054,6 +1060,7 @@ function addCrack(){
 }
 function breakEgg(reason){
   if (!egg || !egg.alive) return;
+  if (G.eggInvulnT > G.t && !G.eggNetBreak) return;   // Holy Shield / Last Stand
   if (eggOn()) {
     if (!G.eggNetBreak) { if (!eggAuth() || G.egg.over) return; if (G.phase !== 'attack') { eggReset(); return; } }
     if (G.eggLives > 0 && !G.eggNetBreak && reason !== 'worldend') { saveEgg(); return; }
@@ -1465,6 +1472,7 @@ const SPECIALS = {
 const specialsLeft = () => G.specials ? Object.values(G.specials).reduce((a,b) => a+b, 0) : 0;
 const effectsActive = () => holes.some(h => !h.done) || comets.some(c => !c.done) || G.gravOff > 0 || skels.some(k => !k.dead) || tornados.some(t => !t.done) || volcanoes.some(v => v.state === 'rise' || v.state === 'erupt') || bolts.some(b => !b.done) || gcows.some(c => !c.done) || frogs.some(f => !f.done) || storms.some(s => !s.done) || hands.some(h => !h.done) || fireballs.some(f => !f.done) || judgements.some(j => !j.done) || comings.some(c => !c.done) || satans.some(x => !x.done) || swords.some(x => !x.done) || novas.some(x => !x.done) || vacs.some(x => !x.done) || evas.some(x => !x.done) || G.freeze > 0 || G.flip > 0 || objs.some(o => !o.dead && (o.tag === 'nuke' || o.tag === 'chibaku' || o.tag === 'comet' || o.tag === 'bijuu' || o.tag === 'lava' || o.tag === 'knife' || o.tag === 'milk' || o.tag === 'antimatter' || o.tag === 'doomnuke'));
 function useSpecial(id){
+  if (GUARD[id]) { guardUse(id); return; }
   if (PAIN_SKILLS[id]) { const P = localP(); if (G.phase !== 'attack' || !P || P.stun > 0 || P.lockT > 0 || (G.egg && G.egg.over)) return; if (amDefender()) { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('🛡️ You defend: click for energy blasts, E to grab and throw things.'); } return; } painUse(id); return; }
   if (BOMBER[id]) { bomberUse(id); return; }
   if (SUMMON[id]) { summonUse(id); return; }
@@ -2430,7 +2438,7 @@ function updateTurrets(dt){
     const tp = new THREE.Vector3(tgt.x, tgt.y + (skel ? 1.2 : 0), tgt.z);
     head.lookAt(tp);
     if (t.cd > 0) continue;
-    t.cd = .45;
+    t.cd = G.overdriveT > G.t ? .15 : .45;
     laserBeam(hp, tp);
     if (skel) { crumble(skel); continue; }
     if (sat) { hurtSatan(sat); continue; }
@@ -4381,7 +4389,7 @@ function startMatch(seed, list, score, mode, cdOn, eg){
   G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' ? mode : 'chaos'; G.cdOn = !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
   if (G.mode === 'egg' && !eg) eg = {def:G.localKey, round:1, total:1, pts:{}};
   buildRound(seed);
-  painReset(); painAmbience(); bomberReset(); swordReset(); summonReset(); necroReset();
+  painReset(); painAmbience(); barReset(); bomberReset(); swordReset(); summonReset(); necroReset();
   if (G.mode !== 'egg') {   // only Egg mode keeps the egg and its pedestal
     if (egg) { removeObj(egg); egg = null; }
     world.bodies.slice().forEach(b => { if (b.tag === 'pedestal') world.removeBody(b); }); if (G.pedMesh) roundGroup.remove(G.pedMesh);
@@ -4538,6 +4546,7 @@ function runDefense(id, p, x){
 }
 function placeDefense(key, pos, rotY){
   const def = DEFENSES[key];
+  if (def.barrier) { const C = chars[G.casterKey || G.localKey]; placeBarrier(def.barrier, pos, rotY, G.casterKey || G.localKey, C ? C.team : null); return; }
   if (def.spawn) { def.spawn(pos.clone(), rotY); return; }
   const o = makeBody(def, 1);
   o.body.position.set(pos.x, pos.y, pos.z); o.body.quaternion.setFromEuler(0, rotY, 0);
@@ -4632,11 +4641,11 @@ const PAIN = {fx:[], fields:[], rods:[], stuckRods:[], regrow:[], dummies:[], co
 function isPain(){ return G.mode === 'pain'; }
 // the Pain powers are in your hands: the Pain class in any mode, or the default kit in Pain mode (the map rules stay with the mode)
 function painKit(){ return G.cls === 'pain' || (G.cls === 'native' && isPain()); }
-function skillTable(){ return G.cls === 'bomber' ? BOMBER : G.cls === 'sword' ? SWORD : G.cls === 'summon' ? SUMMON : G.cls === 'necro' ? NECRO_SK : G.cls === 'pain' ? PAIN_SKILLS : isPain() ? PAIN_SKILLS : SPECIALS; }
-function skillDef(id){ return PAIN_SKILLS[id] || SPECIALS[id] || BOMBER[id] || SWORD[id] || SUMMON[id] || NECRO_SK[id]; }
+function skillTable(){ if (typeof guardActive === 'function' && guardActive()) return GUARD; return G.cls === 'bomber' ? BOMBER : G.cls === 'sword' ? SWORD : G.cls === 'summon' ? SUMMON : G.cls === 'necro' ? NECRO_SK : G.cls === 'pain' ? PAIN_SKILLS : isPain() ? PAIN_SKILLS : SPECIALS; }
+function skillDef(id){ return PAIN_SKILLS[id] || SPECIALS[id] || BOMBER[id] || SWORD[id] || SUMMON[id] || NECRO_SK[id] || GUARD[id]; }
 // cooldowns are a match setting (off by default): with them off every ability is ready again immediately
 function cdFor(id){ if (!G.cdOn) return 0;   // the match's cooldown setting covers every class (World Severance stays once per round)
-  if (BOMBER[id]) return BOMBER[id].cd; if (SWORD[id]) return SWORD[id].cd; if (SUMMON[id]) return SUMMON[id].cd; if (NECRO_SK[id]) return NECRO_SK[id].cd; return (PAIN_SKILLS[id] && PAIN_SKILLS[id].cd) || CD[id] || 3; }
+  if (BOMBER[id]) return BOMBER[id].cd; if (SWORD[id]) return SWORD[id].cd; if (SUMMON[id]) return SUMMON[id].cd; if (NECRO_SK[id]) return NECRO_SK[id].cd; if (GUARD[id]) return GUARD[id].cd; return (PAIN_SKILLS[id] && PAIN_SKILLS[id].cd) || CD[id] || 3; }
 function painReset(){
   PAIN.fx = []; PAIN.fields = []; PAIN.rods = []; PAIN.stuckRods = []; PAIN.regrow = []; PAIN.dummies = [];
   PAIN.cores = []; PAIN.orbits = {}; PAIN.shots = []; PAIN.charge = null; PAIN.aim = null;
@@ -5746,10 +5755,12 @@ function castOK(c, m){
   if (!m || m.id !== c.peer) return false;                                  // nobody can cast as someone else
   if (m.s === 'd_use' || m.s === 'd_place') return eggDefOK(c, m);       // Egg mode protection powers
   const P = chars[m.id]; if (!P || !G.pvp || G.phase !== 'attack') return false;
-  if (m.s === 'u_kill') return typeof m.k === 'string' && m.k.startsWith('S' + m.id + ':');   // only for your own summons, even while dead
+  if (m.s === 'u_kill') return typeof m.k === 'string' && m.k.startsWith('S' + m.id + ':');
+  if (m.s === 'g_break') return false;   // only the host breaks barriers
+  if (GUARD[m.s] && (!eggOn() || m.id !== G.egg.def)) return false;   // the protector's kit is the defender's alone   // only for your own summons, even while dead
   if (P.alive === false) return false;
-  if (eggOn() && (G.egg.over || (m.id === G.egg.def && !['ki', 'b_bazooka', 'b_press', 's_slash', 'u_cmd', 'n_skull'].includes(m.s)))) return false;   // the defender only shoots
-  const def = m.s === 'ki' ? null : (BOMBER[m.s] || SWORD[m.s] || SUMMON[m.s] || NECRO_SK[m.s] || PAIN_SKILLS[m.s] || modeTable()[m.s]); if (m.s !== 'ki' && !def) return false;   // the mode's own kit or a class (anyone may switch class any time)
+  if (eggOn() && (G.egg.over || (m.id === G.egg.def && !['ki', 'b_bazooka', 'b_press', 's_slash', 'u_cmd', 'n_skull'].includes(m.s) && !GUARD[m.s]))) return false;   // the defender only shoots
+  const def = m.s === 'ki' ? null : (BOMBER[m.s] || SWORD[m.s] || SUMMON[m.s] || NECRO_SK[m.s] || PAIN_SKILLS[m.s] || GUARD[m.s] || modeTable()[m.s]); if (m.s !== 'ki' && !def) return false;   // the mode's own kit or a class (anyone may switch class any time)
   // cast from where they actually are. Positions arrive ~15 times a second and can be late, so allow for how fast they
   // were moving and how old the last position is (knockbacks reach 50+ m/s), and for powers that teleport them
   const tNow = performance.now()/1000, age = P.netT ? tNow - P.netT : 0, spd = P.net ? Math.hypot(P.net.vx || 0, P.net.vz || 0) : 0;
@@ -5936,6 +5947,7 @@ function bPickTarget(range){
 }
 // is a point inside a tree, rock, ruin or heavy object?
 function bSolid(p, r){
+  if (typeof BARS !== 'undefined') for (const b of BARS.list) if (!b.dead && p.y > b.p.y - .3 && p.y < b.p.y + barSize(b).H + r && barContains(b, p.x, p.z, r)) return true;
   for (const pr of props) {
     if (pr.dead || Math.abs(pr.x - p.x) > 6 || Math.abs(pr.z - p.z) > 6) continue;
     const dx = p.x - pr.x, dz = p.z - pr.z;
@@ -7339,11 +7351,13 @@ function summonHurt(e, dmg){
 }
 // damage to every enemy summon in a ball / a cone (key/team = whoever did it; unknown = everyone's summons)
 function summonsTakeArea(at, R, dmg, key, team){
+  barriersTakeArea(at, R, dmg, key, team);
   if (!SUM.list.length || !(dmg > 0)) return;
   for (const e of SUM.list) { if (e.done || (key && e.owner === key) || (team && e.team === team)) continue;
     const c = V3(e.p.x, e.p.y + 1.2*e.S, e.p.z), d = c.distanceTo(at); if (d < R + .8*e.S) summonHurt(e, dmg*(d < R ? 1 - .5*d/R : .5)); }
 }
 function summonsTakeCone(from, yaw, range, arc, dmg, key, team){
+  barriersTakeCone(from, yaw, range, arc, dmg, key, team);
   if (!SUM.list.length || !(dmg > 0)) return;
   const fx = Math.sin(yaw), fz = Math.cos(yaw), cosA = Math.cos(arc/2);
   for (const e of SUM.list) { if (e.done || (key && e.owner === key) || (team && e.team === team)) continue;
@@ -7369,7 +7383,7 @@ function eTarget(e, R){
 function eMove(e, tx, tz, spd, dt){
   const dx = tx - e.p.x, dz = tz - e.p.z, d = Math.hypot(dx, dz); if (d < .25) { e.moving = 0; return d; }
   const v = voidSteer(e.p.x, e.p.z, {x:dx/d*spd, z:dz/d*spd}); let nx = e.p.x + v.x*dt, nz = e.p.z + v.z*dt;
-  if (Math.hypot(nx, nz) > ISL - 3 || inVoid(nx, nz)) { nx = e.p.x; nz = e.p.z; }
+  if (Math.hypot(nx, nz) > ISL - 3 || inVoid(nx, nz) || (BARS.list.length && barAt(nx, nz, .4) && !barAt(e.p.x, e.p.z, .4))) { nx = e.p.x; nz = e.p.z; }
   e.p.x = nx; e.p.z = nz; e.p.y = groundH(nx, nz); e.face = turnTo(e.face, Math.atan2(v.x, v.z), dt*6); e.moving = spd; return d;
 }
 const eChest = (e, h) => V3(e.p.x, e.p.y + (h || 1.4)*e.S, e.p.z);
@@ -8549,6 +8563,236 @@ function voiceFrame(dt){
   const tl = $('talkers'); if (tl) { const txt = talk.length ? '🔊 ' + talk.join(', ') : ''; if (tl.textContent !== txt) tl.textContent = txt; tl.style.display = txt ? 'block' : 'none'; }
 }
 
+/* ===================================== PROTECTION (Egg mode) =====================================
+   Barriers: ten wall types the defender places while building (DEFENSES entries with `barrier`), and that merge
+   without limit: placing one onto an existing barrier fuses them into one bigger, tougher wall that keeps every
+   trait (traits are counted, so two fire layers burn twice as hard). Each barrier is a static box body (it
+   really blocks people and physics shots) plus a record in BARS.list; bombs and shots hit it (bSolid), damage
+   reaches it through the same hooks as summons (barriersTakeArea/Cone), and the host decides when one breaks
+   (hidden cast g_break), like everything else about the egg.
+   Protector kit: 20 skills for the defender once the attack starts (GUARD, keys 1-0 / Q R F G T Z X C V B):
+   repairs, emergency walls, fusion, crowd control and egg protection. Host-checked like every other power; only
+   the round's defender may use them. */
+const BAR_TYPES = {
+  wood:   {name:'Wooden', e:'🪵', col:0x9A6A3A, hp:70},
+  stone:  {name:'Stone', e:'🪨', col:0x8A8E96, hp:150},
+  steel:  {name:'Steel', e:'🛡️', col:0xB8C2CE, hp:220},
+  energy: {name:'Energy', e:'🔷', col:0x4FC3FF, hp:110},
+  frost:  {name:'Frost', e:'🧊', col:0xBFE9FF, hp:110},
+  fire:   {name:'Burning', e:'🔥', col:0xFF6A1F, hp:90},
+  spike:  {name:'Spiked', e:'📌', col:0x5A5E66, hp:120},
+  thorn:  {name:'Thorned', e:'🌵', col:0x3E8A3A, hp:100},
+  bounce: {name:'Bouncy', e:'🟣', col:0xC86AE0, hp:100},
+  crystal:{name:'Crystal', e:'💎', col:0xA8F0E8, hp:160}
+};
+const BARS = {list:[], seq:0, destroyed:[], fields:[]};
+function barReset(){ BARS.list = []; BARS.seq = 0; BARS.destroyed = []; BARS.fields = []; G.eggInvulnT = 0; G.barInvulT = 0; G.overdriveT = 0; }
+const barSize = b => ({L:3 + Math.min(b.tier - 1, 8)*.7, H:2 + Math.min(b.tier - 1, 8)*.45, T:.6 + Math.min(b.tier - 1, 8)*.12});
+function barName(b){ const t = Object.entries(b.traits).sort((x, y) => y[1] - x[1]).map(([k]) => k); const base = t.find(k => ['wood', 'stone', 'steel', 'crystal'].includes(k)) || t[0];
+  const adj = t.filter(k => k !== base).slice(0, 3).map(k => BAR_TYPES[k].name); return `${adj.join(' ')}${adj.length ? ' ' : ''}${BAR_TYPES[base].name} Wall (tier ${b.tier})`; }
+// a wall that shows every layer it was built from
+function barMesh(b){
+  const {L, H, T} = barSize(b), g = new THREE.Group(), t = b.traits;
+  const main = Object.entries(t).sort((x, y) => y[1] - x[1])[0][0];
+  const mat = t.energy || t.frost || t.crystal ? new THREE.MeshToonMaterial({color:BAR_TYPES[main].col, gradientMap:TOON, transparent:!!(t.energy || t.frost), opacity:t.energy || t.frost ? .75 : 1}) : M3(BAR_TYPES[main].col);
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(L, H, T), mat); slab.position.y = H/2; slab.castShadow = true; g.add(slab);
+  // a band of colour for each other trait
+  Object.keys(t).filter(k => k !== main).forEach((k, i) => bx(L + .04, .18, T + .04, BAR_TYPES[k].col, 0, .25 + i*.25, 0, g));
+  if (t.wood || t.stone) for (let i = 0; i < Math.round(L); i++) bx(.04, H*.9, T + .02, 0x5A4A3A, -L/2 + .5 + i, H/2, 0, g);
+  if (t.spike) for (let i = 0; i < Math.round(L*2*Math.min(3, t.spike)); i++) { const s = cone(.1, .5, 0x3A3E46, -L/2 + .25 + (i % Math.round(L*2))*.5, H*.3 + Math.floor(i/Math.round(L*2))*.5, (i % 2 ? 1 : -1)*(T/2 + .2), g, 4); s.rotation.x = (i % 2 ? 1 : -1)*Math.PI/2; }
+  if (t.thorn) for (let i = 0; i < Math.round(L*3); i++) sp(.12, 0x2E6A2A, -L/2 + rr(0, L), rr(.2, H), (Math.random() < .5 ? 1 : -1)*(T/2 + .05), g, 0);
+  if (t.fire) for (let i = 0; i < Math.round(L); i++) { const f = new THREE.Mesh(new THREE.ConeGeometry(.22, .8, 6), bmat(0xFF8A2E, .8)); f.position.set(-L/2 + .5 + i, H + .35, 0); g.add(f); }
+  if (t.energy) { const e = new THREE.Mesh(new THREE.BoxGeometry(L + .1, .08, T + .1), new THREE.MeshBasicMaterial({color:0x9FE6FF})); e.position.y = H; g.add(e); }
+  if (t.frost) for (let i = 0; i < Math.round(L); i++) cone(.15, .5, 0xE6F8FF, -L/2 + .5 + i, H + .2, 0, g, 4);
+  if (t.crystal) for (let i = 0; i < 3; i++) { const c = new THREE.Mesh(new THREE.OctahedronGeometry(.35), new THREE.MeshBasicMaterial({color:0xC8FFF4})); c.position.set((i - 1)*L*.3, H + .4, 0); g.add(c); }
+  if (t.bounce) { const j = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 6), bmat(0xE08AF0, .35)); j.scale.set(L/2 + .2, H/2 + .1, T/2 + .3); j.position.y = H/2; g.add(j); }
+  if (t.steel) for (const s of [-1, 1]) bx(.12, H + .05, T + .06, 0xDCE3EA, s*(L/2 - .06), H/2, 0, g);
+  g.traverse(m => { m.userData.noRay = false; }); addOutline(g);
+  return g;
+}
+function barBody(b){
+  if (b.body && b.body.world) world.removeBody(b.body);
+  const {L, H, T} = barSize(b), body = new CANNON.Body({mass:0, material:PM.def}); body.addShape(new CANNON.Box(new CANNON.Vec3(L/2, H/2, T/2)));
+  body.position.set(b.p.x, b.p.y + H/2, b.p.z); body.quaternion.setFromEuler(0, b.rot, 0); body.tag = 'barrier'; body.barrier = b; world.addBody(body); b.body = body;
+}
+function barRebuild(b){ if (b.g) roundGroup.remove(b.g); b.g = barMesh(b); b.g.position.copy(b.p); b.g.rotation.y = b.rot; roundGroup.add(b.g); barBody(b); }
+// is the ground point (x, z) on (or within `pad` of) barrier b?
+function barLocal(b, x, z){ const dx = x - b.p.x, dz = z - b.p.z, c = Math.cos(b.rot), s = Math.sin(b.rot); return {lx:dx*c - dz*s, lz:dx*s + dz*c}; }
+function barContains(b, x, z, pad){ const {L, T} = barSize(b), q = barLocal(b, x, z); return Math.abs(q.lx) < L/2 + pad && Math.abs(q.lz) < T/2 + pad; }
+function barDist(b, p){ const {L, H, T} = barSize(b), q = barLocal(b, p.x, p.z), ex = Math.max(0, Math.abs(q.lx) - L/2), ez = Math.max(0, Math.abs(q.lz) - T/2), ey = Math.max(0, b.p.y - p.y, p.y - (b.p.y + H)); return Math.hypot(ex, ey, ez); }
+function barAt(x, z, pad){ return BARS.list.find(b => !b.dead && barContains(b, x, z, pad)) || null; }
+// place a barrier of `type` (or a whole record when rebuilding); dropping it onto an existing one merges them
+function placeBarrier(type, pos, rotY, ownerKey, team, rec){
+  const on = !rec && barAt(pos.x, pos.z, 1.2);
+  if (on) { mergeTrait(on, type, 1); return on; }
+  const b = rec ? Object.assign({}, rec, {dead:false, g:null, body:null}) : {id:'B' + (++BARS.seq), owner:ownerKey, team, p:V3(pos.x, groundH(pos.x, pos.z), pos.z), rot:rotY, traits:{[type]:1}, tier:1, hp:BAR_TYPES[type].hp, maxHp:BAR_TYPES[type].hp, dead:false};
+  if (rec) { b.id = 'B' + (++BARS.seq); b.hp = Math.round(b.maxHp*.5); }
+  BARS.list.push(b); barRebuild(b); dustRing(b.p, 2, 6); sfx('place');
+  return b;
+}
+function mergeTrait(b, type, n){
+  b.traits[type] = (b.traits[type] || 0) + n; b.tier += n; const add = BAR_TYPES[type].hp*n; b.maxHp += add; b.hp = Math.min(b.maxHp, b.hp + add);
+  barRebuild(b); sparkle(V3(b.p.x, b.p.y + barSize(b).H, b.p.z), BAR_TYPES[type].col); sfx('grab');
+  if (amDefender()) toast(`🧱 ${barName(b)}: ${Math.round(b.hp)}/${Math.round(b.maxHp)} HP`);
+}
+function barHurt(b, dmg){
+  if (b.dead || !(dmg > 0) || G.barInvulT > G.t) return;
+  const armor = Math.pow(.75, b.traits.steel || 0); b.hp -= dmg*armor; b.hurtT = .2;
+  if (b.hp <= 0) { if (eggAuth()) { if (!b.breakSent) { b.breakSent = true; if (NET.peer) localCast('g_break', null, {b:b.id}); else breakBarrier(b.id); } } else b.hp = 1; }
+}
+function breakBarrier(id){
+  const b = BARS.list.find(q => q.id === id && !q.dead); if (!b) return;
+  b.dead = true; roundGroup.remove(b.g); if (b.body && b.body.world) world.removeBody(b.body); if (b.bar) { roundGroup.remove(b.bar.bg); roundGroup.remove(b.bar.fill); }
+  const at = V3(b.p.x, b.p.y + barSize(b).H/2, b.p.z); debris(at, 16, Object.keys(b.traits).map(k => BAR_TYPES[k].col)); dustRing(b.p, 2.5, 8); sfx('crack'); sfx('thud');
+  BARS.destroyed.push({owner:b.owner, team:b.team, p:b.p.clone(), rot:b.rot, traits:Object.assign({}, b.traits), tier:b.tier, maxHp:b.maxHp});
+  BARS.list = BARS.list.filter(q => !q.dead);
+}
+// damage from explosions and blows (called by the summon hooks: the same attacks hurt both)
+function barriersTakeArea(at, R, dmg, key, team){
+  if (!BARS.list.length || !(dmg > 0)) return;
+  for (const b of BARS.list) { if (b.dead || (key && b.owner === key) || (team && b.team === team)) continue; const d = barDist(b, at); if (d < R) barHurt(b, dmg*(1 - .5*d/R)); }
+}
+function barriersTakeCone(from, yaw, range, arc, dmg, key, team){
+  if (!BARS.list.length || !(dmg > 0)) return;
+  const fx = Math.sin(yaw), fz = Math.cos(yaw), cosA = Math.cos(arc/2);
+  for (const b of BARS.list) { if (b.dead || (key && b.owner === key) || (team && b.team === team)) continue; const d = barDist(b, from); if (d > range) continue;
+    const dx = b.p.x - from.x, dz = b.p.z - from.z, l = Math.hypot(dx, dz) || 1; if (d < 1.2 || (dx*fx + dz*fz)/l > cosA) barHurt(b, dmg); }
+}
+// what each layer does, every frame
+function barrierFrame(dt){
+  if (!G.pvp) return;
+  const me = localP();
+  for (const b of BARS.list) {
+    if (b.dead) continue;
+    const t = b.traits, {L, H} = barSize(b);
+    if (t.energy) b.hp = Math.min(b.maxHp, b.hp + 2*t.energy*dt);                                         // energy regenerates
+    if (t.crystal) { for (const o of BARS.list) if (!o.dead && o !== b && hdist(o.p, b.p) < 7) o.hp = Math.min(o.maxHp, o.hp + 3*t.crystal*dt);   // crystal mends its neighbours
+      if (eggAuth() && egg && egg.alive && egg.cracks > 0 && hdist(egg.body.position, b.p) < 9) { b.crackT = (b.crackT || 0) + dt*t.crystal; if (b.crackT > 10) { b.crackT = 0; egg.cracks--; while (egg.crackG.children.length > egg.cracks*3) egg.crackG.remove(egg.crackG.children[egg.crackG.children.length - 1]); sparkle(V3(egg.body.position.x, egg.body.position.y + .5, egg.body.position.z), 0xC8FFF4); } } }
+    // energy swallows bombs, frost freezes them; others make them blow up on the wall (bSolid)
+    if (t.energy || t.frost) for (const q of BX.bombs) if (!q.dead && q.team !== b.team && barContains(b, q.p.x, q.p.z, .8) && q.p.y < b.p.y + H + .6) { q.dead = true; roundGroup.remove(q.m); sparkle(q.p, t.energy ? 0x9FE6FF : 0xE6F8FF); }
+    // people touching the wall
+    const V = victimFor(b.owner, b.team);
+    if (V && barContains(b, V.body.position.x, V.body.position.z, 1.4) && V.body.position.y < b.p.y + H + 1) {
+      b.touch = (b.touch || 0) - dt;
+      if (t.frost) V.slowT = Math.max(V.slowT || 0, .5);
+      if (t.thorn) V.slowT = Math.max(V.slowT || 0, .4);
+      if (b.touch <= 0) { b.touch = .5; const dmg = 4*(t.fire || 0) + 6*(t.spike || 0) + 3*(t.thorn || 0); if (dmg) painHurt(V, dmg, b.owner);
+        if (t.bounce || t.spike) { const q = barLocal(b, V.body.position.x, V.body.position.z), s = Math.sign(q.lz) || 1, nx = Math.sin(b.rot)*s, nz = Math.cos(b.rot)*s; knock(V, nx*(8 + 10*(t.bounce || 0)), 5 + 3*(t.bounce || 0), nz*(8 + 10*(t.bounce || 0)), .3); }
+        if (t.fire) { V.burnT = Math.max(V.burnT || 0, 1.5); V.burnBy = b.owner; } }
+    }
+    if (t.fire && Math.random() < .15*t.fire) puff(V3(b.p.x + rr(-L/2, L/2)*Math.cos(b.rot), b.p.y + H + .5, b.p.z - rr(-L/2, L/2)*Math.sin(b.rot)), 0xFF8A2E, .2);
+    // health bar once it's been hit
+    if (b.hp < b.maxHp - .5) { if (!b.bar) { const mk = c => { const s = new THREE.Sprite(new THREE.SpriteMaterial({color:c, depthTest:false, depthWrite:false})); s.center.set(0, .5); s.renderOrder = 41; s.userData.noRay = true; roundGroup.add(s); return s; }; b.bar = {bg:mk(0x1A1A1A), fill:mk(0x5BD15B)}; }
+      const k = clamp(b.hp/b.maxHp, 0, 1), w = Math.min(4, L); b.bar.bg.position.set(b.p.x - w/2, b.p.y + H + 1, b.p.z); b.bar.bg.scale.set(w, .18, 1); b.bar.fill.position.set(b.p.x - w/2, b.p.y + H + 1, b.p.z); b.bar.fill.scale.set(Math.max(.01, w*k), .13, 1); b.bar.fill.material.color.setHex(k > .5 ? 0x5BD15B : k > .25 ? 0xF3C23A : 0xFF4B3E); }
+    else if (b.bar) { roundGroup.remove(b.bar.bg); roundGroup.remove(b.bar.fill); b.bar = null; }
+  }
+  BARS.fields = BARS.fields.filter(f => f.update(dt) !== false);
+}
+
+/* ---------- the protector's kit ---------- */
+const GUARD = {
+  g_repair:  {name:'Repair Beam', e:'🔧', key:'1', kind:'now', cd:10},
+  g_mend:    {name:'Mend Egg', e:'🩹', key:'2', kind:'now', cd:25},
+  g_wall:    {name:'Emergency Wall', e:'🧱', key:'3', kind:'aim', cd:8, range:30, r:1.6},
+  g_steel:   {name:'Reinforce', e:'🛡️', key:'4', kind:'aim', cd:12, range:30, r:1.6},
+  g_dome:    {name:'Dome Recharge', e:'🔵', key:'5', kind:'now', cd:20},
+  g_intercept:{name:'Interceptor Burst', e:'🎯', key:'6', kind:'now', cd:14},
+  g_overdrive:{name:'Turret Overdrive', e:'⚙️', key:'7', kind:'now', cd:25},
+  g_freeze:  {name:'Freeze Field', e:'❄️', key:'8', kind:'now', cd:18},
+  g_repulse: {name:'Repulsor Pulse', e:'💨', key:'9', kind:'now', cd:12},
+  g_teleport:{name:'Egg Teleport', e:'✨', key:'0', kind:'now', cd:30},
+  g_holy:    {name:'Holy Shield', e:'😇', key:'Q', kind:'now', cd:35},
+  g_fuse:    {name:'Barrier Fusion', e:'🔗', key:'R', kind:'aim', cd:16, range:30, r:6},
+  g_golem:   {name:'Golem Call', e:'🗿', key:'F', kind:'now', cd:30},
+  g_drones:  {name:'Drone Swarm', e:'🛸', key:'G', kind:'now', cd:30},
+  g_tar:     {name:'Tar Pit', e:'🕳️', key:'T', kind:'aim', cd:16, range:35, r:6},
+  g_rod:     {name:'Lightning Rod', e:'⚡', key:'Z', kind:'aim', cd:18, range:35, r:10},
+  g_trap:    {name:'Shockwave Trap', e:'🪤', key:'X', kind:'aim', cd:10, range:35, r:2},
+  g_smoke:   {name:'Smoke Screen', e:'🌫️', key:'C', kind:'now', cd:22},
+  g_rebuild: {name:'Rebuild', e:'🏗️', key:'V', kind:'now', cd:30},
+  g_last:    {name:'Last Stand', e:'🏰', key:'B', kind:'now', cd:90},
+  g_break:   {name:'A barrier breaks', e:'💥', hide:true, cd:0}
+};
+const GUARD_KEYS = {}; for (const id in GUARD) { const k = GUARD[id].key; if (k && k.length === 1 && /[0-9A-Z]/.test(k)) GUARD_KEYS[k.toLowerCase()] = id; }
+for (const id in GUARD) if (GUARD[id].r) TARGET_R[id] = GUARD[id].r;
+// ten barrier types; place one onto another to merge them (see PROTECTION)
+for (const [k, key, count, d] of [['wood','1',6,'Cheap and quick. Merge more on top to grow it.'], ['stone','2',5,'Solid. The base for most walls.'], ['steel','3',4,'Each steel layer cuts the damage the wall takes by a quarter.'],
+  ['energy','9',3,'Regenerates, and swallows bombs and shots instead of letting them explode.'], ['frost','0',3,'Freezes incoming bombs and slows anyone touching it.'], ['fire','Q',3,'Burns attackers who touch it.'],
+  ['spike','X',3,'Hurts and throws back anyone touching it.'], ['thorn','Y',3,'Slows and scratches attackers.'], ['bounce','U',3,'Throws attackers far back.'], ['crystal','I',2,'Repairs nearby walls and slowly heals the egg’s cracks.']]) {
+  const T = BAR_TYPES[k]; DEFENSES['bar_' + k] = {name:T.name + ' barrier', e:T.e, key, count, place:true, barrier:k, d:d + ' Drop a barrier onto another to merge them into a bigger wall with both powers.', bottom:1, foot:1.6, short:T.name, build(g){ bx(3, 2, .6, T.col, 0, 0, 0, g); }};
+}
+const guardActive = () => eggOn() && amDefender() && G.phase === 'attack' && !G.egg.over;
+function guardHelp(){ return '<b>Protector</b> · <b>1</b> repair beam · <b>2</b> mend egg · <b>3</b> emergency wall · <b>4</b> reinforce · <b>5</b> dome recharge · <b>6</b> interceptor burst · <b>7</b> turret overdrive<br><b>8</b> freeze field · <b>9</b> repulsor · <b>0</b> egg teleport · <b>Q</b> holy shield · <b>R</b> barrier fusion · <b>F</b> golem · <b>G</b> drones · <b>T</b> tar pit<br><b>Z</b> lightning rod · <b>X</b> shockwave trap · <b>C</b> smoke screen · <b>V</b> rebuild · <b>B</b> LAST STAND · <b>Click</b> energy blast'; }
+function guardUse(id){
+  const d = GUARD[id], P = localP(); if (!d || d.hide || !guardActive() || !P || P.alive === false || P.stun > 0) return;
+  if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
+  if (d.kind === 'aim') { setTargeting(id); return; }
+  if (G.spCd > 0) return; G.spCd = .2;
+  localCast(id, null);
+}
+function guardKeyDown(k){ const id = GUARD_KEYS[k]; if (!id) return false; guardUse(id); return true; }
+function eggSpot(){ return egg && egg.alive ? V3(egg.body.position.x, groundH(egg.body.position.x, egg.body.position.z), egg.body.position.z) : V3(0, groundH(0, 0), 0); }
+function runGuard(id, p, x){
+  const ci = casterInfo(); if (!ci.C) return;
+  const {key, C, team, pos} = ci, E = eggSpot();
+  C.castPose = .5;
+  switch (id) {
+    case 'g_break': if (x && typeof x.b === 'string') breakBarrier(x.b); return;
+    case 'g_repair': { let n = 0; for (const b of BARS.list) if (!b.dead && (hdist(b.p, pos) < 30 || hdist(b.p, E) < 30)) { b.hp = Math.min(b.maxHp, b.hp + b.maxHp*.4); n++; arcBeam(V3(pos.x, pos.y + 1.5, pos.z), V3(b.p.x, b.p.y + barSize(b).H, b.p.z), 0x7FFFD4); }
+      if (domeUp()) { G.dome.hp = Math.min(G.dome.max, G.dome.hp + 50); } sfx('holy'); if (key === G.localKey) toast(`🔧 Repaired ${n} barrier${n === 1 ? '' : 's'}${domeUp() ? ' and the dome' : ''}.`); return; }
+    case 'g_mend': if (eggAuth() && egg && egg.alive && egg.cracks > 0) { egg.cracks--; while (egg.crackG.children.length > egg.cracks*3) egg.crackG.remove(egg.crackG.children[egg.crackG.children.length - 1]); }
+      sparkle(V3(E.x, E.y + 2, E.z), 0x7FFFD4); lightPillar(E, .5, false); sfx('holy'); return;
+    case 'g_wall': if (p) placeBarrier('stone', p, Math.atan2(p.x - E.x, p.z - E.z) + Math.PI/2, key, team); return;
+    case 'g_steel': if (p) { const b = barAt(p.x, p.z, 1.6); if (b) mergeTrait(b, 'steel', 1); else if (key === G.localKey) toast('🛡️ Aim at a barrier.'); } return;
+    case 'g_dome': if (domeUp()) { G.dome.hp = Math.min(Math.max(G.dome.max, 300), G.dome.hp + 120); G.dome.max = Math.max(G.dome.max, G.dome.hp); G.dome.mat.uniforms.hit.value = 1; sfx('grav'); } else raiseDome(); return;
+    case 'g_intercept': { for (let i = 0; i < 8; i++) laserBeamCol(V3(E.x, E.y + 3, E.z), V3(E.x + rr(-14, 14), E.y + rr(2, 12), E.z + rr(-14, 14)), 0xFF3B30); cutProjectiles(V3(E.x, E.y + 4, E.z), 26, key); for (const b of BX.bombs) if (!b.dead && b.team !== team && hdist(b.p, E) < 26) { b.dead = true; roundGroup.remove(b.m); sparkle(b.p, 0xFF3B30); } sfx('zap'); return; }
+    case 'g_overdrive': G.overdriveT = G.t + 8; sfx('zap'); if (key === G.localKey) toast('⚙️ Turrets firing three times as fast for 8 s.'); return;
+    case 'g_freeze': { shockRing(E, 15, .6, 0xBFE9FF); for (let i = 0; i < 20; i++) puff(V3(E.x + rr(-14, 14), E.y + rr(.2, 2), E.z + rr(-14, 14)), 0xE6F8FF, .4);
+      const V = victimFor(key, team); if (V && hdist(V.body.position, E) < 15) { V.slowT = Math.max(V.slowT || 0, 3); V.stun = Math.max(V.stun, .8); V.stars.visible = true; painHurt(V, 6, key); }
+      for (const b of BX.bombs) if (!b.dead && b.team !== team && hdist(b.p, E) < 15) { b.dead = true; roundGroup.remove(b.m); sparkle(b.p, 0xE6F8FF); }
+      PAIN.dummies.forEach(dm => { if (!dm.dead && hdist(dm.body.position, E) < 15) dummyHit(dm.body, 6); }); sfx('zapHit'); return; }
+    case 'g_repulse': { shockRing(E, 17, .5, 0xFFFFFF); warpPulse(V3(E.x, E.y + 1, E.z), 14, .4, .04);
+      const V = victimFor(key, team); if (V) { const d = hdist(V.body.position, E); if (d < 17) { const a = V3(V.body.position.x - E.x, 0, V.body.position.z - E.z).normalize(); knock(V, a.x*24, 9, a.z*24, .5); painHurt(V, 8, key); } }
+      PAIN.dummies.forEach(dm => { if (!dm.dead && hdist(dm.body.position, E) < 17) { const a = V3(dm.body.position.x - E.x, 0, dm.body.position.z - E.z).normalize(); dm.body.velocity.x += a.x*20; dm.body.velocity.z += a.z*20; dm.body.velocity.y += 7; dummyHit(dm.body, 8); } });
+      summonsTakeArea(V3(E.x, E.y + 1, E.z), 17, 20, key, team); sfx('shinra'); return; }
+    case 'g_teleport': { if (eggAuth() && egg && egg.alive) { const rng = mulberry32(seedOf(pos) ^ 0xE66); let q = null; for (let i = 0; i < 20 && !q; i++) { const a = rng()*Math.PI*2, r = 3 + rng()*7, c = V3(Math.cos(a)*r, 0, Math.sin(a)*r); if (!barAt(c.x, c.z, 1) && !inVoid(c.x, c.z)) q = c; }
+        if (q) { egg.body.position.set(q.x, groundH(q.x, q.z) + .45, q.z); egg.body.velocity.set(0, 0, 0); egg.body.angularVelocity.set(0, 0, 0); egg.grace = 1; } }
+      sparkle(V3(E.x, E.y + 1, E.z), 0xFFD84D); flash(.15); sfx('grav'); return; }
+    case 'g_holy': { G.eggInvulnT = G.t + 4; const s = new THREE.Mesh(new THREE.SphereGeometry(1.5, 20, 12), bmat(0xFFE9A8, .35)); s.userData.noRay = true; roundGroup.add(s); booms.push({t:0, parts:[s], custom(bm){ const e = eggSpot(); s.position.set(egg && egg.alive ? egg.body.position.x : e.x, egg && egg.alive ? egg.body.position.y : e.y + 1, egg && egg.alive ? egg.body.position.z : e.z); s.material.opacity = .25 + Math.sin(bm.t*8)*.1; return bm.t > 4; }}); sfx('holy'); return; }
+    case 'g_fuse': if (p) { const group = BARS.list.filter(b => !b.dead && hdist(b.p, p) < 6); if (group.length < 2) { if (key === G.localKey) toast('🔗 Needs two or more barriers within 6 m of the marker.'); return; }
+      const keep = group[0]; for (const b of group.slice(1)) { for (const k in b.traits) keep.traits[k] = (keep.traits[k] || 0) + b.traits[k]; keep.tier += b.tier; keep.maxHp += b.maxHp; keep.hp += b.hp; b.dead = true; roundGroup.remove(b.g); if (b.body && b.body.world) world.removeBody(b.body); if (b.bar) { roundGroup.remove(b.bar.bg); roundGroup.remove(b.bar.fill); } arcBeam(V3(b.p.x, b.p.y + 1, b.p.z), V3(keep.p.x, keep.p.y + 1, keep.p.z), 0xFFD84D); }
+      BARS.list = BARS.list.filter(b => !b.dead); keep.hp = Math.min(keep.maxHp, keep.hp); barRebuild(keep); flash(.15); sfx('boom'); if (key === G.localKey) toast(`🔗 Fused: ${barName(keep)}, ${Math.round(keep.hp)} HP`); } return;
+    case 'g_golem': spawnGolem(V3(E.x + 5, 0, E.z)); return;
+    case 'g_drones': spawnDrones(); return;
+    case 'g_tar': if (p) guardField(key, team, p, 'tar'); return;
+    case 'g_rod': if (p) guardField(key, team, p, 'rod'); return;
+    case 'g_trap': if (p) guardField(key, team, p, 'trap'); return;
+    case 'g_smoke': { const puffs = []; for (let i = 0; i < 26; i++) { const m = sp(rr(1.5, 2.8), new THREE.MeshBasicMaterial({color:0xB0B4BA, transparent:true, opacity:.85, depthWrite:false}), E.x + rr(-9, 9), E.y + rr(.5, 3.5), E.z + rr(-9, 9), roundGroup, 1); m.userData.noRay = true; puffs.push(m); }
+      let t = 0; BARS.fields.push({update(dt){ t += dt; const k = t < 7 ? 1 : Math.max(0, 1 - (t - 7)); puffs.forEach(m => m.material.opacity = .85*k); const V = victimFor(key, team); if (V && hdist(V.body.position, E) < 10 && k > .3) G.blindT = Math.max(G.blindT || 0, .4); if (t > 8) { puffs.forEach(m => roundGroup.remove(m)); return false; } }}); sfx('wind'); return; }
+    case 'g_rebuild': { const list = BARS.destroyed.splice(-2); list.forEach(rec => placeBarrier(null, rec.p, rec.rot, rec.owner, rec.team, rec)); if (!list.length && key === G.localKey) toast('🏗️ Nothing has been destroyed yet.'); else sfx('place'); return; }
+    case 'g_last': G.eggInvulnT = G.t + 6; G.barInvulT = G.t + 6; G.overdriveT = G.t + 6; flash(.4); lightPillar(E, 1.2, true); sfx('trumpet'); sfx('holy'); if (key === G.localKey) toast('🏰 LAST STAND: egg and walls can’t be hurt for 6 s, turrets in overdrive.'); else toast('🏰 The defender made a last stand!'); return;
+  }
+}
+function guardField(key, team, p, kind){
+  const at = V3(p.x, groundH(p.x, p.z), p.z); let t = 0, tick = 0, armed = false, g;
+  if (kind === 'tar') { g = new THREE.Mesh(new THREE.CircleGeometry(6, 28), bmat(0x1A1410, .85)); g.rotation.x = -Math.PI/2; g.position.set(at.x, at.y + .06, at.z); }
+  else if (kind === 'rod') { g = new THREE.Group(); const pole = new THREE.Mesh(new THREE.CylinderGeometry(.1, .14, 4, 8), M3(0xB87333)); pole.position.y = 2; g.add(pole); sp(.35, new THREE.MeshBasicMaterial({color:0x9FE6FF}), 0, 4.1, 0, g, 1); g.position.copy(at); }
+  else { g = new THREE.Group(); const plate = new THREE.Mesh(new THREE.CylinderGeometry(.8, .9, .15, 16), M3(0x4A5240)); plate.position.y = .07; g.add(plate); sp(.15, new THREE.MeshBasicMaterial({color:0xFFD84D}), 0, .2, 0, g, 0); g.position.copy(at); }
+  g.traverse(m => m.userData.noRay = true); roundGroup.add(g); sfx('place');
+  BARS.fields.push({update(dt){
+    t += dt; tick -= dt; const V = victimFor(key, team);
+    if (kind === 'tar') { if (V && hdist(V.body.position, at) < 6 && V.body.position.y - at.y < 1.2) V.slowT = Math.max(V.slowT || 0, .5); if (t > 7) { roundGroup.remove(g); return false; } return true; }
+    if (kind === 'rod') { if (tick <= 0) { tick = .8; const top = V3(at.x, at.y + 4.1, at.z); for (const e of bEnemies(key, team)) { if (hdist(e.pos, at) < 10) { arcBeam(top, V3(e.pos.x, e.pos.y + 1, e.pos.z), 0x9FE6FF); if (e.id === G.localKey && V) { painHurt(V, 8, key); V.stun = Math.max(V.stun, .3); } else if (e.id[0] === 'd') { const dm = PAIN.dummies[+e.id.slice(1)]; if (dm) dummyHit(dm.body, 8); } else if (e.sum) summonHurt(e.sum, 8); } } sfx('zap'); }
+      if (t > 8) { roundGroup.remove(g); return false; } return true; }
+    // shockwave trap
+    if (!armed && t > .8) armed = true;
+    if (armed && bEnemies(key, team).some(e => hdist(e.pos, at) < 2.2)) { roundGroup.remove(g); shockRing(at, 8, .4); dustRing(at, 2, 8); sfx('boom');
+      if (V && hdist(V.body.position, at) < 6) { const a = V3(V.body.position.x - at.x, 0, V.body.position.z - at.z).normalize(); painHurt(V, 22, key); knock(V, a.x*16, 14, a.z*16, 1); }
+      PAIN.dummies.forEach(dm => { if (!dm.dead && hdist(dm.body.position, at) < 6) { dm.body.velocity.y += 14; dummyHit(dm.body, 22); } }); return false; }
+    if (t > 30) { roundGroup.remove(g); return false; }
+  }});
+}
+
 /* casting, locally and for other players */
 function runSkill(id, p, x){
   if (id === 'ki') { kiBlast(p); return; }
@@ -8557,6 +8801,7 @@ function runSkill(id, p, x){
   if (SWORD[id]) { runSword(id, p, x); return; }
   if (SUMMON[id]) { runSummon(id, p, x); return; }
   if (NECRO_SK[id]) { runNecro(id, p, x); return; }
+  if (GUARD[id]) { runGuard(id, p, x); return; }
   if (PAIN_SKILLS[id]) { runPain(id, p, x); return; }
   castFX(id);
   const INST = {gravity:gravityGun, flip:flipWorld, slow:slowTime, freeze:freezeTime, night:nightTime, onepunch:() => punch(false), serious:() => punch(true)};
@@ -8588,8 +8833,8 @@ function runSkill(id, p, x){
   comboAfterCast(id, p);
 }
 function localCast(id, p, x){
-  const P = localP(); if (G.pvp && (!P || P.alive === false) && id !== 'u_kill') return;
-  if (G.egg && G.egg.over && id !== 'u_kill') return;
+  const P = localP(); if (G.pvp && (!P || P.alive === false) && id !== 'u_kill' && id !== 'g_break') return;
+  if (G.egg && G.egg.over && id !== 'u_kill' && id !== 'g_break') return;
   const o = P ? [+P.body.position.x.toFixed(2), +P.body.position.y.toFixed(2), +P.body.position.z.toFixed(2)] : null;   // before the power moves you (counter, storm...)
   G.casterKey = G.localKey;
   // a bug in a power's local effect must never stop everyone else from seeing the cast
@@ -9038,7 +9283,7 @@ function eggHelp(){
   const help = $('help'); help.style.display = 'block';
   help.innerHTML = G.phase === 'build' ? (amDefender() ? '<b>WASD</b> move, <b>Space</b> jump<br>Protection: press its key (see the Protection bar), aim, <b>click</b> to place, <b>R</b> rotate<br>Dome, fortress, armor and the rest work right away<br><b>F</b> done building (starts the attack early)'
       : '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> run<br>Wait for the defender to finish. You can’t enter the white ring.')
-    : amDefender() ? '<b>Click</b> energy blast (bazooka as Bomber, sword as Swordsman)<br><b>E</b> grab stuff, <b>click</b> to throw it<br><b>Tab</b> switch class<br>Your turrets, golems and the rest fight on their own'
+    : amDefender() ? guardHelp()
     : G.cls === 'bomber' ? bomberHelp()
     : G.cls === 'sword' ? swordHelp()
     : G.cls === 'summon' ? summonHelp()
@@ -9072,7 +9317,7 @@ const SHORT = {nuke:'Nuke', chibaku:'Black hole', gravity:'Gravity gun', comet:'
 function renderTray(){
   renderPhase();
   const t = $('tray');
-  if (eggOn() && (G.egg.over || (G.phase === 'build' && !amDefender()) || (G.phase === 'attack' && amDefender()))) {
+  if (eggOn() && (G.egg.over || (G.phase === 'build' && !amDefender()))) {
     const msg = G.egg.over ? 'Round over.' : G.phase === 'build' ? `${eggName(G.egg.def)} is building. Look around and plan: you can’t enter the white ring.` : 'Click for energy blasts, E to grab and throw things. Keep the egg alive!';
     t.innerHTML = `<div class="bar sticker"><div class="tl">${G.phase === 'build' ? 'Get ready' : 'Defend'}</div><p style="margin:0 8px;max-width:420px;font-size:14px">${msg}</p></div>`;
     if (G.phase === 'attack' && !G.egg.over) addClassButton(t);
@@ -9081,7 +9326,7 @@ function renderTray(){
   if (G.phase === 'build') {
     const defs = Object.entries(DEFENSES);
     t.innerHTML = `<div class="bar sticker">
-      <div class="tl">Protection</div><div class="skills" style="--cols:${Math.ceil(defs.length/2)}">${defs.map(([id,d]) => `<button class="skill" data-def="${id}" aria-pressed="${G.defPlace===id}" ${G.defs && G.defs[id] > 0 ? '' : 'disabled'} title="${d.name}: ${d.d}" aria-label="${d.name}"><span class="si">${d.e}</span><span class="sn">${SHORT[id] || d.name}</span>${d.count > 1 || (G.defs && G.defs[id] > 1) ? `<sup>×${G.defs ? G.defs[id] : d.count}</sup>` : ''}<kbd>${d.key}</kbd></button>`).join('')}</div>
+      <div class="tl">Protection</div><div class="skills" style="--cols:${Math.ceil(defs.length/2)}">${defs.map(([id,d]) => `<button class="skill" data-def="${id}" aria-pressed="${G.defPlace===id}" ${G.defs && G.defs[id] > 0 ? '' : 'disabled'} title="${d.name}: ${d.d}" aria-label="${d.name}"><span class="si">${d.e}</span><span class="sn">${SHORT[id] || d.short || d.name}</span>${d.count > 1 || (G.defs && G.defs[id] > 1) ? `<sup>×${G.defs ? G.defs[id] : d.count}</sup>` : ''}<kbd>${d.key}</kbd></button>`).join('')}</div>
       <div class="stack"><button class="btn" id="rotB">⟳ Rotate</button><button class="btn primary" id="doneB">Done</button></div>
     </div>`;
     t.querySelectorAll('[data-def]').forEach(b => b.onclick = e => { e.stopPropagation(); useDefense(b.dataset.def); });
@@ -9103,10 +9348,11 @@ function renderTray(){
 // the class switch on the Skills bar (Tab does the same)
 function addClassButton(t){
   const bar = t.querySelector('.bar'); if (!bar) return;
-  const cur = classInfo(G.cls), nx = classInfo(classCycle()[(classCycle().indexOf(G.cls) + 1) % classCycle().length]);
-  const b = document.createElement('button'); b.className = 'btn'; b.id = 'clsB'; b.style.alignSelf = 'center'; b.style.lineHeight = '1.1';
-  b.innerHTML = `${cur.e} ${cur.name}<small style="display:block;font-size:11px;font-weight:700">Tab: ${nx.e} ${nx.name}</small>`; b.title = 'Switch class (Tab)';
-  b.onclick = e => { e.stopPropagation(); switchClass(); }; bar.appendChild(b);
+  bar.style.position = 'relative';
+  const tabs = document.createElement('div'); tabs.className = 'classTabs'; tabs.setAttribute('role', 'tablist');
+  for (const c of classCycle()) { const ci = classInfo(c), b = document.createElement('button'); b.className = c === G.cls ? 'on' : ''; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', c === G.cls ? 'true' : 'false');
+    b.innerHTML = `${ci.e} ${ci.name}`; b.title = `${ci.name} (Tab cycles)`; b.onclick = e => { e.stopPropagation(); switchClass(c); }; b.onpointerdown = e => { e.stopPropagation(); e.preventDefault(); switchClass(c); }; tabs.appendChild(b); }
+  bar.appendChild(tabs);
 }
 function toast(msg){
   const box = $('toast'); const d = document.createElement('div'); d.textContent = msg; box.appendChild(d);
@@ -9256,6 +9502,7 @@ addEventListener('keydown', e => {
   if (k === 'shift' && !e.repeat) { if (G.t - (G.lastShift || -9) < .3) { dash(); G.lastShift = -9; } else G.lastShift = G.t; }
   if (['arrowup','arrowdown','arrowleft','arrowright'].includes(k)) e.preventDefault();
   if (k === 'e' && !e.repeat) { const P = activeChar(); if (P && P.stun <= 0) { const btn = G.phase === 'attack' && G.pvp ? nearButton(P) : null; if (btn) localCast('b_press', null, {b:btn.id}); else grabNearest(P); } }
+  if (G.phase === 'attack' && !e.repeat && typeof guardActive === 'function' && guardActive() && guardKeyDown(k)) return;
   if (G.phase === 'attack' && !e.repeat && G.cls === 'bomber') { bomberKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'sword') { swordKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'summon') { summonKeyDown(k); return; }
@@ -9553,7 +9800,7 @@ function frame(now){
   { const hm = (inPlay() && !isTouch && !G.locked && !G.eggCam) ? (G.fallback ? 2 : 1) : 0;
     if (hm !== G.hintMode) { G.hintMode = hm; const h = $('lockHint'); h.style.display = hm ? 'block' : 'none'; h.classList.toggle('fb', hm === 2);
       h.innerHTML = hm === 2 ? `🖱️ Mouse lock is blocked in this tab (${G.lockErr || 'refused'}). The camera follows your mouse; hold it at the screen edge to keep turning.<br><small>Click to retry. If it keeps happening, close this tab and open the game link again.</small>` : 'Click to control your character'; } }
-  updateVisuals(rdt); updateEdge(); pvpFrame(rdt); if (G.pvp && G.phase === 'attack') painFrame(rdt); bomberFrame(rdt * G.fxScale); swordFrame(rdt); voiceFrame(rdt); summonFrame(rdt * G.fxScale); necroFrame(rdt * G.fxScale);
+  updateVisuals(rdt); updateEdge(); pvpFrame(rdt); if (G.pvp && G.phase === 'attack') painFrame(rdt); bomberFrame(rdt * G.fxScale); barrierFrame(rdt * G.fxScale); swordFrame(rdt); voiceFrame(rdt); summonFrame(rdt * G.fxScale); necroFrame(rdt * G.fxScale);
   SpaceWarp.render();
   perfTune(performance.now() - t0, rdt);
 }
