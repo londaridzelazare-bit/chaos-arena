@@ -186,6 +186,11 @@ body.touch #toast{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 180px)}
 #eggPts div{display:flex;gap:8px;justify-content:space-between;padding:1px 0}#eggPts span{font-family:var(--display)}
 #eggBanner{position:fixed;left:50%;top:22%;transform:translateX(-50%);z-index:8;display:none;text-align:center;pointer-events:none;max-width:min(440px,92vw)}
 #eggBanner .title{font-size:clamp(34px,7vw,52px)}
+#micB{position:fixed;left:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 186px);z-index:30;display:flex;align-items:center;gap:6px;padding:6px 12px;border:3px solid var(--edge);border-radius:999px;background:var(--panel);color:var(--text);font:inherit;font-weight:900;font-size:13px;cursor:pointer;box-shadow:3px 3px 0 var(--edge)}
+#micB .mi{font-size:18px}#micB.on{background:#2E7D32;color:#fff}
+#talkers{position:fixed;left:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 228px);z-index:30;display:none;padding:4px 10px;font-size:13px;pointer-events:none}
+body.touch #micB{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 96px);left:12px}
+body.touch #talkers{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 140px)}
 #killfeed div{background:rgba(20,30,45,.82);color:#fff;padding:4px 10px;border-radius:999px;font-size:13px;animation:pop .2s ease-out}
 #blindFx{position:fixed;inset:0;pointer-events:none;z-index:3;opacity:0;background:radial-gradient(ellipse at center, rgba(5,5,12,.88) 30%, rgba(5,5,12,1) 80%)}
 #dmgFlash{position:fixed;inset:0;pointer-events:none;z-index:3;opacity:0;background:radial-gradient(ellipse at center, rgba(255,40,30,0) 45%, rgba(255,40,30,.75) 100%)}
@@ -228,6 +233,8 @@ body.touch #hpBar{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 58px);left
   <div id="hpBar"><div id="hpFill"></div><span id="hpText">100 HP</span></div>
 </div>
 <div id="killfeed"></div>
+<button id="micB" class="sticker" aria-pressed="false" title="Voice chat (P)"><span class="mi">🔇</span><span class="ml">Mic off (P)</span></button>
+<div id="talkers" class="sticker"></div>
 <div id="eggPts" class="sticker" aria-label="Points"></div>
 <div id="eggBanner" class="panel sticker" role="status"></div>
 <div id="dmgFlash"></div>
@@ -255,7 +262,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-03.7';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-03.8';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -1163,7 +1170,7 @@ function finishBuild(){
   renderTray(); $('who').style.display = 'none';
   overlay(`<div class="panel sticker">
     <div class="title red" style="color:var(--${attacker()})">${teamName(attacker())}'s turn</div>
-    <p>Hand over the controls. ${teamName(attacker())} has no time limit and 31 skills they can use as often as they like. The round ends when the egg breaks, or when they give up. Cast specials near each other and they fuse into combos, like a fire tornado or a holy nuke (keys shown on each button; the newest ten are on 1–0). Press a special's key, aim the red marker where you want it, and click: Nuke (N), Chibaku Tensei (B), Gravity gun (G), Death Bringer (C), Army from Hell (H), Shinra Tensei (T), Bijuu Bomb (X), Tornado (O), Volcano (V), Lightning strike (L), Giant milk cow (M), Giant frog (J), Knife rain (K), Anti-matter bomb (Z), Gates of Hell (Y), Fireball jutsu (Q), World-ending nuke (P), God's judgement (U) and Second coming (I).</p>
+    <p>Hand over the controls. ${teamName(attacker())} has no time limit and 31 skills they can use as often as they like. The round ends when the egg breaks, or when they give up. Cast specials near each other and they fuse into combos, like a fire tornado or a holy nuke (keys shown on each button; the newest ten are on 1–0). Press a special's key, aim the red marker where you want it, and click: Nuke (N), Chibaku Tensei (B), Gravity gun (G), Death Bringer (C), Army from Hell (H), Shinra Tensei (T), Bijuu Bomb (X), Tornado (O), Volcano (V), Lightning strike (L), Giant milk cow (M), Giant frog (J), Knife rain (K), Anti-matter bomb (Z), Gates of Hell (Y), Fireball jutsu (Q), World-ending nuke (-), God's judgement (U) and Second coming (I).</p>
     <p class="muted">You can't enter the white ring. Launch things over it, or grab stuff lying around and throw it.</p>
     <div class="actions"><button class="btn primary" id="goAtk">${teamName(attacker())}: start attacking</button></div>
   </div>`);
@@ -1439,7 +1446,7 @@ const SPECIALS = {
   antimatter:{name:'Anti-matter bomb', e:'⚛️', key:'Z', kind:'now'},
   hellgate:{name:'Gates of Hell', e:'👹', key:'Y', kind:'now'},
   fireball:{name:'Fireball jutsu', e:'🔥', key:'Q', kind:'now'},
-  doomnuke:{name:'World-ending nuke', e:'💥', key:'P', kind:'now'},
+  doomnuke:{name:'World-ending nuke', e:'💥', key:'-', kind:'now'},
   judgement:{name:"God's judgement", e:'✨', key:'U', kind:'now'},
   coming:{name:'Second coming', e:'🕊️', key:'I', kind:'now'},
   satan:{name:'Summon Satan', e:'😈', key:'1'},
@@ -4370,7 +4377,7 @@ function addPlayer(info, isLocal){
 function removePlayer(id){ const P = chars[id]; if (!P) return; roundGroup.remove(P.root); if (P.body.world) world.removeBody(P.body); delete chars[id]; }
 function startMatch(seed, list, score, mode, cdOn, eg){
   hideOverlay(); $('matchEnd').style.display = 'none'; $('eggBanner').style.display = 'none';
-  G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' ? mode : 'chaos'; G.cdOn = G.mode === 'egg' || !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
+  G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' ? mode : 'chaos'; G.cdOn = !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
   if (G.mode === 'egg' && !eg) eg = {def:G.localKey, round:1, total:1, pts:{}};
   buildRound(seed);
   painReset(); painAmbience(); bomberReset(); swordReset(); summonReset(); necroReset();
@@ -4442,7 +4449,7 @@ function eggAttack(left){
     E.def = null; const P = localP(), b = P.body; b.position.set(x, groundH(x, z) + .4, z); b.velocity.set(0,0,0); aimAtEggFrom(P, .15);
   }
   G.spawnShield = 2; renderTray();
-  toast(amDefender() ? '🥚 Here they come! Click for energy blasts, E to grab and throw things.' : `🥚 Break the egg! ${Math.round(left)} seconds. Every power has a cooldown.`);
+  toast(amDefender() ? '🥚 Here they come! Click for energy blasts, E to grab and throw things.' : `🥚 Break the egg! ${Math.round(left)} seconds.${G.cdOn ? ' Every power has a cooldown.' : ''}`);
 }
 // the host (or practice) decides; everyone else hears it
 function eggToAttack(){
@@ -4492,10 +4499,10 @@ function hostEggRound(){
   const def = order[NET.eggRound]; NET.eggRound++;
   NET.seed = Math.floor(Math.random()*90000) + 10000;
   const eg = {def, round:NET.eggRound, total:order.length, pts, ph:'build', left:EGG_BUILD};
-  netBroadcast({t:'start', seed:NET.seed, players:lobbyList(), score:G.score, mode:'egg', cd:1, eg});
-  startMatch(NET.seed, lobbyList(), G.score, 'egg', true, eg);
+  netBroadcast({t:'start', seed:NET.seed, players:lobbyList(), score:G.score, mode:'egg', cd:NET.cdOn ? 1 : 0, eg});
+  startMatch(NET.seed, lobbyList(), G.score, 'egg', NET.cdOn, eg);
 }
-function soloEgg(){ startMatch(Math.floor(Math.random()*90000) + 10000, [{id:'me', name:ME.name || 'Player', team:'blue', look:ME.look}], null, 'egg', true, {def:'me', round:1, total:1, pts:{}}); }
+function soloEgg(){ startMatch(Math.floor(Math.random()*90000) + 10000, [{id:'me', name:ME.name || 'Player', team:'blue', look:ME.look}], null, 'egg', ME.cdOn, {def:'me', round:1, total:1, pts:{}}); }
 function eggShowEnd(m){
   const pts = m.pts || {}, ids = Object.keys(NET.players).length ? Object.keys(NET.players) : Object.keys(pts);
   const rows = ids.map(id => ({id, n:(NET.players[id] && NET.players[id].name) || eggName(id), p:pts[id] || 0})).sort((a, b) => b.p - a.p);
@@ -8468,6 +8475,76 @@ function necroFrame(dt){
     if (k !== G.localKey && c.t > c.dur + 3) { if (c.mesh.parent) c.mesh.parent.remove(c.mesh); P.carpet = null; } }
 }
 
+/* ===================================== VOICE CHAT =====================================
+   P (or the mic button that is always on screen) turns your microphone on and off. Voice goes straight between
+   browsers as WebRTC audio calls through the same PeerJS connection the game already uses: while your mic is on
+   you call every other player in the room (and anyone who joins later); everyone answers every call, so you
+   hear people whether or not your own mic is on. Turning the mic off just silences your track. Players who could
+   only connect through the backup relay can't do WebRTC at all, so voice won't reach them. */
+const VOICE = {stream:null, on:false, calls:{}, audios:{}, tried:{}, levels:{}, ctx:null};
+function voiceAttach(peer){
+  peer.on('call', call => {
+    try { call.answer(); } catch (e) { return; }
+    call.on('stream', st => voicePlay(call.peer, st));
+    call.on('close', () => voiceDrop(call.peer, true));
+    call.on('error', () => voiceDrop(call.peer, true));
+  });
+}
+function voicePlay(id, st){
+  let a = VOICE.audios[id]; if (!a) { a = VOICE.audios[id] = new Audio(); a.autoplay = true; a.playsInline = true; }
+  a.srcObject = st; a.play().catch(() => {});
+  // a meter so we can show who is talking
+  try { const cx = voiceCtx(); const an = cx.createAnalyser(); an.fftSize = 256; cx.createMediaStreamSource(st).connect(an); VOICE.levels[id] = {an, buf:new Uint8Array(an.fftSize), lv:0}; } catch (e) {}
+}
+// the meters run on the game's own audio engine, which a click has already unlocked (a fresh one would start paused)
+function voiceCtx(){ if (typeof actx !== 'undefined' && actx) VOICE.ctx = actx; VOICE.ctx = VOICE.ctx || new (window.AudioContext || window.webkitAudioContext)(); if (VOICE.ctx.state === 'suspended') VOICE.ctx.resume().catch(() => {}); return VOICE.ctx; }
+function voiceDrop(id, incoming){
+  if (incoming) { const a = VOICE.audios[id]; if (a) { a.srcObject = null; delete VOICE.audios[id]; } delete VOICE.levels[id]; }
+  else { const c = VOICE.calls[id]; if (c) { try { c.close(); } catch (e) {} delete VOICE.calls[id]; } }
+}
+async function toggleMic(){
+  ensureAudio();
+  if (!VOICE.stream) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('🎙️ This browser can’t use a microphone here.'); return; }
+    try { VOICE.stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true}, video:false}); }
+    catch (e) { toast('🎙️ Microphone blocked. Allow it in the address bar (the 🔒 or 🎙️ icon) and press P again.'); return; }
+    try { const cx = voiceCtx(); const an = cx.createAnalyser(); an.fftSize = 256; cx.createMediaStreamSource(VOICE.stream).connect(an); VOICE.levels.me = {an, buf:new Uint8Array(an.fftSize), lv:0}; } catch (e) {}
+  }
+  VOICE.on = !VOICE.on; VOICE.stream.getAudioTracks().forEach(t => t.enabled = VOICE.on);
+  if (VOICE.on) voiceCallAll();
+  renderMic(); sfx(VOICE.on ? 'grab' : 'place');
+  toast(VOICE.on ? (NET.peer ? '🎙️ Mic on: everyone in the room can hear you. P to mute.' : '🎙️ Mic on. Voice works once you’re in an online match.') : '🔇 Mic off.');
+}
+// call everyone we aren't already sending our voice to
+function voiceCallAll(){
+  if (!VOICE.on || !VOICE.stream || !NET.peer || !NET.myId) return;
+  for (const id in NET.players) {
+    if (id === NET.myId || VOICE.calls[id] || (VOICE.tried[id] && performance.now() - VOICE.tried[id] < 8000)) continue;
+    VOICE.tried[id] = performance.now();
+    try { const c = NET.peer.call(id, VOICE.stream); if (!c) continue; VOICE.calls[id] = c; c.on('close', () => voiceDrop(id, false)); c.on('error', () => voiceDrop(id, false)); } catch (e) {}
+  }
+  for (const id in VOICE.calls) if (!NET.players[id]) voiceDrop(id, false);
+}
+function voiceLevel(L){ if (!L) return 0; L.an.getByteTimeDomainData(L.buf); let m = 0; for (let i = 0; i < L.buf.length; i++) m = Math.max(m, Math.abs(L.buf[i] - 128)); L.lv = Math.max(m/128, L.lv*.85); return L.lv; }
+function renderMic(){
+  const b = $('micB'); if (!b) return;
+  b.classList.toggle('on', VOICE.on); b.setAttribute('aria-pressed', VOICE.on ? 'true' : 'false');
+  b.querySelector('.mi').textContent = VOICE.on ? '🎙️' : '🔇'; b.querySelector('.ml').textContent = VOICE.on ? 'Mic on (P)' : 'Mic off (P)';
+}
+// talking indicators: the mic button glows with your voice, and a speaker icon floats over anyone talking
+let voiceT = 0;
+function voiceFrame(dt){
+  voiceT -= dt; if (voiceT <= 0) { voiceT = 2; voiceCallAll(); }
+  const me = voiceLevel(VOICE.levels.me); const b = $('micB'); if (b) b.style.boxShadow = VOICE.on && me > .08 ? `0 0 0 ${2 + Math.min(8, me*30)}px rgba(91,209,91,.6), 3px 3px 0 var(--edge)` : '';
+  const talk = [];
+  for (const id in VOICE.levels) { if (id === 'me') continue; const lv = voiceLevel(VOICE.levels[id]), P = chars[id]; const on = lv > .08;
+    if (on) talk.push((NET.players[id] && NET.players[id].name) || 'Someone');
+    if (P && P.root) { if (!P.talkIcon) { const c = document.createElement('canvas'); c.width = 64; c.height = 64; const x = c.getContext('2d'); x.font = '48px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('🔊', 32, 34);
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c), transparent:true, depthTest:false})); sp.scale.set(.8, .8, 1); sp.position.y = 3.5; sp.renderOrder = 42; sp.userData.noRay = true; P.root.add(sp); P.talkIcon = sp; }
+      P.talkIcon.visible = on; } }
+  const tl = $('talkers'); if (tl) { const txt = talk.length ? '🔊 ' + talk.join(', ') : ''; if (tl.textContent !== txt) tl.textContent = txt; tl.style.display = txt ? 'block' : 'none'; }
+}
+
 /* casting, locally and for other players */
 function runSkill(id, p, x){
   if (id === 'ki') { kiBlast(p); return; }
@@ -8688,7 +8765,7 @@ function hostGame(wanted, tries = 0){
   if (custom && custom.length < 4) { lobbyMsg('Room codes need 4 to 6 letters or numbers. Or leave the box empty for a random code.'); return; }
   resetPeer();
   const me = myInfo(); NET.host = true; NET.mode = ME.mode; NET.cdOn = ME.cdOn; NET.code = custom || newCode(); if (!tries) lobbyMsg('Creating match…');
-  const peer = new Peer(PEER_PREFIX + NET.code, PEER_OPTS); NET.peer = peer; let registered = false;
+  const peer = new Peer(PEER_PREFIX + NET.code, PEER_OPTS); NET.peer = peer; voiceAttach(peer); let registered = false;
   peer.on('open', id => { if (NET.peer !== peer) return; registered = true; NET.myId = id; me.id = id; NET.players = {[id]:me}; showLobby(); });
   peer.on('connection', c => {
     adoptConn(c);
@@ -8725,7 +8802,7 @@ function joinGame(code){
   code = cleanCode(code); if (code.length < 4) { lobbyMsg('Type the room code your friend gave you.'); return; }
   resetPeer();
   const me = myInfo(); NET.host = false; NET.code = code; lobbyMsg('Connecting…');
-  const peer = new Peer(PEER_OPTS); NET.peer = peer;
+  const peer = new Peer(PEER_OPTS); NET.peer = peer; voiceAttach(peer);
   const nonce = relayNonce();
   let ice = '', opened = false, reached = false, answered = false, relaying = false, rtc = null, fbT = 0;
   const fail = t => { clearTimeout(to); clearTimeout(fbT); if (NET.peer !== peer || opened) return; lobbyMsg(t); if (NET.hostConn && NET.hostConn.relay) NET.hostConn.close(); try { peer.destroy(); } catch (e) {} NET.peer = null; NET.hostConn = null; };
@@ -8794,7 +8871,7 @@ function clientHandle(m){
     case 'eover': if (eggOn()) eggShowOver(m); break;
     case 'eend': G.matchOver = true; eggShowEnd(m); break;
     case 'join': if (G.pvp && !chars[m.p.id]) { addPlayer(eggOn() ? Object.assign({}, m.p, {team:'red'}) : m.p, false); killFeedText(`${m.p.name} joined`); } break;
-    case 'left': { const P = chars[m.id]; if (P) killFeedText(`${P.name} left`); removePlayer(m.id); break; }
+    case 'left': { const P = chars[m.id]; if (P) killFeedText(`${P.name} left`); removePlayer(m.id); voiceDrop(m.id, true); voiceDrop(m.id, false); break; }
     case 'st': applyState(m); break;
     case 'cast': replayCast(m); break;
     case 'kf': killFeed(m); break;
@@ -8859,10 +8936,10 @@ function showPvPTitle(){
   // game mode: the host's choice is used for the match; practice uses yours
   const setMode = m => { ME.mode = m; try { localStorage.setItem('ca-mode2', m); } catch (e) {}
     for (const [id, k] of [['mEgg','egg'],['mChaos','chaos'],['mPain','pain']]) $(id).style.outline = m === k ? '4px solid var(--yolk)' : 'none';
-    $('modeDesc').textContent = m === 'egg' ? `Egg: one player defends the egg with 19 protection powers and gets ${EGG_BUILD} seconds to build. Everyone else gets ${EGG_ATK} seconds and 31 powers (with cooldowns) to break it. Everyone takes a turn defending.`
+    $('modeDesc').textContent = m === 'egg' ? `Egg: one player defends the egg with 19 protection powers and gets ${EGG_BUILD} seconds to build. Everyone else gets ${EGG_ATK} seconds and 31 powers to break it. Everyone takes a turn defending.`
       : m === 'pain' ? 'Pain: gravity powers. Push, pull, Shinra Tensei, Chibaku Tensei and more. The map can’t be destroyed.' : 'Chaos: 31 ridiculous powers. Nukes, black holes, giant cows.';
     if ($('cdB')) setCd(ME.cdOn); };
-  function setCd(on){ ME.cdOn = on; try { localStorage.setItem('ca-cd', on ? 'on' : 'off'); } catch (e) {} const em = ME.mode === 'egg'; $('cdB').disabled = em; $('cdB').textContent = em ? '⏱️ Cooldowns: always on in Egg mode' : on ? '⏱️ Cooldowns: on' : '⏱️ Cooldowns: off (spam everything)'; }
+  function setCd(on){ ME.cdOn = on; try { localStorage.setItem('ca-cd', on ? 'on' : 'off'); } catch (e) {} $('cdB').disabled = false; $('cdB').textContent = on ? '⏱️ Cooldowns: on' : '⏱️ Cooldowns: off (spam everything)'; }
   setMode(ME.mode); setCd(ME.cdOn); $('cdB').onclick = () => setCd(!ME.cdOn);
   $('mEgg').onclick = () => setMode('egg'); $('mChaos').onclick = () => setMode('chaos'); $('mPain').onclick = () => setMode('pain');
   $('hostB').onclick = () => { ensureAudio(); hostGame($('codeIn').value); };
@@ -8879,8 +8956,8 @@ function renderLobby(){
     <div class="title" style="font-size:clamp(34px,8vw,56px)">Room ${NET.code}</div>
     <p>${NET.host ? 'Send your friends this page’s link and tell them the code <b>' + NET.code + '</b>.' : 'You’re in! Waiting for the host to start.'}</p>
     <p>Mode: <b>${MODE_NAME[NET.mode]}</b> ${NET.host ? Object.keys(MODE_NAME).filter(k => k !== NET.mode).map(k => `<button class="btn" data-mode="${k}" style="padding:4px 12px;font-size:14px;margin-left:6px">${MODE_NAME[k]}</button>`).join('') : ''}</p>
-    ${NET.mode === 'egg' ? `<p class="muted">Each round one player defends the egg (${EGG_BUILD} s to build), everyone else attacks (${EGG_ATK} s). Everyone defends once. Teams don’t matter here. Cooldowns are always on.</p>`
-      : `<p>Cooldowns: <b>${NET.cdOn ? 'on' : 'off'}</b> ${NET.host ? `<button class="btn" id="cdLB" style="padding:4px 12px;font-size:14px;margin-left:6px">Turn ${NET.cdOn ? 'off' : 'on'}</button>` : ''}</p>`}
+    ${NET.mode === 'egg' ? `<p class="muted">Each round one player defends the egg (${EGG_BUILD} s to build), everyone else attacks (${EGG_ATK} s). Everyone defends once. Teams don’t matter here.</p>` : ''}
+    ${`<p>Cooldowns: <b>${NET.cdOn ? 'on' : 'off'}</b> ${NET.host ? `<button class="btn" id="cdLB" style="padding:4px 12px;font-size:14px;margin-left:6px">Turn ${NET.cdOn ? 'off' : 'on'}</button>` : ''}</p>`}
     <div class="rows" style="grid-template-columns:1fr 1fr">
       <div class="row" style="display:block"><span class="tag bg-blue">Blue (${blue.length})</span>${li(blue)}</div>
       <div class="row" style="display:block"><span class="tag bg-red">Red (${red.length})</span>${li(red)}</div>
@@ -8962,7 +9039,7 @@ function eggHelp(){
     : G.cls === 'sword' ? swordHelp()
     : G.cls === 'summon' ? summonHelp()
     : G.cls === 'necro' ? necroHelp()
-    : '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run<br>Skills: press a key (see the Skills bar), aim the red marker, <b>click</b><br>Every power has a cooldown<br><b>Right-click</b> to put a skill away<br><b>Tab</b> switch class (Bomber)';
+    : '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run<br>Skills: press a key (see the Skills bar), aim the red marker, <b>click</b><br>' + (G.cdOn ? 'Every power has a cooldown' : 'Cooldowns are off') + '<br><b>Right-click</b> to put a skill away<br><b>Tab</b> switch class (Bomber)';
 }
 function renderSide(title, html, kind){
   const side = $('side');
@@ -9008,7 +9085,7 @@ function renderTray(){
     $('rotB').onclick = () => { G.ghostRot += Math.PI/4; };
     $('doneB').onclick = finishBuild;
   } else if (G.phase === 'attack') {
-    const keyRank = k => { k = String(k || ''); if (k.length !== 1 || !/[0-9A-Za-z]/.test(k)) return -1; if (k === '0') return 10; if (/[1-9]/.test(k)) return +k; return 20 + k.toUpperCase().charCodeAt(0); };
+    const keyRank = k => { k = String(k || ''); if (k === '-') return 200; if (k.length !== 1 || !/[0-9A-Za-z]/.test(k)) return -1; if (k === '0') return 10; if (/[1-9]/.test(k)) return +k; return 20 + k.toUpperCase().charCodeAt(0); };
     const shown = Object.entries(skillTable()).filter(([, sp]) => !sp.hide).sort((a, b) => keyRank(a[1].key) - keyRank(b[1].key));
     t.innerHTML = `<div class="bar sticker"><div class="tl">${classInfo(G.cls).name}</div><div class="skills" style="--cols:${Math.ceil(shown.length/2)}">${shown.map(([id,sp]) => `<button class="skill" data-sp="${id}" aria-pressed="${G.targeting===id}" title="${sp.name} (${sp.key})" aria-label="${sp.name}"><span class="si">${sp.e}</span><span class="sn">${SHORT[id] || sp.name}</span><kbd>${sp.key}</kbd></button>`).join('')}</div></div>`;
     t.querySelectorAll('[data-sp]').forEach(b => b.onclick = e => { e.stopPropagation(); useSpecial(b.dataset.sp); });
@@ -9167,6 +9244,7 @@ function keyName(e){
 addEventListener('keydown', e => {
   if (e.target && e.target.tagName === 'BUTTON' && (e.key === 'Enter' || e.key === ' ')) return;
   const k = keyName(e); keys[k] = true;
+  if (k === 'p' && !e.repeat && !(e.target && e.target.tagName === 'INPUT')) { e.preventDefault(); toggleMic(); return; }   // voice chat
   if (!inPlay()) return;
   if (k === 'tab') { e.preventDefault(); if (!e.repeat && G.pvp) switchClass(); return; }
   if (k === ' ') { e.preventDefault(); if (!e.repeat) G.jumpQ = .2; }
@@ -9177,7 +9255,7 @@ addEventListener('keydown', e => {
   if (G.phase === 'attack' && !e.repeat && G.cls === 'sword') { swordKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'summon') { summonKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'necro') { necroKeyDown(k); return; }
-  if (G.phase === 'attack' && !e.repeat) { if (G.mode === 'pain') { if (PAIN_KEYS[k]) painKeyDown(PAIN_KEYS[k], k); return; } const sp = {n:'nuke', b:'chibaku', g:'gravity', c:'comet', h:'army', t:'shinra', x:'bijuu', o:'tornado', v:'volcano', l:'lightning', m:'gcow', j:'frog', k:'knives', z:'antimatter', y:'hellgate', q:'fireball', p:'doomnuke', u:'judgement', i:'coming', '1':'satan', '2':'sword', '3':'flip', '4':'slow', '5':'freeze', '6':'tree', '7':'night', '8':'supernova', '9':'vacuum', '0':'eoe', f:'onepunch', r:'serious'}[k]; if (sp) useSpecial(sp); }
+  if (G.phase === 'attack' && !e.repeat) { if (G.mode === 'pain') { if (PAIN_KEYS[k]) painKeyDown(PAIN_KEYS[k], k); return; } const sp = {n:'nuke', b:'chibaku', g:'gravity', c:'comet', h:'army', t:'shinra', x:'bijuu', o:'tornado', v:'volcano', l:'lightning', m:'gcow', j:'frog', k:'knives', z:'antimatter', y:'hellgate', q:'fireball', '-':'doomnuke', u:'judgement', i:'coming', '1':'satan', '2':'sword', '3':'flip', '4':'slow', '5':'freeze', '6':'tree', '7':'night', '8':'supernova', '9':'vacuum', '0':'eoe', f:'onepunch', r:'serious'}[k]; if (sp) useSpecial(sp); }
   if (G.phase === 'build') {
     if (k === 'r') G.ghostRot += Math.PI/4;
     { const dk = Object.keys(DEFENSES).find(id => DEFENSES[id].key.toLowerCase() === k); if (dk) useDefense(dk); }
@@ -9470,7 +9548,7 @@ function frame(now){
   { const hm = (inPlay() && !isTouch && !G.locked && !G.eggCam) ? (G.fallback ? 2 : 1) : 0;
     if (hm !== G.hintMode) { G.hintMode = hm; const h = $('lockHint'); h.style.display = hm ? 'block' : 'none'; h.classList.toggle('fb', hm === 2);
       h.innerHTML = hm === 2 ? `🖱️ Mouse lock is blocked in this tab (${G.lockErr || 'refused'}). The camera follows your mouse; hold it at the screen edge to keep turning.<br><small>Click to retry. If it keeps happening, close this tab and open the game link again.</small>` : 'Click to control your character'; } }
-  updateVisuals(rdt); updateEdge(); pvpFrame(rdt); if (G.mode === 'pain' && G.phase === 'attack') painFrame(rdt); bomberFrame(rdt * G.fxScale); swordFrame(rdt); summonFrame(rdt * G.fxScale); necroFrame(rdt * G.fxScale);
+  updateVisuals(rdt); updateEdge(); pvpFrame(rdt); if (G.mode === 'pain' && G.phase === 'attack') painFrame(rdt); bomberFrame(rdt * G.fxScale); swordFrame(rdt); voiceFrame(rdt); summonFrame(rdt * G.fxScale); necroFrame(rdt * G.fxScale);
   SpaceWarp.render();
   perfTune(performance.now() - t0, rdt);
 }
@@ -9500,6 +9578,7 @@ G.defender = 'blue';
 buildRound(12345); G.phase = 'title';
 
 G.map = null; renderScore(); renderPhase(); showPvPTitle();
+$('micB').addEventListener('click', e => { e.stopPropagation(); toggleMic(); }); $('micB').addEventListener('pointerdown', e => e.stopPropagation());
 /* GitHub Pages lets browsers keep a copy of the page for 10 minutes, so after an update players kept getting the
    old game. On the title screen, ask the server for the current version and reload into it if ours is stale. */
 (async () => {

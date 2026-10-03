@@ -190,6 +190,15 @@ BX bombs support homing (`home`, `turn`).
 summons are in `bEnemies` (ids start with 'S'), so projectiles hit them and summons fight each other.
 Known: duoall reported one host rejection of `n_furnace` aimed at a player 10 m away; not yet investigated.
 
+**Voice chat** (module "VOICE CHAT"): P or the always-visible #micB button toggles the mic (`toggleMic`).
+While on, you PeerJS-call every player in `NET.players` with your mic stream (`voiceCallAll`, retried every
+2 s for late joiners); everyone answers every call (`voiceAttach` on each Peer), so you hear others with your
+mic off. Mute = disable the track. Talking indicators use analysers on the game's AudioContext (`voiceCtx`):
+#talkers list and a 🔊 sprite over the speaker. Players stuck on the MQTT backup relay can't get voice.
+P used to be Chaos's World-ending nuke; that moved to '-'.
+
+Egg mode follows the cooldown setting like the other modes (it used to force cooldowns on).
+
 The Skills bar fills row by row and is sorted by key: click, 1-9, 0, then letters A-Z.
 
 ## Network checks (castOK)
