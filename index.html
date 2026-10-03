@@ -255,7 +255,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-03.6';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-03.7';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -1460,6 +1460,7 @@ const effectsActive = () => holes.some(h => !h.done) || comets.some(c => !c.done
 function useSpecial(id){
   if (BOMBER[id]) { bomberUse(id); return; }
   if (SUMMON[id]) { summonUse(id); return; }
+  if (NECRO_SK[id]) { necroUse(id); return; }
   if (SWORD[id]) { if (SWORD[id].kind === 'charge') { if ((G.cd[id] || 0) > 0) { cdToast(id); return; } localCast(id, aimPoint(80), {c:0}); return; } swordUse(id); return; }
   if (G.phase !== 'attack' || !G.specials || !G.specials[id] || G.atkTime <= 0) return;
   const P = chars[attacker()]; if (!P || P.stun > 0 || P.lockT > 0) return;
@@ -1476,6 +1477,7 @@ function flash(op, dur){
   requestAnimationFrame(() => requestAnimationFrame(() => { fl.style.transition = `opacity ${dur || 1.4}s ease-out`; fl.style.opacity = '0'; }));
 }
 function blastAt(p, R, power, killR, reason){
+  if (!G.blastNoPlayers && typeof summonsTakeArea === 'function') { const C = G.casterKey && chars[G.casterKey]; summonsTakeArea(p, R, power*2.2, G.casterKey || null, C ? C.team : null); }   // chaos explosions
   terrainBlast(p, R, power);
   if (typeof REASON_ELEM !== 'undefined' && REASON_ELEM[reason] && G.phase === 'attack') infuse(p, REASON_ELEM[reason], R*.8, G.carriers);
   const shield = domeUp() && !inDome(p), D0 = shield ? G.dome : null;
@@ -4295,7 +4297,7 @@ function hurt(P, dmg){
   updateHud();
 }
 function die(P){
-  painOwnerDied(G.localKey); bomberOwnerDied(G.localKey); swordOwnerDied(G.localKey); summonOwnerDied(G.localKey); P.held = null; P.hypno = null; P.slowT = P.pinT = 0;
+  painOwnerDied(G.localKey); bomberOwnerDied(G.localKey); swordOwnerDied(G.localKey); summonOwnerDied(G.localKey); necroOwnerDied(G.localKey); P.held = null; P.hypno = null; P.slowT = P.pinT = 0;
   P.alive = false; P.deadT = 4; P.root.visible = false; if (P.carry) P.carry = null;
   const b = P.body; b.type = CANNON.Body.KINEMATIC; b.mass = 0; b.updateMassProperties(); b.velocity.set(0,0,0); b.collisionFilterMask = 0;
   sfx('splat'); G.shake = reduceMotion ? 0 : .8;
@@ -4371,7 +4373,7 @@ function startMatch(seed, list, score, mode, cdOn, eg){
   G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' ? mode : 'chaos'; G.cdOn = G.mode === 'egg' || !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
   if (G.mode === 'egg' && !eg) eg = {def:G.localKey, round:1, total:1, pts:{}};
   buildRound(seed);
-  painReset(); painAmbience(); bomberReset(); swordReset(); summonReset();
+  painReset(); painAmbience(); bomberReset(); swordReset(); summonReset(); necroReset();
   if (G.mode !== 'egg') {   // only Egg mode keeps the egg and its pedestal
     if (egg) { removeObj(egg); egg = null; }
     world.bodies.slice().forEach(b => { if (b.tag === 'pedestal') world.removeBody(b); }); if (G.pedMesh) roundGroup.remove(G.pedMesh);
@@ -4620,11 +4622,11 @@ const PAIN_CFG = {
 };
 const PAIN = {fx:[], fields:[], rods:[], stuckRods:[], regrow:[], dummies:[], cores:[], orbits:{}, shots:[], charge:null, aim:null};
 function isPain(){ return G.mode === 'pain'; }
-function skillTable(){ return G.cls === 'bomber' ? BOMBER : G.cls === 'sword' ? SWORD : G.cls === 'summon' ? SUMMON : isPain() ? PAIN_SKILLS : SPECIALS; }
-function skillDef(id){ return PAIN_SKILLS[id] || SPECIALS[id] || BOMBER[id] || SWORD[id] || SUMMON[id]; }
+function skillTable(){ return G.cls === 'bomber' ? BOMBER : G.cls === 'sword' ? SWORD : G.cls === 'summon' ? SUMMON : G.cls === 'necro' ? NECRO_SK : isPain() ? PAIN_SKILLS : SPECIALS; }
+function skillDef(id){ return PAIN_SKILLS[id] || SPECIALS[id] || BOMBER[id] || SWORD[id] || SUMMON[id] || NECRO_SK[id]; }
 // cooldowns are a match setting (off by default): with them off every ability is ready again immediately
 function cdFor(id){ if (!G.cdOn) return 0;   // the match's cooldown setting covers every class (World Severance stays once per round)
-  if (BOMBER[id]) return BOMBER[id].cd; if (SWORD[id]) return SWORD[id].cd; if (SUMMON[id]) return SUMMON[id].cd; return (PAIN_SKILLS[id] && PAIN_SKILLS[id].cd) || CD[id] || 3; }
+  if (BOMBER[id]) return BOMBER[id].cd; if (SWORD[id]) return SWORD[id].cd; if (SUMMON[id]) return SUMMON[id].cd; if (NECRO_SK[id]) return NECRO_SK[id].cd; return (PAIN_SKILLS[id] && PAIN_SKILLS[id].cd) || CD[id] || 3; }
 function painReset(){
   PAIN.fx = []; PAIN.fields = []; PAIN.rods = []; PAIN.stuckRods = []; PAIN.regrow = []; PAIN.dummies = [];
   PAIN.cores = []; PAIN.orbits = {}; PAIN.shots = []; PAIN.charge = null; PAIN.aim = null;
@@ -4691,10 +4693,12 @@ function forEachObject(fn){
 }
 function spin(b, s){ if (!b.fixedRotation) { b.angularVelocity.x += rr(-s, s); b.angularVelocity.y += rr(-s, s); b.angularVelocity.z += rr(-s, s); } }
 function dummyHit(b, amount){
+  dummyDamage(b, amount);
   const o = bodyObj.get(b); if (!o || G.t - (o.hitT || -9) < .2) return; o.hitT = G.t;
   popText(V3(b.position.x, b.position.y + 2.5, b.position.z), '-' + Math.max(1, Math.round(amount)));
 }
 function radialPush(c, R, dv, up, dmg){
+  if (dmg) { const C = G.casterKey && chars[G.casterKey]; summonsTakeArea(V3(c.x, c.y, c.z), R, dmg, G.casterKey || null, C ? C.team : null); }
   forEachObject(b => {
     const dx = b.position.x - c.x, dz = b.position.z - c.z, d = Math.hypot(dx, dz) || .01;
     if (d > R || Math.abs(b.position.y - c.y) > R*.8 + 4) return;
@@ -4705,6 +4709,7 @@ function radialPush(c, R, dv, up, dmg){
   });
 }
 function conePush(O, dir, L, dot, dv, up, dmg){
+  if (dmg) { const C = G.casterKey && chars[G.casterKey]; summonsTakeCone(O, Math.atan2(dir.x, dir.z), L, Math.acos(clamp(dot, -1, 1))*2, dmg, G.casterKey || null, C ? C.team : null); }
   forEachObject(b => {
     const dx = b.position.x - O.x, dz = b.position.z - O.z, d = Math.hypot(dx, dz) || .01, f = dx*dir.x + dz*dir.z;
     if (!(d < 1.8 || (f > 0 && f < L && f/d > dot)) || Math.abs(b.position.y - O.y) > 4) return;
@@ -5010,7 +5015,7 @@ function pickPullTarget(){
   PAIN.dummies.forEach((o, i) => { if (!o.dead) consider('d' + i, o.body.position); });
   return best;
 }
-function pullTargetPos(tg){ if (!tg) return null; if (tg[0] === 'd') { const o = PAIN.dummies[+tg.slice(1)]; return o && !o.dead ? o.body.position : null; } const T = chars[tg]; return T && T.alive !== false ? T.body.position : null; }
+function pullTargetPos(tg){ if (!tg) return null; if (tg[0] === 'S') { const e = typeof SUM !== 'undefined' && SUM.list.find(q => q.id === tg && !q.done); return e ? e.p : null; } if (tg[0] === 'd') { const o = PAIN.dummies[+tg.slice(1)]; return o && !o.dead ? o.body.position : null; } const T = chars[tg]; return T && T.alive !== false ? T.body.position : null; }
 // a pull toward the caster that gets stronger the closer you get; used for the local victim and for dummies
 function pullField(body, key, pos, dur, maxSp, stopAt, onArrive){
   return {t:0, dur, apply(g){
@@ -5731,9 +5736,11 @@ const TELEPORTS = {u_eagle:2, p_gdash:.9, s_ldash:.9, s_quick:1.5, s_anime:1.3, 
 function castOK(c, m){
   if (!m || m.id !== c.peer) return false;                                  // nobody can cast as someone else
   if (m.s === 'd_use' || m.s === 'd_place') return eggDefOK(c, m);       // Egg mode protection powers
-  const P = chars[m.id]; if (!P || P.alive === false || !G.pvp || G.phase !== 'attack') return false;
-  if (eggOn() && (G.egg.over || (m.id === G.egg.def && !['ki', 'b_bazooka', 'b_press', 's_slash', 'u_cmd'].includes(m.s)))) return false;   // the defender only shoots
-  const def = m.s === 'ki' ? null : (BOMBER[m.s] || SWORD[m.s] || SUMMON[m.s] || modeTable()[m.s]); if (m.s !== 'ki' && !def) return false;   // the mode's own kit or a class (anyone may switch class any time)
+  const P = chars[m.id]; if (!P || !G.pvp || G.phase !== 'attack') return false;
+  if (m.s === 'u_kill') return typeof m.k === 'string' && m.k.startsWith('S' + m.id + ':');   // only for your own summons, even while dead
+  if (P.alive === false) return false;
+  if (eggOn() && (G.egg.over || (m.id === G.egg.def && !['ki', 'b_bazooka', 'b_press', 's_slash', 'u_cmd', 'n_skull'].includes(m.s)))) return false;   // the defender only shoots
+  const def = m.s === 'ki' ? null : (BOMBER[m.s] || SWORD[m.s] || SUMMON[m.s] || NECRO_SK[m.s] || modeTable()[m.s]); if (m.s !== 'ki' && !def) return false;   // the mode's own kit or a class (anyone may switch class any time)
   // cast from where they actually are. Positions arrive ~15 times a second and can be late, so allow for how fast they
   // were moving and how old the last position is (knockbacks reach 50+ m/s), and for powers that teleport them
   const tNow = performance.now()/1000, age = P.netT ? tNow - P.netT : 0, spd = P.net ? Math.hypot(P.net.vx || 0, P.net.vz || 0) : 0;
@@ -5754,7 +5761,8 @@ function castOK(c, m){
   const span = useTs ? m.ts - lts : now - (last || G.matchT0 || 0);
   // a charged cast can't claim more charge than the time since that player's last cast of it (or the match start)
   if (m.c != null && (typeof m.c !== 'number' || !(m.c >= 0) || m.c > span + .6)) return false;
-  if (m.s === 's_sever' && G.severUsed && G.severUsed[m.id]) return false;   // World Severance: once per round
+  if (m.s === 's_sever' && G.severUsed && G.severUsed[m.id]) return false;
+  if (m.s === 'n_circles' && G.circlesUsed && G.circlesUsed[m.id]) return false;   // Nine Circles: once per round   // World Severance: once per round
   if (G.cdOn) { const cd = m.s === 'ki' ? .28 : def && def.cd != null ? def.cd : CD[m.s] || 3;
     if (useTs ? m.ts - lts < cd*.9 - .03 : (last && now - last < cd*.75 - .08)) return false; }   // cooldown
   if (m.s === 'b_boomx' && m.k === 1) { delete castLog[m.id + '|b_boomer']; delete castTs[m.id + '|b_boomer']; }   // a caught boomerang is ready again
@@ -5768,10 +5776,10 @@ function castOK(c, m){
    or the class button on the Skills bar. Cooldowns are kept per power id in G.cd (and in the host's castLog), so
    swapping away and back never resets them. The host accepts a cast if the power exists in the mode's kit or in
    any class, so players can swap freely without telling anyone. */
-const CLASS_IDS = ['native', 'bomber', 'sword', 'summon'];
-function classInfo(c){ return c === 'bomber' ? {name:'Bomber', e:'💣'} : c === 'sword' ? {name:'Swordsman', e:'⚔️'} : c === 'summon' ? {name:'Summoner', e:'🐾'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
+const CLASS_IDS = ['native', 'bomber', 'sword', 'summon', 'necro'];
+function classInfo(c){ return c === 'bomber' ? {name:'Bomber', e:'💣'} : c === 'sword' ? {name:'Swordsman', e:'⚔️'} : c === 'summon' ? {name:'Summoner', e:'🐾'} : c === 'necro' ? {name:'Necromancer', e:'💀'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
 function modeTable(){ return isPain() ? PAIN_SKILLS : SPECIALS; }
-G.cls = (() => { try { const c = localStorage.getItem('ca-cls'); return c === 'bomber' || c === 'sword' || c === 'summon' ? c : 'native'; } catch (e) { return 'native'; } })();
+G.cls = (() => { try { const c = localStorage.getItem('ca-cls'); return c === 'bomber' || c === 'sword' || c === 'summon' || c === 'necro' ? c : 'native'; } catch (e) { return 'native'; } })();
 function switchClass(to){
   const next = to || CLASS_IDS[(CLASS_IDS.indexOf(G.cls) + 1) % CLASS_IDS.length];
   if (next === G.cls) return;
@@ -5903,6 +5911,7 @@ function bEnemies(key, team){
   const out = [];
   for (const k in chars) { const P = chars[k]; if (!P || k === key || P.alive === false || (team && P.team === team)) continue; out.push({id:k, pos:P.body.position}); }
   PAIN.dummies.forEach((o, i) => { if (!o.dead) out.push({id:'d' + i, pos:o.body.position}); });
+  if (typeof SUM !== 'undefined') for (const e of SUM.list) if (!e.done && !e.under && e.owner !== key && !(team && e.team === team)) out.push({id:e.id, pos:e.p, sum:e});
   return out;
 }
 function bNearest(key, team, at, R){ let best = null, bd = R; for (const e of bEnemies(key, team)) { const d = hdist(e.pos, at); if (d < bd) { bd = d; best = e; } } return best; }
@@ -5935,6 +5944,7 @@ function bBoom(at, R, dmg, kb, owner, team, o){
   o = o || {};
   const gy = groundH(at.x, at.z); at = V3(at.x, Math.max(at.y, gy + .25), at.z);
   G.blastNoPlayers = true; try { blastAt(at, R, Math.min(40, kb*.9 + 4), o.killR != null ? o.killR : R*.32, 'bomber'); } finally { G.blastNoPlayers = false; }
+  summonsTakeArea(at, R, dmg, owner, team);
   const P = victimFor(owner, team);
   if (P) { const b = P.body, c = V3(b.position.x, b.position.y + 1, b.position.z), d = c.distanceTo(at);
     if (d < R + .4) { const f = clamp(1 - d/(R + .4), 0, 1), away = c.clone().sub(at).setY(0); if (away.lengthSq() < .01) away.set(Math.sin(G.yaw), 0, Math.cos(G.yaw)); away.normalize();
@@ -5955,6 +5965,7 @@ function updateBombs(dt){
     if (b.dead) continue;
     b.age += dt;
     for (const mg of BX.magnets) { if (mg.done || b.magnet === false) continue; const d = mg.p.distanceTo(b.p); if (d < mg.R && d > .6) b.v.addScaledVector(mg.p.clone().sub(b.p).normalize(), (40*(1 - d/mg.R) + 14)*dt); }
+    if (b.home) { const tp = b.home(); if (tp) { const want = V3(tp.x, tp.y + 1, tp.z).sub(b.p).normalize().multiplyScalar(b.v.length()); b.v.lerp(want, Math.min(1, dt*(b.turn || 3))); } }
     if (b.drag) b.v.multiplyScalar(Math.max(0, 1 - b.drag*dt));
     b.v.y += world.gravity.y*b.g*dt;
     const a = b.p, n = a.clone().addScaledVector(b.v, dt), gy = groundH(n.x, n.z);
@@ -5965,7 +5976,7 @@ function updateBombs(dt){
     else if (b.age > 25 || Math.abs(n.x) > ISL + 40 || Math.abs(n.z) > ISL + 40) { b.dead = true; roundGroup.remove(b.m); continue; }
     else if (domeUp() && inDome(n) && !inDome(a)) hit = a.clone();
     else if (b.age > (b.arm || .06)) {
-      for (const e of bEnemies(b.owner, b.team)) { if (segDist(a, n, V3(e.pos.x, e.pos.y + 1, e.pos.z)) < b.r + .55) { hit = n.clone(); break; } }
+      for (const e of bEnemies(b.owner, b.team)) { if (segDist(a, n, V3(e.pos.x, e.pos.y + (e.sum ? 1.2*e.sum.S : 1), e.pos.z)) < b.r + (e.sum ? .8*e.sum.S : .55)) { hit = n.clone(); break; } }
       if (!hit && egg && egg.alive && segDist(a, n, V3(egg.body.position.x, egg.body.position.y, egg.body.position.z)) < b.r + .45) hit = n.clone();
       if (!hit && bSolid(n, b.r)) hit = a.clone();
     }
@@ -6297,12 +6308,13 @@ function bCarpetOff({key, team, C}, x){
 // local player: fly the carpet (called from controlPlayer)
 function flyCarpet(P, dt, input){
   const b = P.body, c = P.carpet; c.t += dt;
-  if (c.t > c.dur || (input && G.jumpQ > 0)) { G.jumpQ = 0; if (c.type === 'sword') surfOff(); else if (c.type === 'eagle') localCast('u_eaglex', null, {}); else carpetOff(); return; }
+  if (c.type === 'lich') { if (input && G.jumpQ > 0) G.jumpQ = 0; if (c.t > c.dur) { P.carpet = null; return; } }   // the lich just floats
+  else if (c.t > c.dur || (input && G.jumpQ > 0)) { G.jumpQ = 0; if (c.type === 'sword') surfOff(); else if (c.type === 'eagle') localCast('u_eaglex', null, {}); else if (c.type === 'steed') localCast('n_steedx', null, {}); else carpetOff(); return; }
   let mx = 0, mz = 0; if (input) { mx = input.x; mz = input.z; }
   const fx0 = Math.sin(G.yaw), fz0 = Math.cos(G.yaw), rx = -Math.cos(G.yaw), rz = Math.sin(G.yaw);
   let vx = fx0*mz + rx*mx, vz = fz0*mz + rz*mx; const l = Math.hypot(vx, vz); if (l > 1) { vx /= l; vz /= l; }
-  const spd = c.type === 'sword' ? 26 : c.type === 'eagle' ? 20 : 18; b.velocity.x = lerp(b.velocity.x, vx*spd, .08); b.velocity.z = lerp(b.velocity.z, vz*spd, .08);
-  const want = Math.max(groundH(b.position.x, b.position.z), 0) + (c.type === 'sword' ? 1.8 : c.type === 'eagle' ? 9 : 7); b.velocity.y = clamp((want - b.position.y)*2.5, -6, 8); b._onGround = false;
+  const spd = c.type === 'sword' ? 26 : c.type === 'eagle' ? 20 : c.type === 'steed' ? 22 : c.type === 'lich' ? 9 : 18; b.velocity.x = lerp(b.velocity.x, vx*spd, .08); b.velocity.z = lerp(b.velocity.z, vz*spd, .08);
+  const want = Math.max(groundH(b.position.x, b.position.z), 0) + (c.type === 'sword' ? 1.8 : c.type === 'eagle' ? 9 : c.type === 'steed' ? 1.9 : c.type === 'lich' ? 2.2 : 7); b.velocity.y = clamp((want - b.position.y)*2.5, -6, 8); b._onGround = false;
   if (l > .1) P.moveFace = Math.atan2(vx, vz); P.moving = false; P.naruto = false;
 }
 /* 14. Landmines */
@@ -6600,6 +6612,7 @@ function ghostOf(C, col){ const mat = new THREE.MeshBasicMaterial({color:col || 
 /* ---------- hits (victim-side, like everything else) ---------- */
 // cone in front of `from` facing `yaw`
 function swordHit(key, team, from, yaw, range, arc, dmg, kb, up, o){
+  summonsTakeCone(from, yaw, range, arc, dmg, key, team);
   o = o || {};
   const fx = Math.sin(yaw), fz = Math.cos(yaw), cosA = Math.cos(arc/2);
   const inCone = (p) => { const dx = p.x - from.x, dz = p.z - from.z, d = Math.hypot(dx, dz); if (d > range || Math.abs(p.y - from.y) > 3.2) return false; return d < 1.1 || (dx*fx + dz*fz)/d > cosA; };
@@ -6610,6 +6623,7 @@ function swordHit(key, team, from, yaw, range, arc, dmg, kb, up, o){
 }
 // a ball of space around `at`
 function swordArea(key, team, at, R, dmg, kb, up, o){
+  summonsTakeArea(at, R, dmg, key, team);
   o = o || {};
   const P = victimFor(key, team);
   if (P) { const c = V3(P.body.position.x, P.body.position.y + 1, P.body.position.z), d = c.distanceTo(at); if (d < R) { const away = c.clone().sub(at).setY(0); if (away.lengthSq() < .01) away.set(1, 0, 0); away.normalize(); painHurt(P, dmg, key); if (o.pull) knock(P, -away.x*kb, up, -away.z*kb, o.stun || .3); else knock(P, away.x*kb, up, away.z*kb, o.stun || .3); if (o.onHit) o.onHit(P); } }
@@ -7229,11 +7243,13 @@ const SUMMON = {
   u_ram:      {name:'Giant Ram', e:'🐏', key:'C', kind:'now', cd:28},
   u_peacock:  {name:'Giant Peacock', e:'🦚', key:'V', kind:'now', cd:32},
   u_axolotl:  {name:'Giant Axolotl', e:'🩷', key:'B', kind:'now', cd:34},
-  u_eaglex:   {name:'Let go of the eagle', e:'🦅', hide:true, cd:0}
+  u_eaglex:   {name:'Let go of the eagle', e:'🦅', hide:true, cd:0},
+  u_kill:     {name:'A summon dies', e:'💥', hide:true, cd:0}
 };
 const SUMMON_KEYS = {}; for (const id in SUMMON) { const k = SUMMON[id].key; if (k && k.length === 1 && /[0-9A-Z]/.test(k)) SUMMON_KEYS[k.toLowerCase()] = id; }
-const SUM = {list:[], held:[], pools:[], webs:[], marks:{}};
-function summonReset(){ SUM.list = []; SUM.held = []; SUM.pools = []; SUM.webs = []; SUM.marks = {}; G.revealT = 0; G.blindT = 0; G.hiddenUntil = 0; }
+const SUM = {list:[], held:[], pools:[], webs:[], marks:{}, seq:{}};
+const SUMMON_HP = {turtle:450, eagle:220, jelly:220, hellhound:120, spiritwolf:40, miniaxo:40, imp:45, undead:60, risen:60, condemned:60};
+function summonReset(){ SUM.list = []; SUM.held = []; SUM.pools = []; SUM.webs = []; SUM.marks = {}; SUM.seq = {}; G.revealT = 0; G.blindT = 0; G.hiddenUntil = 0; }
 function summonHelp(){
   return '<b>Click</b> command: every summon uses its signature move where you aim<br>' +
     '<b>1</b> toad · <b>2</b> serpent · <b>3</b> wolf · <b>4</b> gorilla · <b>5</b> eagle (ride it; Space lets go) · <b>6</b> turtle (stand on it) · <b>7</b> scorpion<br>' +
@@ -7292,10 +7308,41 @@ function makeSummon(ci, kind, S, build, o){
   const parts = build(S); parts.g.traverse(m => { m.userData.noRay = true; }); if (!o.noOutline) addOutline(parts.g);
   parts.g.position.copy(p); parts.g.rotation.y = yaw; roundGroup.add(parts.g);
   const e = Object.assign({kind, owner:key, team, S, p, face:yaw, t:0, dur:o.dur || 20, rng, parts, g:parts.g, cd:{}, walk:0, done:false, big:o.big !== false, cmd:null}, o.extra || {});
+  // health, and an id every screen agrees on (owner, kind and how many of that kind the owner has made)
+  const sk = key + ':' + kind; SUM.seq[sk] = (SUM.seq[sk] || 0) + 1; e.id = 'S' + sk + ':' + SUM.seq[sk];
+  e.hp = e.maxHp = o.hp || SUMMON_HP[kind] || (e.big ? 300 : 50);
   // at most two big summons each: the oldest leaves
   if (e.big) { const mine = SUM.list.filter(q => !q.done && q.big && q.owner === key); if (mine.length >= 2) despawn(mine[0]); }
   SUM.list.push(e); if (!o.quiet) poof(V3(p.x, p.y, p.z), S*1.1);
   return e;
+}
+/* ---------- summons can be hurt ----------
+   Every screen applies the damage it sees (so health bars move everywhere), but only the owner's screen decides a
+   summon has died and tells everyone (u_kill); elsewhere it hangs on at 1 HP until that message arrives. */
+function summonHurt(e, dmg){
+  if (e.done || !(dmg > 0)) return;
+  e.hp -= dmg; e.hurtT = .15;
+  if (!e.bar) { const mk = c => { const s = new THREE.Sprite(new THREE.SpriteMaterial({color:c, depthTest:false, depthWrite:false})); s.center.set(0, .5); s.renderOrder = 41; s.userData.noRay = true; roundGroup.add(s); return s; };
+    e.bar = {bg:mk(0x1A1A1A), fill:mk(0x5BD15B)}; e.extraMeshes = (e.extraMeshes || []).concat([e.bar.bg, e.bar.fill]); }
+  if (e.hp <= 0) { if (e.owner === G.localKey) { if (!e.killSent) { e.killSent = true; localCast('u_kill', null, {k:e.id}); } } else e.hp = 1; }
+}
+// damage to every enemy summon in a ball / a cone (key/team = whoever did it; unknown = everyone's summons)
+function summonsTakeArea(at, R, dmg, key, team){
+  if (!SUM.list.length || !(dmg > 0)) return;
+  for (const e of SUM.list) { if (e.done || (key && e.owner === key) || (team && e.team === team)) continue;
+    const c = V3(e.p.x, e.p.y + 1.2*e.S, e.p.z), d = c.distanceTo(at); if (d < R + .8*e.S) summonHurt(e, dmg*(d < R ? 1 - .5*d/R : .5)); }
+}
+function summonsTakeCone(from, yaw, range, arc, dmg, key, team){
+  if (!SUM.list.length || !(dmg > 0)) return;
+  const fx = Math.sin(yaw), fz = Math.cos(yaw), cosA = Math.cos(arc/2);
+  for (const e of SUM.list) { if (e.done || (key && e.owner === key) || (team && e.team === team)) continue;
+    const dx = e.p.x - from.x, dz = e.p.z - from.z, d = Math.hypot(dx, dz) - .8*e.S; if (d > range) continue;
+    if (d < 1.1 || (dx*fx + dz*fz)/Math.max(.01, Math.hypot(dx, dz)) > cosA) summonHurt(e, dmg); }
+}
+function summonDeath(e){
+  const at = V3(e.p.x, e.p.y + e.S, e.p.z);
+  boomVisual(at, false, clamp(e.S*.25, .15, .7), {ball:0x6A6A6A, core:0xFFFFFF, ring:0xC9C9C9}); debris(at, 10, [0xC9C9C9, 0x8A8E96]); sfx('poof'); sfx('splat');
+  despawn(e, true);
 }
 function despawn(e, quiet){
   if (e.done) return; e.done = true; roundGroup.remove(e.g); if (e.extraMeshes) e.extraMeshes.forEach(m => m.parent && m.parent.remove(m));
@@ -7359,6 +7406,7 @@ function runSummon(id, p, x){
   const fn = {u_toad:sToad, u_serpent:sSerpent, u_wolf:sWolf, u_gorilla:sGorilla, u_eagle:sEagle, u_turtle:sTurtle, u_scorpion:sScorpion, u_spider:sSpider, u_rhino:sRhino, u_elephant:sElephant,
     u_octopus:sOctopus, u_mantis:sMantis, u_bat:sBat, u_croc:sCroc, u_jelly:sJelly, u_beetle:sBeetle, u_chameleon:sChameleon, u_ram:sRam, u_peacock:sPeacock, u_axolotl:sAxolotl}[id];
   if (fn) { fn(ci, p); if (ci.C) ci.C.castPose = .6; return; }
+  if (id === 'u_kill') { const e = SUM.list.find(q => q.id === (x && x.k)); if (e && !e.done) { summonDeath(e); if (e.owner === G.localKey) toast(`💥 Your ${e.kind} was killed.`); } return; }
   if (id === 'u_cmd') { const tg = x && typeof x.tg === 'string' ? x.tg : null; SUM.list.forEach(e => { if (!e.done && e.owner === ci.key) e.cmd = {p:p ? p.clone() : null, tg}; }); sfx('grab'); if (ci.key === G.localKey) toast('🫵 Go!'); return; }
   if (id === 'u_eaglex') { const C = ci.C; if (C.carpet && C.carpet.type === 'eagle') { if (C.carpet.mesh.parent) C.carpet.mesh.parent.remove(C.carpet.mesh); C.carpet = null; } SUM.list.forEach(e => { if (e.owner === ci.key && e.kind === 'eagle') e.leave = true; }); }
 }
@@ -7919,6 +7967,9 @@ function summonFrame(dt){
   for (const e of SUM.list) { if (e.done) continue; e.t += dt; for (const k in e.cd) e.cd[k] -= dt;
     if (e.t > e.dur && e.kind !== 'eagle') { despawn(e); continue; } if (e.kind === 'eagle' && e.t > e.dur && !e.leave) { e.leave = true; const R = chars[e.owner]; if (R && R.carpet && R.carpet.type === 'eagle' && e.owner === G.localKey) localCast('u_eaglex', null, {}); }
     try { e.tick(dt); if (e.anim) e.anim(dt); if (!e.done && e.kind !== 'serpent' && e.kind !== 'eagle' && e.kind !== 'bat' && e.kind !== 'jelly') e.g.position.y += Math.sin(e.t*3)*.02; } catch (err) { console.warn(err); despawn(e, true); } }
+  for (const e of SUM.list) { if (e.done || !e.bar) continue; const h = (e.kind === 'jelly' || e.kind === 'bat' || e.kind === 'eagle' ? 0 : 3.2*e.S) + .6, k = clamp(e.hp/e.maxHp, 0, 1), w = clamp(e.S*1.2, 1.2, 3);
+    const q = e.kind === 'serpent' && e.parts.segs ? e.parts.segs[0].position : e.p; e.bar.bg.position.set(q.x - w/2, q.y + h, q.z); e.bar.bg.scale.set(w, .16, 1); e.bar.fill.position.set(q.x - w/2, q.y + h, q.z); e.bar.fill.scale.set(Math.max(.01, w*k), .12, 1);
+    e.bar.fill.material.color.setHex(k > .5 ? 0x5BD15B : k > .25 ? 0xF3C23A : 0xFF4B3E); if (e.hurtT > 0) { e.hurtT -= dt; e.g.visible = Math.sin(G.t*60) > 0 || e.kind === 'croc' && e.under ? !e.under : true; } }
   SUM.list = SUM.list.filter(e => !e.done);
   // dummies held by summons
   for (const h of SUM.held) { if (h.dm.dead) { h.done = true; continue; } const q = G.t < h.until ? h.at() : null; if (!q) { h.done = true; if (h.rel) h.rel(h.dm); continue; } const b = h.dm.body; b.position.set(q.x, q.y, q.z); b.velocity.set(0, 0, 0); if (b.wakeUp) b.wakeUp(); }
@@ -7935,6 +7986,488 @@ function summonFrame(dt){
   const me = localP(); if (me && me.root) { const hid = G.hiddenUntil > G.t; me.root.traverse(m => { if (m.isMesh && m.material && m.userData.hidMat !== hid) { if (hid) { m.userData.baseMat = m.material; m.material = m.material.clone(); m.material.transparent = true; m.material.opacity = .25; } else if (m.userData.baseMat) m.material = m.userData.baseMat; m.userData.hidMat = hid; } }); }
 }
 
+/* ===================================== NECROMANCER =====================================
+   Click: Hellfire Skull. 18 powers on 1-0 / Q R F G T Z X C, ultimate Nine Circles of Hell on B (once per round).
+   Built on the same pieces as the other classes: casts replayed on every screen, victim-side damage, BX bombs for
+   projectiles (with homing: b.home), the Summoner's entity framework for the undead (makeSummon, eTarget, eMove,
+   grab...). Corpses: every player who dies leaves one for 30 s (NECRO.corpses, from killFeed); in practice a
+   dummy that takes 100 damage "dies" into a corpse and stands back up. Corpse Detonation, the Soul Furnace and
+   the Lich feed on them. Possession and Debt to the Devil are curses kept per player id on every screen
+   (NECRO.possessed / NECRO.debts); every cast a cursed player makes adds a blade over their head (necroOnCast). */
+const NECRO = {corpses:[], possessed:{}, debts:{}};
+const NECRO_SK = {
+  n_skull:   {name:'Hellfire Skull', e:'💀', key:'🖱', kind:'click', cd:.8},
+  n_rise:    {name:'Rise of the Damned', e:'🦴', key:'1', kind:'aim', cd:20, range:40, r:5},
+  n_gate:    {name:'Hell Gate', e:'🔥', key:'2', kind:'aim', cd:28, range:30, r:2.5},
+  n_harvest: {name:'Soul Harvest', e:'👻', key:'3', kind:'now', cd:16},
+  n_spear:   {name:'Bone Spear', e:'🗡️', key:'4', kind:'now', cd:10},
+  n_grave:   {name:'Graveyard Eruption', e:'🪦', key:'5', kind:'aim', cd:22, range:45, r:8},
+  n_chains:  {name:'Chains of Damnation', e:'⛓️', key:'6', kind:'aim', cd:20, range:40, r:3},
+  n_detonate:{name:'Corpse Detonation', e:'☠️', key:'7', kind:'now', cd:12},
+  n_hounds:  {name:'Infernal Hounds', e:'🐕', key:'8', kind:'now', cd:26},
+  n_ferry:   {name:"Ferryman's Passage", e:'⛵', key:'9', kind:'now', cd:30},
+  n_cathedral:{name:'Bone Cathedral', e:'⛪', key:'0', kind:'now', cd:34},
+  n_possess: {name:'Possession', e:'😈', key:'Q', kind:'target', cd:28},
+  n_condemned:{name:'Rain of the Condemned', e:'☄️', key:'R', kind:'aim', cd:28, range:50, r:8},
+  n_furnace: {name:'Soul Furnace', e:'🏭', key:'F', kind:'aim', cd:30, range:14, r:2},
+  n_steed:   {name:"Death's Steed", e:'🐴', key:'G', kind:'now', cd:30},
+  n_puppet:  {name:'Infernal Puppeteer', e:'🎭', key:'T', kind:'now', cd:24},
+  n_mouth:   {name:'Hellmouth', e:'👄', key:'Z', kind:'aim', cd:24, range:40, r:5},
+  n_lich:    {name:'Lich Ascension', e:'👑', key:'X', kind:'now', cd:45},
+  n_debt:    {name:'Debt to the Devil', e:'📜', key:'C', kind:'aim', cd:26, range:40, r:10},
+  n_circles: {name:'Nine Circles of Hell', e:'🌋', key:'B', kind:'aim', cd:240, range:40, r:24, ult:true},
+  n_steedx:  {name:'Get off the steed', e:'🐴', hide:true, cd:0}
+};
+const NECRO_KEYS = {}; for (const id in NECRO_SK) { const k = NECRO_SK[id].key; if (k && k.length === 1 && /[0-9A-Z]/.test(k)) NECRO_KEYS[k.toLowerCase()] = id; }
+for (const id in NECRO_SK) if (NECRO_SK[id].r) TARGET_R[id] = NECRO_SK[id].r;
+function necroReset(){ NECRO.corpses = []; NECRO.possessed = {}; NECRO.debts = {}; G.circlesUsed = {}; }
+function necroHelp(){
+  return '<b>Click</b> hellfire skull (homes in) · <b>1</b> rise of the damned · <b>2</b> hell gate · <b>3</b> soul harvest · <b>4</b> bone spear · <b>5</b> graveyard eruption<br>' +
+    '<b>6</b> chains of damnation · <b>7</b> corpse detonation · <b>8</b> infernal hounds · <b>9</b> ferryman · <b>0</b> bone cathedral · <b>Q</b> possession<br>' +
+    '<b>R</b> rain of the condemned · <b>F</b> soul furnace · <b>G</b> death\'s steed (Space: off) · <b>T</b> puppeteer · <b>Z</b> hellmouth · <b>X</b> lich ascension · <b>C</b> debt to the devil<br>' +
+    '<b>B</b> ULTIMATE: Nine Circles of Hell (once per round) · <b>Tab</b> switch class';
+}
+const HELL = {green:0x5BFF6A, green2:0x2AE05A, bone:0xE8E0C8, red:0xC4160E, ember:0xFF6A1F};
+
+/* ---------- input ---------- */
+function necroUse(id){
+  const d = NECRO_SK[id], P = localP(); if (!d || !P || P.alive === false || P.stun > 0 || P.lockT > 0) return;
+  if (G.phase !== 'attack' || (G.egg && G.egg.over)) return;
+  if (id === 'n_skull') { fireSkull(); return; }
+  if (amDefender()) { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('🛡️ Defenders only get the hellfire skull (click).'); } return; }
+  if (id === 'n_steed' && P.carpet && P.carpet.type === 'steed') { localCast('n_steedx', null, {}); return; }
+  if (id === 'n_circles' && G.circlesUsed && G.circlesUsed[G.localKey]) { toast('🌋 Nine Circles: once per round.'); return; }
+  if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
+  if (d.kind === 'aim') { setTargeting(id); return; }
+  if (G.spCd > 0) return; G.spCd = .25;
+  if (id === 'n_possess') { const tg = bPickTarget(40); if (!tg) { toast('😈 Look at an enemy first.'); return; } localCast(id, null, {tg}); return; }
+  if (id === 'n_puppet') { const me = P.body.position, list = bEnemies(G.localKey, P.team).filter(e => hdist(e.pos, me) < 20).sort((a, b) => hdist(a.pos, me) - hdist(b.pos, me)).slice(0, 4).map(e => e.id);
+    if (!list.length) { toast('🎭 Nobody within 20 m.'); return; } localCast(id, null, {tg:list}); return; }
+  localCast(id, id === 'n_spear' ? aimPoint(50) : null);
+}
+function fireSkull(){
+  if ((G.cd.n_skull || 0) > 0 || G.spCd > 0) return;
+  const P = localP(); if (!P || P.alive === false || P.stun > 0) return;
+  G.spCd = .12; localCast('n_skull', aimPoint(70), {tg:bPickTarget(60), n:P.lich > G.t ? 3 : 1});
+}
+function necroKeyDown(k){ if (k === 'tab') return false; const id = NECRO_KEYS[k]; if (!id) return false; necroUse(id); return true; }
+function necroOwnerDied(id){
+  const P = chars[id]; if (!P) return;
+  if (P.carpet && (P.carpet.type === 'steed' || P.carpet.type === 'lich')) { if (P.carpet.mesh.parent) P.carpet.mesh.parent.remove(P.carpet.mesh); P.carpet = null; }
+  if (P.lichG) { P.root.remove(P.lichG); P.lichG = null; } P.lich = 0;
+  // the dead leave a corpse for 30 s
+  const x = P.root.position.x, z = P.root.position.z; addCorpse(V3(x, groundH(x, z), z));
+  // a possessing demon jumps to the next victim
+  const pz = NECRO.possessed[id]; if (pz) { delete NECRO.possessed[id]; const next = bEnemies(pz.owner, pz.team).filter(e => e.id !== id).sort((a, b) => hdist(a.pos, P.root.position) - hdist(b.pos, P.root.position))[0]; if (next && G.t < pz.until) possess(pz.owner, pz.team, next.id, pz.until - G.t, V3(x, P.root.position.y + 1, z)); }
+}
+function necroOnCast(key){
+  const dbt = NECRO.debts[key]; if (!dbt || dbt.until < G.t) return;
+  const P = chars[key]; if (!P) return;
+  const blade = swordMesh(.55, 0xFF3B30); blade.rotation.x = Math.PI; blade.position.set((dbt.n % 3 - 1)*.5, 3 + Math.floor(dbt.n/3)*.45, 0); P.root.add(blade); dbt.blades.push(blade); dbt.n++; sfx('click');
+}
+
+/* ---------- corpses ---------- */
+function addCorpse(p){
+  const g = new THREE.Group(); sp(.25, HELL.bone, 0, .2, 0, g, 1); for (let i = 0; i < 4; i++) { const b = bx(.08, .08, .6, HELL.bone, rr(-.4, .4), .08, rr(-.4, .4), g); b.rotation.y = rr(0, 3); }
+  const glow = new THREE.Mesh(new THREE.CircleGeometry(.9, 16), bmat(HELL.green, .25)); glow.rotation.x = -Math.PI/2; glow.position.y = .03; g.add(glow); noRayAll(g);
+  g.position.copy(p); roundGroup.add(g);
+  NECRO.corpses.push({p:p.clone(), g, t:G.t, used:false}); if (NECRO.corpses.length > 24) useCorpse(NECRO.corpses.find(c => !c.used));
+}
+function useCorpse(c){ if (!c || c.used) return; c.used = true; roundGroup.remove(c.g); }
+function corpsesNear(p, R){ return NECRO.corpses.filter(c => !c.used && hdist(c.p, p) < R); }
+// practice dummies "die" after 100 damage so there is something to raise
+function dummyDamage(b, amount){ const o = bodyObj.get(b); if (!o || o.kind !== 'dummy') return; o.necroDmg = (o.necroDmg || 0) + amount; if (o.necroDmg >= 100) { o.necroDmg = 0; addCorpse(V3(b.position.x, groundH(b.position.x, b.position.z), b.position.z)); sparkle(V3(b.position.x, b.position.y + 1, b.position.z), HELL.green); } }
+
+/* ---------- meshes ---------- */
+function skullMesh(s, col){
+  const g = new THREE.Group(); sp(.32*s, HELL.bone, 0, 0, 0, g, 1); bx(.3*s, .12*s, .22*s, HELL.bone, 0, -.25*s, .08*s, g);
+  for (const x of [-1, 1]) sp(.08*s, new THREE.MeshBasicMaterial({color:col || HELL.green}), x*.12*s, .02*s, .26*s, g, 0);
+  const f = new THREE.Mesh(new THREE.ConeGeometry(.3*s, .9*s, 8), bmat(col || HELL.green, .7)); f.rotation.x = -Math.PI/2; f.position.z = -.5*s; g.add(f);
+  return noRayAll(g);
+}
+function undeadMesh(S, tint){
+  const m = makeSkeletonMesh(); m.root.scale.setScalar(S);
+  if (tint) m.root.traverse(o => { if (o.isMesh && o.material && o.material.color && o.material.color.getHex() === 0xFF6A1F) o.material = new THREE.MeshBasicMaterial({color:tint, transparent:true, opacity:.9}); });
+  m.root.visible = true; return {g:m.root, legs:m.legs, arms:m.arms};
+}
+function impMesh(S){
+  const g = new THREE.Group(); const body = sp(.5*S, 0xB0201A, 0, .9*S, 0, g, 1); body.scale.set(.8, 1, .7);
+  const head = new THREE.Group(); head.position.set(0, 1.6*S, .1*S); g.add(head); sp(.32*S, 0xC4302A, 0, 0, 0, head, 1); for (const s of [-1, 1]) { cone(.08*S, .35*S, 0x2A1A1A, s*.18*S, .3*S, 0, head, 5).rotation.z = -s*.4; sp(.06*S, new THREE.MeshBasicMaterial({color:0xFFE066}), s*.1*S, .05*S, .28*S, head, 0); }
+  const legs = [-1, 1].map(s => { const l = new THREE.Group(); l.position.set(s*.2*S, .55*S, 0); bx(.15*S, .55*S, .15*S, 0x8A1A14, 0, -.27*S, 0, l); g.add(l); return l; });
+  for (const s of [-1, 1]) { const w = bx(.9*S, .05*S, .5*S, 0x6A1010, s*.6*S, 1.2*S, -.25*S, g); w.rotation.z = s*.4; }
+  return {g, head, legs};
+}
+function necroMinion(ci, kind, S, build, dur, brain){
+  const key = ci.key, mine = SUM.list.filter(q => !q.done && q.necro && q.owner === key);
+  if (mine.length >= 14) despawn(mine[0], true);
+  const e = makeSummon(ci, kind, S, build, {dur, big:false, dist:0, quiet:true, noOutline:true}); e.necro = true;
+  e.tick = brain || (dt => undeadBrain(e, dt, 6, 1.4, 8)); e.anim = dt => { legAnim(e, dt, 1.4); if (e.parts.arms) { const s = e.swing && G.t - e.swing < .3 ? 1 - (G.t - e.swing)/.3 : 0; e.parts.arms.forEach((a, i) => a.rotation.x = -1.2 - s*1.2 + Math.sin(e.walk + i)*.2); } };
+  return e;
+}
+function undeadBrain(e, dt, spd, reach, dmg){
+  const t = eTarget(e, 50);
+  if (t) { const d = eMove(e, t.pos.x, t.pos.z, spd, dt); if (d < reach + .8 && tick(e, 'atk', .9)) { e.swing = G.t; eCone(e, reach + 1, Math.PI*.7, dmg, 5, 2); if (Math.random() < .5) sfx('bonk'); } }
+  else e.moving = 0;
+  place(e);
+}
+function riseFrom(p, n){ for (let i = 0; i < n; i++) { const m = pmesh('tet', rr(.15, .35), M3(pick([0x7E5433, 0x5E3F24]))); m.position.set(p.x + rr(-.6, .6), p.y + .1, p.z + rr(-.6, .6)); m.userData.noRay = true; roundGroup.add(m); fx.push({mesh:m, v:V3(rr(-1.5, 1.5), rr(3, 6), rr(-1.5, 1.5)), r:V3(4, 4, 0), life:1}); } }
+function hellFlame(p, s, life, col){ const m = new THREE.Mesh(new THREE.ConeGeometry(.35*s, 1.4*s, 6), bmat(col || pick([HELL.green, HELL.green2, 0xB0FFB8]), .85)); m.position.set(p.x, p.y + .6*s, p.z); m.userData.noRay = true; roundGroup.add(m);
+  booms.push({t:0, parts:[m], custom(b){ m.scale.y = 1 + Math.sin(b.t*20)*.3; m.position.y += .01; m.material.opacity = Math.max(0, .85 - b.t/(life || .7)*.85); return b.t > (life || .7); }}); }
+function greenBoom(at, R, dmg, kb, key, team){ bBoom(at, R, dmg, kb, key, team, {size:clamp(R/9, .15, 1), pal:{ball:0x2AE05A, core:0xD8FFD0, ring:0x5BFF6A}, snd:R > 4 ? 'boom' : 'bboom'}); for (let i = 0; i < 5; i++) hellFlame(V3(at.x + rr(-R, R)*.5, groundH(at.x, at.z), at.z + rr(-R, R)*.5), .8, .8); }
+
+/* ---------- dispatch ---------- */
+function runNecro(id, p, x){
+  const ci = casterInfo(); if (!ci.C) return;
+  ci.rng = mulberry32((p ? seedOf(p) : seedOf(ci.pos)) ^ 0xDEAD);
+  const fn = {n_skull:nSkull, n_rise:nRise, n_gate:nGate, n_harvest:nHarvest, n_spear:nSpear, n_grave:nGrave, n_chains:nChains, n_detonate:nDetonate, n_hounds:nHounds, n_ferry:nFerry, n_cathedral:nCathedral,
+    n_possess:nPossess, n_condemned:nCondemned, n_furnace:nFurnace, n_steed:nSteed, n_steedx:nSteedOff, n_puppet:nPuppet, n_mouth:nMouth, n_lich:nLich, n_debt:nDebt, n_circles:nCircles}[id];
+  if (fn) fn(ci, p, x);
+  if (id !== 'n_skull' && id !== 'n_steedx' && ci.C) ci.C.castPose = Math.max(ci.C.castPose || 0, .5);
+}
+
+/* 1. Hellfire Skull: a burning skull that hunts its target and bursts in green hellfire */
+function nSkull({key, C, team, pos, yaw}, p, x){
+  const n = x && x.n === 3 ? 3 : 1, tg = x && typeof x.tg === 'string' ? x.tg : null;
+  for (let i = 0; i < n; i++) {
+    const f = V3(Math.sin(yaw + (i - (n - 1)/2)*.35), 0, Math.cos(yaw + (i - (n - 1)/2)*.35)), start = V3(pos.x + f.x*.8, pos.y + 1.7, pos.z + f.z*.8);
+    const dir = p && n === 1 ? p.clone().sub(start).normalize() : f.clone().setY(.08).normalize();
+    addBomb({p:start, v:dir.multiplyScalar(30), g:0, m:skullMesh(1), owner:key, team, r:.35, arm:.05, magnet:true, trail:HELL.green, trailS:.2, home:tg ? () => tgPos(tg) : null, turn:3.5, fuse:3, onHit:(b, at) => greenBoom(at, 3.2, 18, 10, key, team)});
+  }
+  C.pushPose = .25; sfx('fireball');
+}
+/* 2. Rise of the Damned */
+function nRise(ci, p){
+  const {key, team, rng} = ci, at = V3(p.x, groundH(p.x, p.z), p.z);
+  // grasping hands first
+  for (let i = 0; i < 7; i++) { const a = rng()*Math.PI*2, r = rng()*5, q = V3(at.x + Math.cos(a)*r, 0, at.z + Math.sin(a)*r); q.y = groundH(q.x, q.z); setTimeout(() => boneHand(q, 1, .9), i*80); }
+  for (const t of bEnemies(key, team)) if (hdist(t.pos, at) < 5.5) { const hold = V3(t.pos.x, t.pos.y, t.pos.z); grab({owner:key, team, done:false}, t.id, () => hold, 1, T => fling({owner:key}, T, 0, 3, 0, 8)); }
+  riseFrom(at, 12); sfx('demon');
+  setTimeout(() => { for (let i = 0; i < 4; i++) { const a = i/4*Math.PI*2, q = V3(at.x + Math.cos(a)*2.5, 0, at.z + Math.sin(a)*2.5); riseFrom(V3(q.x, groundH(q.x, q.z), q.z), 6);
+    necroMinion(Object.assign({}, ci, {pos:q, yaw:a}), 'undead', 1.3, S => undeadMesh(S, HELL.green), 15, null); } sfx('rumble'); }, 700);
+}
+function boneHand(q, s, life){
+  const g = new THREE.Group(); bx(.35*s, .9*s, .2*s, HELL.bone, 0, .45*s, 0, g); for (let k = 0; k < 4; k++) { const f = bx(.07*s, .45*s, .07*s, HELL.bone, (k - 1.5)*.09*s, 1.1*s, 0, g); f.rotation.x = .3; } bx(.07*s, .35*s, .07*s, HELL.bone, .22*s, .8*s, 0, g).rotation.z = -.6;
+  noRayAll(g); g.position.set(q.x, q.y - 1.2*s, q.z); g.rotation.y = rr(0, 6); roundGroup.add(g); riseFrom(q, 3);
+  booms.push({t:0, parts:[g], custom(b){ const k = b.t < .25 ? b.t/.25 : b.t > life - .3 ? Math.max(0, (life - b.t)/.3) : 1; g.position.y = q.y - 1.2*s + k*1.2*s; g.children.slice(1, 5).forEach(f => f.rotation.x = .3 + Math.sin(b.t*6)*.4); return b.t > life; }});
+}
+/* 3. Hell Gate: a flaming portal that keeps releasing demons until it closes */
+function nGate(ci, p){
+  const {key, team, yaw} = ci, at = V3(p.x, groundH(p.x, p.z), p.z), g = new THREE.Group();
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(2.4, .35, 10, 32), new THREE.MeshBasicMaterial({color:HELL.ember})); g.add(ring);
+  const inner = new THREE.Mesh(new THREE.CircleGeometry(2.3, 32), new THREE.MeshBasicMaterial({color:0x2A0505, side:THREE.DoubleSide})); g.add(inner);
+  const swirl = new THREE.Mesh(new THREE.RingGeometry(.4, 2.2, 32, 1, 0, Math.PI*1.4), addBlend(HELL.red)); g.add(swirl); noRayAll(g);
+  g.position.set(at.x, at.y + 2.6, at.z); g.rotation.y = yaw; g.scale.setScalar(.01); roundGroup.add(g);
+  let t = 0, spawn = .8; sfx('hell');
+  fxAdd({update(dt){ t += dt; g.scale.setScalar(t < .4 ? t/.4 : t > 11.5 ? Math.max(.01, (12 - t)/.5) : 1); swirl.rotation.z -= dt*4; if (Math.random() < .5) hellFlame(V3(at.x + rr(-2.4, 2.4), at.y, at.z + rr(-.5, .5)), 1, .5, pick([HELL.ember, 0xFFB02E]));
+    spawn -= dt; if (spawn <= 0 && t < 11) { spawn = 1.5; const q = V3(at.x + Math.sin(yaw)*1.5, 0, at.z + Math.cos(yaw)*1.5); const e = necroMinion(Object.assign({}, ci, {pos:q, yaw}), 'imp', 1.2, S => impMesh(S), 10, null); e.tick = dt => undeadBrain(e, dt, 9, 1.2, 7); sfx('demon'); }
+    if (t > 12) { roundGroup.remove(g); return false; } }});
+}
+/* 4. Soul Harvest: rips souls out of everyone nearby; the souls orbit you and fire themselves at enemies */
+function nHarvest({key, C, team, pos}){
+  const victims = bEnemies(key, team).filter(e => hdist(e.pos, pos) < 13);
+  swordArea(key, team, V3(pos.x, pos.y + 1, pos.z), 13, 12, 0, 2, {objects:false, pull:true});
+  const souls = C.souls = C.souls || [];
+  victims.forEach((v, i) => { if (souls.length >= 8) return; const m = sp(.3, new THREE.MeshBasicMaterial({color:0xBFFFD0, transparent:true, opacity:.85}), v.pos.x, v.pos.y + 1.2, v.pos.z, roundGroup, 1); m.userData.noRay = true; souls.push({m, a:i*.8, t:0, life:12}); arcBeam(V3(v.pos.x, v.pos.y + 1.2, v.pos.z), V3(pos.x, pos.y + 1.5, pos.z), 0xBFFFD0); });
+  if (!victims.length) toast('👻 No souls within 13 m.');
+  shockRing(pos, 13, .5, 0xBFFFD0); sfx('hell');
+}
+function updateSouls(dt){
+  for (const k in chars) { const C = chars[k]; if (!C || !C.souls || !C.souls.length) continue;
+    C.soulCd = (C.soulCd || 0) - dt;
+    C.souls.forEach((s, i) => { s.t += dt; s.a += dt*2.4; const q = V3(C.body.position.x + Math.cos(s.a + i*.8)*1.8, C.body.position.y + 1.6 + Math.sin(s.t*3 + i)*.25, C.body.position.z + Math.sin(s.a + i*.8)*1.8); s.m.position.lerp(q, Math.min(1, dt*8)); });
+    if (C.soulCd <= 0) { const tg = bNearest(k, C.team, C.body.position, 22); if (tg) { C.soulCd = 1; const s = C.souls.shift(); const from = s.m.position.clone(); roundGroup.remove(s.m);
+      addBomb({p:from, v:V3(tg.pos.x, tg.pos.y + 1, tg.pos.z).sub(from).normalize().multiplyScalar(26), g:0, m:skullMesh(.5, 0xBFFFD0), owner:k, team:C.team, r:.3, arm:.05, home:() => tgPos(tg.id), turn:5, fuse:2.5, trail:0xBFFFD0, trailS:.12, onHit:(b, at) => greenBoom(at, 2.4, 10, 6, k, C.team)}); sfx('zap'); } }
+    C.souls = C.souls.filter(s => { if (s.t > s.life) { roundGroup.remove(s.m); return false; } return true; }); }
+}
+/* 5. Bone Spear: impales everything in a line; the last one hit is pinned to the ground */
+function nSpear({key, team, pos, yaw}, p){
+  const start = V3(pos.x, pos.y + 1.5, pos.z), dir = p ? p.clone().sub(start).normalize() : V3(Math.sin(yaw), 0, Math.cos(yaw)), L = 45, end = start.clone().addScaledVector(dir, L);
+  const g = new THREE.Group(); const shaft = new THREE.Mesh(new THREE.CylinderGeometry(.14, .2, 4, 8), M3(HELL.bone)); shaft.rotation.x = Math.PI/2; g.add(shaft); const tip = new THREE.Mesh(new THREE.ConeGeometry(.28, 1, 8), M3(HELL.bone)); tip.rotation.x = Math.PI/2; tip.position.z = 2.4; g.add(tip);
+  for (let i = 0; i < 5; i++) { const s = cone(.08, .5, HELL.bone, 0, 0, 0, g, 4); s.position.set(rr(-.15, .15), rr(-.15, .15), -1.5 + i*.7); s.rotation.x = -.6; } noRayAll(g);
+  g.position.copy(start); g.lookAt(end); roundGroup.add(g);
+  const along = q => { const v = V3(q.x, q.y + 1, q.z).sub(start), f = v.dot(dir); return f > 0 && f < L && v.clone().sub(dir.clone().multiplyScalar(f)).length() < 1.5 ? f : null; };
+  const hits = bEnemies(key, team).map(e => ({e, f:along(e.pos)})).filter(h => h.f != null).sort((a, b) => a.f - b.f);
+  const last = hits[hits.length - 1], travel = last ? last.f : L;
+  let t = 0, done = {}; sfx('rodThrow'); sfx('slash');
+  fxAdd({update(dt){ t += dt; const s = Math.min(travel, t*70); g.position.copy(start).addScaledVector(dir, s);
+    for (const h of hits) if (!done[h.e.id] && h.f <= s) { done[h.e.id] = true; const isLast = h === last;
+      if (h.e.id === G.localKey) { const P = victimFor(key, team); if (P) { painHurt(P, isLast ? 30 : 22, key); if (isLast) { const pin = V3(P.body.position.x, groundH(P.body.position.x, P.body.position.z), P.body.position.z); P.held = {at:() => pin, until:G.t + 2}; } else knock(P, dir.x*8, 4, dir.z*8, .4); } }
+      else if (h.e.id[0] === 'd') { const dm = PAIN.dummies[+h.e.id.slice(1)]; if (dm) dummyHit(dm.body, isLast ? 30 : 22); }
+      sparkle(V3(h.e.pos.x, h.e.pos.y + 1, h.e.pos.z), HELL.bone); sfx('thunk'); }
+    if (s >= travel) { if (last) { g.position.set(last.e.pos.x, groundH(last.e.pos.x, last.e.pos.z) + .8, last.e.pos.z); g.rotation.x += .6; } t = -99; setTimeout(() => roundGroup.remove(g), 2200); return false; } }});
+}
+/* 6. Graveyard Eruption: gravestones burst up under enemies; each one that shatters lets out an angry spirit */
+function nGrave(ci, p){
+  const {key, team, rng} = ci, at = V3(p.x, groundH(p.x, p.z), p.z), spots = [];
+  for (const e of bEnemies(key, team)) if (hdist(e.pos, at) < 9) spots.push(V3(e.pos.x, 0, e.pos.z));
+  while (spots.length < 8) { const a = rng()*Math.PI*2, r = Math.sqrt(rng())*8; spots.push(V3(at.x + Math.cos(a)*r, 0, at.z + Math.sin(a)*r)); }
+  spots.slice(0, 10).forEach((q, i) => setTimeout(() => {
+    q.y = groundH(q.x, q.z); const g = new THREE.Group(); bx(1, 1.4, .3, 0x8A8E96, 0, .7, 0, g); const top = new THREE.Mesh(new THREE.CylinderGeometry(.5, .5, .3, 12, 1, false, 0, Math.PI), M3(0x8A8E96)); top.rotation.set(Math.PI/2, 0, Math.PI/2); top.position.y = 1.4; g.add(top); bx(.5, .08, .32, 0x5A5E66, 0, .95, 0, g); bx(.08, .5, .32, 0x5A5E66, 0, 1, 0, g);
+    noRayAll(g); g.position.set(q.x, q.y - 1.6, q.z); g.rotation.y = rng()*6; roundGroup.add(g); riseFrom(q, 6); sfx('crack');
+    swordArea(key, team, V3(q.x, q.y + 1, q.z), 2.2, 14, 3, 12, {stun:.5});
+    let t = 0; fxAdd({update(dt){ t += dt; g.position.y = q.y - 1.6 + Math.min(1, t/.2)*1.6;
+      if (t > 1.1) { roundGroup.remove(g); debris(V3(q.x, q.y + .8, q.z), 8, [0x8A8E96, 0x5A5E66]); sfx('crack');
+        // an angry spirit flies out at the nearest enemy
+        const tg = bNearest(key, team, q, 30); const from = V3(q.x, q.y + 1.4, q.z);
+        addBomb({p:from, v:V3(0, 8, 0), g:0, m:skullMesh(.6, 0xBFFFD0), owner:key, team, r:.3, arm:.15, home:tg ? () => tgPos(tg.id) : null, turn:4, fuse:3, trail:0xBFFFD0, trailS:.12, onHit:(b, h) => greenBoom(h, 2.4, 10, 6, key, team)});
+        return false; } }});
+  }, i*90));
+}
+/* 7. Chains of Damnation: burning chains hook enemies from underground and drag them into a pit */
+function nChains(ci, p){
+  const {key, team} = ci, pit = V3(p.x, groundH(p.x, p.z), p.z);
+  const hole = new THREE.Mesh(new THREE.CircleGeometry(3, 32), new THREE.MeshBasicMaterial({color:0x1A0303})); hole.rotation.x = -Math.PI/2; hole.position.set(pit.x, pit.y + .06, pit.z); hole.userData.noRay = true; roundGroup.add(hole);
+  const rim = new THREE.Mesh(new THREE.RingGeometry(2.8, 3.3, 32), addBlend(HELL.ember)); rim.rotation.x = -Math.PI/2; rim.position.set(pit.x, pit.y + .07, pit.z); rim.userData.noRay = true; roundGroup.add(rim);
+  const list = bEnemies(key, team).filter(e => hdist(e.pos, pit) < 18).slice(0, 5), chains = [];
+  list.forEach(v => { const from = V3(v.pos.x, v.pos.y, v.pos.z), ch = tongue(HELL.ember); ch.scale.x = ch.scale.y = .6; chains.push({ch, id:v.id, from}); riseFrom(V3(from.x, groundH(from.x, from.z), from.z), 5);
+    grab({owner:key, team, done:false}, v.id, () => { const k = Math.min(1, (G.t - t0)/1.3); return from.clone().lerp(pit, k).setY(groundH(from.x, from.z)*(1 - k) + pit.y*k + .2); }, 1.5, T => fling({owner:key}, T, 0, 9, 0, 25)); });
+  const t0 = G.t; let t = 0; sfx('hell'); sfx('rumble');
+  fxAdd({update(dt){ t += dt; rim.material.opacity = .5 + Math.sin(t*10)*.3;
+    chains.forEach(c => { const tp = tgPos(c.id); if (tp) stretch(c.ch, V3(pit.x, pit.y, pit.z), V3(tp.x, tp.y + 1, tp.z)); });
+    if (t > 1.5 && !this.burned) { this.burned = true; chains.forEach(c => roundGroup.remove(c.ch)); for (let i = 0; i < 8; i++) hellFlame(V3(pit.x + rr(-2.5, 2.5), pit.y, pit.z + rr(-2.5, 2.5)), 1.5, 1, pick([HELL.ember, 0xFFB02E])); sfx('fireball'); }
+    if (t > 3) { roundGroup.remove(hole); roundGroup.remove(rim); return false; } }});
+}
+/* 8. Corpse Detonation: every corpse near you bursts in cursed fire, one setting off the next */
+function nDetonate({key, team, pos}){
+  const list = corpsesNear(pos, 40);
+  if (!list.length) { if (key === G.localKey) toast('☠️ No corpses within 40 m.'); return; }
+  const go = (c, delay) => { if (c.used || c.armed) return; c.armed = true; setTimeout(() => { if (c.used) return; useCorpse(c); greenBoom(V3(c.p.x, c.p.y + .5, c.p.z), 5, 30, 16, key, team);
+    corpsesNear(c.p, 9).forEach(n => go(n, 250)); }, delay); };
+  list.forEach(c => go(c, hdist(c.p, pos)*35));   // nearest first; each blast also sets off corpses within 9 m of it
+  sfx('demon');
+}
+/* 9. Infernal Hounds */
+function nHounds(ci){
+  for (let i = 0; i < 3; i++) { const a = ci.yaw + (i - 1)*.8, q = V3(ci.pos.x + Math.sin(a)*3, 0, ci.pos.z + Math.cos(a)*3);
+    const e = necroMinion(Object.assign({}, ci, {pos:q, yaw:ci.yaw}), 'hellhound', 1.6, S => { const o = wolfMesh(S, HELL.bone); o.g.traverse(m => { if (m.isMesh && m.material && m.material.color && m.material.color.getHex() === 0xF3C23A) m.material = new THREE.MeshBasicMaterial({color:HELL.green}); }); const f = new THREE.Mesh(new THREE.ConeGeometry(.3*S, .9*S, 6), bmat(HELL.green, .8)); f.position.set(0, .5*S, .3*S); o.head.add(f); return o; }, 18, null);
+    poof(q, 1.4);
+    e.tick = dt => { wolfBrain(e, dt, 15, 2, 10); if (e.moving && tick(e, 'paw', .25)) pawPrint(e); }; e.anim = dt => legAnim(e, dt, 1.3); }
+  sfx('howl'); sfx('demon');
+}
+function pawPrint(e){
+  const q = V3(e.p.x, groundH(e.p.x, e.p.z) + .05, e.p.z), m = new THREE.Mesh(new THREE.CircleGeometry(.5, 10), bmat(HELL.green, .7)); m.rotation.x = -Math.PI/2; m.position.copy(q); m.userData.noRay = true; roundGroup.add(m);
+  let t = 0, hit = false; fxAdd({update(dt){ t += dt; m.material.opacity = .7*Math.max(0, 1 - t/4); if (Math.random() < .1) hellFlame(q, .4, .5);
+    const P = victimFor(e.owner, e.team); if (P && !hit && hdist(P.body.position, q) < .8 && P.body.position.y - q.y < 1) { hit = true; painHurt(P, 4, e.owner); }
+    if (t > 4) { roundGroup.remove(m); return false; } }});
+}
+/* 10. Ferryman's Passage: a ghost boat sails out, scooping enemies aboard, and carries them into a hell portal */
+function nFerry(ci){
+  const {key, team, pos, yaw} = ci, d = V3(Math.sin(yaw), 0, Math.cos(yaw)), start = V3(pos.x + d.x*3, 0, pos.z + d.z*3), L = 42, end = start.clone().addScaledVector(d, L);
+  const boat = new THREE.Group(); const ghost = new THREE.MeshBasicMaterial({color:0x7FB8C8, transparent:true, opacity:.6});
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(3, 1, 7), ghost); hull.position.y = .5; boat.add(hull); const bow = new THREE.Mesh(new THREE.ConeGeometry(1.5, 2.5, 4), ghost); bow.rotation.x = Math.PI/2; bow.position.set(0, .5, 4.6); bow.rotation.z = Math.PI/4; boat.add(bow);
+  const robe = new THREE.Mesh(new THREE.ConeGeometry(.6, 2.6, 8), new THREE.MeshBasicMaterial({color:0x1A1A22})); robe.position.set(0, 2.2, -2.5); boat.add(robe); const lamp = sp(.25, new THREE.MeshBasicMaterial({color:HELL.green}), .8, 2.8, -2, boat, 1);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(.06, .06, 4, 6), M3(0x3A2A1E)); pole.position.set(-.6, 2.4, -2.3); pole.rotation.z = .3; boat.add(pole); noRayAll(boat);
+  boat.rotation.y = yaw; roundGroup.add(boat);
+  const portal = new THREE.Group(); const pr = new THREE.Mesh(new THREE.TorusGeometry(3.6, .4, 10, 32), new THREE.MeshBasicMaterial({color:HELL.ember})); portal.add(pr); portal.add(new THREE.Mesh(new THREE.CircleGeometry(3.5, 32), new THREE.MeshBasicMaterial({color:0x2A0505, side:THREE.DoubleSide}))); noRayAll(portal);
+  portal.position.set(end.x, groundH(end.x, end.z) + 3.4, end.z); portal.rotation.y = yaw; portal.scale.setScalar(.01); roundGroup.add(portal);
+  const aboard = {}; let t = 0; const SPD = 10; sfx('wind'); sfx('hell');
+  fxAdd({update(dt){ t += dt; const s = Math.min(L, t*SPD), q = start.clone().addScaledVector(d, s); q.y = Math.max(groundH(q.x, q.z), 0) + .3 + Math.sin(t*2)*.15; boat.position.copy(q); portal.scale.setScalar(Math.min(1, t/1.5));
+    // scoop up anyone the boat reaches
+    for (const e of bEnemies(key, team)) { if (aboard[e.id]) continue; const v = V3(e.pos.x - q.x, 0, e.pos.z - q.z); if (Math.abs(v.x*d.x + v.z*d.z) < 4 && Math.abs(v.x*d.z - v.z*d.x) < 2.2) { aboard[e.id] = true; const off = Object.keys(aboard).length;
+      grab({owner:key, team, done:false}, e.id, () => boat.parent ? boat.position.clone().add(V3(Math.sin(off*2)*.8, 1.1, Math.cos(off*2)*1.5)) : null, L/SPD - t + .3, T => { fling({owner:key}, T, d.x*14, 12, d.z*14, 45); }); sfx('splash'); } }
+    if (s >= L) { roundGroup.remove(boat); flash(.2); sfx('boom'); greenBoom(V3(end.x, groundH(end.x, end.z) + 2, end.z), 3, 0, 4, key, team); setTimeout(() => roundGroup.remove(portal), 600); return false; } }});
+}
+/* 11. Bone Cathedral: a tower of ribs and skulls that shelters you and shoots bone shards at enemies outside */
+function nCathedral(ci){
+  const {key, team, pos} = ci, at = V3(pos.x, groundH(pos.x, pos.z), pos.z), g = new THREE.Group(), R = 6;
+  for (let i = 0; i < 12; i++) { const a = i/12*Math.PI*2;
+    const holder = new THREE.Group(); holder.rotation.y = a; const arc = new THREE.Mesh(new THREE.TorusGeometry(R, .22, 6, 20, Math.PI/2), M3(HELL.bone)); arc.rotation.y = Math.PI/2; holder.add(arc); g.add(holder);
+    if (i % 2 === 0) { const sk = skullMesh(1.2); sk.children[sk.children.length - 1].visible = false; sk.position.set(Math.cos(a)*R, .8, Math.sin(a)*R); sk.lookAt(at.x + Math.cos(a)*R*3, .8, at.z + Math.sin(a)*R*3); g.add(sk); } }
+  const spire = new THREE.Mesh(new THREE.ConeGeometry(.8, 5, 8), M3(HELL.bone)); spire.position.y = R + 2; g.add(spire); const crown = skullMesh(2); crown.position.y = R + .6; crown.children[crown.children.length - 1].visible = false; g.add(crown);
+  noRayAll(g); g.position.copy(at); g.scale.setScalar(.01); roundGroup.add(g);
+  let t = 0, shoot = .8; sfx('rumble'); riseFrom(at, 14);
+  fxAdd({update(dt){ t += dt; g.scale.setScalar(t < .6 ? t/.6 : t > 14.5 ? Math.max(.01, (15 - t)/.5) : 1);
+    // shelter: incoming bombs, shots and rods break on the walls
+    for (const b of BX.bombs) if (!b.dead && b.owner !== key && hdist(b.p, at) < R + .5 && b.p.y < at.y + R + 2) { b.dead = true; roundGroup.remove(b.m); sparkle(b.p, HELL.bone); }
+    cutProjectiles(V3(at.x, at.y + 3, at.z), R + .5, key);
+    shoot -= dt; if (shoot <= 0 && t < 14.5) { shoot = .7; const tg = bEnemies(key, team).filter(e => hdist(e.pos, at) > R && hdist(e.pos, at) < 35).sort((a, b) => hdist(a.pos, at) - hdist(b.pos, at))[0];
+      if (tg) { const from = V3(at.x, at.y + R + 1, at.z), m = new THREE.Group(); const sh = cone(.12, .9, HELL.bone, 0, 0, 0, m, 4); sh.rotation.x = Math.PI/2; noRayAll(m);
+        addBomb({p:from, v:V3(tg.pos.x, tg.pos.y + 1, tg.pos.z).sub(from).normalize().multiplyScalar(40), g:.2, m, owner:key, team, r:.25, arm:.1, home:() => tgPos(tg.id), turn:2, trail:HELL.bone, trailS:.08, onHit:(b, h) => { swordArea(key, team, h, 1.6, 9, 5, 2); sparkle(h, HELL.bone); }}); sfx('thunk'); } }
+    if (t > 15) { roundGroup.remove(g); debris(V3(at.x, at.y + 2, at.z), 14, [HELL.bone]); return false; } }});
+}
+/* 12. Possession: a demon takes over an enemy and makes it attack its own side; it jumps on when the host dies */
+function nPossess({key, team, pos}, p, x){ const tg = x && typeof x.tg === 'string' ? x.tg : null; if (tg) possess(key, team, tg, 8, V3(pos.x, pos.y + 1.5, pos.z)); }
+function possess(owner, team, id, dur, from){
+  const tp = tgPos(id); if (!tp) return;
+  arcBeam(from, V3(tp.x, tp.y + 1.5, tp.z), HELL.red); sfx('demon');
+  const pz = NECRO.possessed[id] = {owner, team, until:G.t + dur, burst:1};
+  const P = chars[id]; if (P) { const horns = new THREE.Group(); for (const s of [-1, 1]) cone(.08, .4, HELL.red, s*.15, 2.1, .05, horns, 5).rotation.z = -s*.3; const aura = sp(.9, bmat(HELL.red, .2), 0, 1, 0, horns, 1); noRayAll(horns); P.root.add(horns); pz.fx = horns; }
+  if (id === G.localKey) toast('😈 Possessed! Your body is attacking your own team.');
+}
+function updatePossession(dt){
+  for (const id in NECRO.possessed) { const pz = NECRO.possessed[id], tp = tgPos(id);
+    if (!tp || G.t > pz.until) { if (pz.fx && pz.fx.parent) pz.fx.parent.remove(pz.fx); delete NECRO.possessed[id]; continue; }
+    // the host's body walks at its nearest ally and lashes out with hellfire that hurts its own side
+    if (id === G.localKey) { const me = localP(), ally = Object.keys(chars).map(k => chars[k]).filter(Q => Q && Q !== me && Q.alive !== false && Q.team === me.team).sort((a, b) => hdist(a.body.position, me.body.position) - hdist(b.body.position, me.body.position))[0];
+      if (ally) me.hypno = {at:V3(ally.body.position.x, 0, ally.body.position.z), until:G.t + .3}; }
+    pz.burst -= dt; if (pz.burst <= 0) { pz.burst = 1.2; const at = V3(tp.x, tp.y + 1, tp.z); for (let i = 0; i < 4; i++) hellFlame(V3(at.x + rr(-1.5, 1.5), tp.y, at.z + rr(-1.5, 1.5)), .8, .6, HELL.red);
+      // owned by the necromancer: hits the host's teammates (and practice dummies), never the host or the necromancer's side
+      const P = victimFor(pz.owner, pz.team); if (P && G.localKey !== id && hdist(P.body.position, at) < 4.5) { painHurt(P, 10, pz.owner); knock(P, 0, 4, 0, .2); }
+      PAIN.dummies.forEach((dm, i) => { if (!dm.dead && 'd' + i !== id && hdist(dm.body.position, at) < 4.5) dummyHit(dm.body, 10); });
+      if (id[0] === 'd') { const dm = PAIN.dummies[+id.slice(1)], other = PAIN.dummies.find((o, i) => !o.dead && 'd' + i !== id); if (dm && other) { const v = V3(other.body.position.x - dm.body.position.x, 0, other.body.position.z - dm.body.position.z).normalize(); dm.body.velocity.x += v.x*5; dm.body.velocity.z += v.z*5; } }
+      sfx('fireball'); } }
+}
+/* 13. Rain of the Condemned: a red wound in the sky drops burning bodies that get up and fight */
+function nCondemned(ci, p){
+  const {key, team, rng} = ci, at = V3(p.x, groundH(p.x, p.z), p.z);
+  const wound = new THREE.Mesh(new THREE.CircleGeometry(8, 32), new THREE.MeshBasicMaterial({color:0x8A0A0A, transparent:true, opacity:.9, side:THREE.DoubleSide})); wound.rotation.x = Math.PI/2; wound.position.set(at.x, at.y + 30, at.z); wound.scale.set(1, .25, 1); wound.userData.noRay = true; roundGroup.add(wound);
+  let t = 0, n = 0; tintSky(0x6A1A1A, 4); sfx('hell');
+  fxAdd({update(dt){ t += dt; wound.scale.y = Math.min(1, .25 + t*.6); wound.material.opacity = t > 5 ? Math.max(0, .9 - (t - 5)) : .9;
+    if (t > .6 && n < 7 && t > .6 + n*.5) { n++; const a = rng()*Math.PI*2, r = Math.sqrt(rng())*7, q = V3(at.x + Math.cos(a)*r, at.y + 28, at.z + Math.sin(a)*r);
+      const body = undeadMesh(1.2, HELL.ember).g; const holder = new THREE.Group(); body.rotation.x = Math.PI; holder.add(body); noRayAll(holder);
+      addBomb({p:q, v:V3(0, -18, 0), m:holder, owner:key, team, r:.5, face:false, trail:HELL.ember, trailS:.3, onHit:(b, h) => { bBoom(h, 3, 14, 10, key, team, {size:.35}); const mm = necroMinion(Object.assign({}, ci, {pos:h, yaw:rng()*6}), 'condemned', 1.3, S => undeadMesh(S, HELL.ember), 12, null); mm.tick = dt => undeadBrain(mm, dt, 7, 1.4, 9); }}); sfx('whistle'); }
+    if (t > 6) { roundGroup.remove(wound); return false; } }});
+}
+/* 14. Soul Furnace: sucks in nearby spirits and corpses and fires them back as exploding soul cannonballs */
+function nFurnace(ci, p){
+  const {key, team} = ci, at = V3(p.x, groundH(p.x, p.z), p.z), g = new THREE.Group();
+  bx(2.4, 2.4, 2.4, 0x2A2A30, 0, 1.2, 0, g); const mouth = bx(1.2, .9, .1, new THREE.MeshBasicMaterial({color:HELL.green}), 0, 1, 1.22, g); const ch = new THREE.Mesh(new THREE.CylinderGeometry(.35, .45, 2.2, 8), M3(0x3A3A40)); ch.position.set(.6, 3.2, -.5); g.add(ch);
+  for (let i = 0; i < 4; i++) bx(2.5, .12, .12, 0x6A5A3A, 0, .4 + i*.6, 1.22, g); noRayAll(g); g.position.copy(at); roundGroup.add(g); addOutline(g);
+  let t = 0, ammo = 2, fire = 1, suck = 0; sfx('rumble');
+  fxAdd({update(dt){ t += dt; mouth.material.color.setHSL(.35, 1, .4 + Math.sin(t*8)*.15); if (Math.random() < .3) puff(V3(at.x + .6, at.y + 4.4, at.z - .5), 0x3A3A40, .4);
+    // pulls in corpses and the dead's spirits
+    suck -= dt; if (suck <= 0) { suck = .5; for (const c of corpsesNear(at, 20)) { useCorpse(c); ammo += 2; const q = c.p.clone(); const m = sp(.35, new THREE.MeshBasicMaterial({color:0xBFFFD0}), q.x, q.y + 1, q.z, roundGroup, 1); fx.push({mesh:m, v:V3(at.x - q.x, 3, at.z - q.z).multiplyScalar(1.5), r:V3(0, 0, 0), life:.6}); sfx('hole'); } }
+    fire -= dt; if (fire <= 0 && t < 14.5) { fire = ammo > 0 ? .9 : 1.8; const tg = bNearest(key, team, at, 38); if (tg) { if (ammo > 0) ammo--; const big = ammo > 0, from = V3(at.x, at.y + 1.2, at.z);
+      dartTo({owner:key, team}, from, V3(tg.pos.x, groundH(tg.pos.x, tg.pos.z), tg.pos.z), 24, sp(big ? .55 : .4, new THREE.MeshBasicMaterial({color:big ? 0xBFFFD0 : HELL.green}), 0, 0, 0, null, 1), {trail:HELL.green, trailS:.2, onHit:(b, h) => greenBoom(h, big ? 4.2 : 3, big ? 22 : 14, 12, key, team)}); sfx('fire'); } }
+    if (t > 15) { roundGroup.remove(g); return false; } }});
+}
+/* 15. Death's Steed: ride a burning skeletal horse; it leaves grasping hands behind */
+function nSteed({key, C, team}){
+  if (C.carpet) return;
+  const mesh = new THREE.Group(), o = quad(1.4, {body:[.9, .9, 2.4], col:HELL.bone, head:[.45, .5, 1], headUp:1.1, headF:.1, legH:1.4, legW:.18, tail:.8});
+  o.g.position.y = -1.9; mesh.add(o.g); for (let i = 0; i < 6; i++) { const f = new THREE.Mesh(new THREE.ConeGeometry(.2, .8, 6), bmat(HELL.green, .8)); f.position.set(0, (1.4 + .9)*1.4, (.6 - i*.25)*1.4); o.g.add(f); }
+  noRayAll(mesh); C.root.add(mesh); C.carpet = {t:0, dur:10, dropT:99, mesh, type:'steed', legs:o.legs, handT:0};
+  if (key === G.localKey) { toast("🐴 Death's Steed! Charge through enemies. Space or G to get off."); }
+  sfx('demon'); sfx('dash');
+}
+function nSteedOff({C}){ if (!C || !C.carpet || C.carpet.type !== 'steed') return; if (C.carpet.mesh.parent) C.carpet.mesh.parent.remove(C.carpet.mesh); C.carpet = null; poof(V3(C.body.position.x, C.body.position.y, C.body.position.z), 1.2); }
+/* 16. Infernal Puppeteer: spectral strings lift several enemies and slam them into each other */
+function nPuppet({key, team}, p, x){
+  const ids = (x && Array.isArray(x.tg) ? x.tg : []).filter(i => typeof i === 'string').slice(0, 4); if (!ids.length) return;
+  const starts = ids.map(id => { const tp = tgPos(id); return tp ? V3(tp.x, tp.y, tp.z) : null; }), c = V3(0, 0, 0); let n = 0; starts.forEach(s => { if (s) { c.add(s); n++; } }); if (!n) return; c.divideScalar(n); c.y = groundH(c.x, c.z);
+  const strings = ids.map(() => { const s = tongue(0xC9A8FF); s.scale.x = s.scale.y = .2; return s; }); const t0 = G.t;
+  const posOf = i => { const s = starts[i]; if (!s) return null; const k = G.t - t0; const up = Math.min(1, k/.8)*6, slam = k > 1.6 ? Math.min(1, (k - 1.6)/.35) : 0; const q = s.clone().lerp(c, slam*.85); q.y = groundH(q.x, q.z) + (k > 2.1 ? 0 : up); return q; };
+  ids.forEach((id, i) => grab({owner:key, team, done:false}, id, () => posOf(i), 2.1, T => fling({owner:key}, T, rr(-4, 4), 3, rr(-4, 4), 28)));
+  let t = 0; sfx('grav');
+  fxAdd({update(dt){ t += dt; ids.forEach((id, i) => { const q = posOf(i); if (q) stretch(strings[i], V3(q.x, q.y + 30, q.z), V3(q.x, q.y + 1.8, q.z)); });
+    if (t > 1.95 && !this.slam) { this.slam = true; shockRing(c, 8, .4, 0xC9A8FF); dustRing(c, 3, 8); shakeAt(c, 1.2, 50); sfx('thud'); sfx('boom'); swordArea(key, team, V3(c.x, c.y + 1, c.z), 4, 6, 8, 4); }
+    if (t > 2.3) { strings.forEach(s => roundGroup.remove(s)); return false; } }});
+}
+/* 17. Hellmouth: the ground becomes a huge mouth that bites down and swallows */
+function nMouth(ci, p){
+  const {key, team} = ci, at = V3(p.x, groundH(p.x, p.z), p.z), R = 5, g = new THREE.Group();
+  const throat = new THREE.Mesh(new THREE.CircleGeometry(R, 32), new THREE.MeshBasicMaterial({color:0x3A0505})); throat.rotation.x = -Math.PI/2; throat.position.y = .05; g.add(throat);
+  const lip = new THREE.Mesh(new THREE.TorusGeometry(R, .45, 8, 32), M3(0x8A2A2A)); lip.rotation.x = Math.PI/2; lip.position.y = .2; g.add(lip);
+  const teeth = []; for (let i = 0; i < 22; i++) { const a = i/22*Math.PI*2, tg = new THREE.Group(); tg.position.set(Math.cos(a)*R, .2, Math.sin(a)*R); tg.rotation.y = -a; const tt = cone(.35, 1.6, 0xF2EDE0, 0, .8, 0, tg, 5); g.add(tg); teeth.push(tg); }
+  noRayAll(g); g.position.copy(at); g.scale.setScalar(.01); roundGroup.add(g);
+  let t = 0, bit = false; sfx('rumble'); sfx('demon');
+  fxAdd({update(dt){ t += dt; g.scale.setScalar(Math.min(1, t/.4));
+    // teeth tilt in as it bites
+    const close = t < .9 ? 0 : Math.min(1, (t - .9)/.15); teeth.forEach(tg => tg.rotation.z = close*1.3);
+    if (!bit && close >= 1) { bit = true; shakeAt(at, 1.4, 50); sfx('crack'); sfx('thud');
+      for (const e of bEnemies(key, team)) if (hdist(e.pos, at) < R) { const deep = V3(e.pos.x, at.y - 1.5, e.pos.z); grab({owner:key, team, done:false}, e.id, () => deep, 1.8, T => fling({owner:key}, T, rr(-6, 6), 16, rr(-6, 6), 40)); } }
+    if (t > 3) { g.scale.setScalar(Math.max(.01, 1 - (t - 3)*2)); if (t > 3.5) { roundGroup.remove(g); return false; } } }});
+}
+/* 18. Lich Ascension: float as a lich; your skulls come in threes and the dead near you rise to fight for you */
+function nLich({key, C}){
+  C.lich = G.t + 14;
+  const g = new THREE.Group(); for (let i = 0; i < 7; i++) { const a = i/7*Math.PI*2; cone(.06, .45, 0x2A1A2A, Math.cos(a)*.22, 2.05, Math.sin(a)*.22, g, 5).rotation.z = Math.cos(a)*.3; }
+  const robe = new THREE.Mesh(new THREE.ConeGeometry(.7, 2.2, 10, 1, true), new THREE.MeshToonMaterial({color:0x2A1A3A, gradientMap:TOON, side:THREE.DoubleSide})); robe.position.y = .7; g.add(robe);
+  const aura = sp(1.2, bmat(HELL.green, .15), 0, 1.2, 0, g, 1); noRayAll(g); C.root.add(g); C.lichG = g;
+  if (!C.carpet) C.carpet = {t:0, dur:14, dropT:99, mesh:new THREE.Group(), type:'lich'};
+  if (key === G.localKey) toast('👑 Lich Ascension: click fires three skulls; the dead near you rise.');
+  flash(.2); sfx('hell'); sfx('holy');
+}
+function updateLiches(dt){
+  for (const k in chars) { const C = chars[k]; if (!C || !C.lichG) continue;
+    C.lichG.rotation.y += dt*.6;
+    if (G.t > C.lich) { C.root.remove(C.lichG); C.lichG = null; if (C.carpet && C.carpet.type === 'lich') C.carpet = null; continue; }
+    C.raiseT = (C.raiseT || 0) - dt; if (C.raiseT <= 0) { C.raiseT = 1; const c = corpsesNear(C.body.position, 16)[0]; if (c) { useCorpse(c); riseFrom(c.p, 8); arcBeam(V3(C.body.position.x, C.body.position.y + 2, C.body.position.z), V3(c.p.x, c.p.y + 1, c.p.z), HELL.green);
+      const mm = necroMinion({key:k, team:C.team, pos:c.p, yaw:C.face, rng:Math.random}, 'risen', 1.3, S => undeadMesh(S, HELL.green), 15, null); sfx('demon'); } } }
+}
+/* 19. Debt to the Devil: every attack a cursed enemy makes hangs another blade over their head; when the curse
+   ends they all fall at once */
+function nDebt({key, team}, p){
+  const at = V3(p.x, groundH(p.x, p.z), p.z);
+  for (const e of bEnemies(key, team)) if (hdist(e.pos, at) < 10 && e.id[0] !== 'd') {
+    const P = chars[e.id]; if (!P) continue; const old = NECRO.debts[e.id]; if (old) old.blades.forEach(b => b.parent && b.parent.remove(b));
+    NECRO.debts[e.id] = {owner:key, team, until:G.t + 10, n:0, blades:[]}; const mark = new THREE.Mesh(new THREE.TorusGeometry(.4, .05, 6, 20), new THREE.MeshBasicMaterial({color:HELL.red})); mark.rotation.x = Math.PI/2; mark.position.y = 2.6; P.root.add(mark); NECRO.debts[e.id].mark = mark;
+    if (e.id === G.localKey) toast('📜 Cursed! Every attack you make for 10 s hangs a blade over your head.');
+  }
+  // dummies don't attack, so in practice they owe 4 blades each
+  PAIN.dummies.forEach((dm, i) => { if (!dm.dead && hdist(dm.body.position, at) < 10) setTimeout(() => { if (dm.dead) return; for (let k = 0; k < 4; k++) setTimeout(() => { const s = swordMesh(.8, 0xFF3B30); s.rotation.x = Math.PI; const q = V3(dm.body.position.x + rr(-.5, .5), dm.body.position.y + 6, dm.body.position.z + rr(-.5, .5)); s.position.copy(q); roundGroup.add(s); let t = 0; fxAdd({update(dt){ t += dt; s.position.y -= dt*25; if (s.position.y < dm.body.position.y + 1.5) { roundGroup.remove(s); dummyHit(dm.body, 12); sfx('thunk'); return false; } }}); }, k*120); }, 10000); });
+  shockRing(at, 10, .5, HELL.red); sfx('demon');
+}
+function updateDebts(dt){
+  for (const id in NECRO.debts) { const d = NECRO.debts[id], P = chars[id];
+    if (!P) { delete NECRO.debts[id]; continue; }
+    d.blades.forEach((b, i) => b.rotation.y += dt*2);
+    if (G.t > d.until) { if (d.mark && d.mark.parent) d.mark.parent.remove(d.mark);
+      // the debt is paid
+      const n = d.blades.length; d.blades.forEach(b => b.parent && b.parent.remove(b));
+      if (n) { const at = V3(P.body.position.x, P.body.position.y, P.body.position.z); for (let i = 0; i < Math.min(n, 8); i++) { const s = swordMesh(.9, 0xFF3B30); s.rotation.x = Math.PI; s.position.set(at.x + rr(-.4, .4), at.y + 6 + i*.4, at.z + rr(-.4, .4)); roundGroup.add(s); let t = 0; fxAdd({update(dt){ t += dt; s.position.y -= dt*28; if (s.position.y < at.y + 1) { roundGroup.remove(s); return false; } }}); }
+        if (id === G.localKey) { const V = victimFor(d.owner, d.team); if (V) { setTimeout(() => painHurt(V, 12*n, d.owner), 220); toast(`📜 ${n} blade${n > 1 ? 's' : ''} fell.`); } } sfx('slashH'); }
+      delete NECRO.debts[id]; } }
+}
+/* 20. ULTIMATE: Nine Circles of Hell */
+function nCircles(ci, p){
+  const {key, team} = ci; G.circlesUsed = G.circlesUsed || {}; G.circlesUsed[key] = true;
+  const at = V3(p.x, groundH(p.x, p.z), p.z), R = 24, g = new THREE.Group();
+  // nine descending rings, each its own color of punishment
+  const cols = [0x6A6A7A, 0x5A7A8A, 0x8A6A3A, 0x7A3A2A, 0x6A2A2A, 0x8A1A1A, 0xA01A0A, 0xC4300E, 0xFF6A1F], rings = [];
+  for (let i = 0; i < 9; i++) { const r0 = R*(1 - i/9), r1 = R*(1 - (i + 1)/9); const ring = new THREE.Mesh(new THREE.RingGeometry(Math.max(.5, r1), r0, 48), new THREE.MeshBasicMaterial({color:cols[i], side:THREE.DoubleSide})); ring.rotation.x = -Math.PI/2; ring.position.y = -i*1.4; g.add(ring); rings.push(ring);
+  }
+  const lava = new THREE.Mesh(new THREE.CircleGeometry(R/9, 24), new THREE.MeshBasicMaterial({color:0xFFB02E})); lava.rotation.x = -Math.PI/2; lava.position.y = -9*1.4 + .05; g.add(lava);
+  noRayAll(g); g.position.set(at.x, at.y + .12, at.z); g.scale.set(.01, 1, .01); roundGroup.add(g);
+  // the ground really opens: nine terraces, 1.4 m each, stepping down to the center (it stays for the round)
+  { const base = at.y; for (let j = 0; j < TN; j++) for (let i = 0; i < TN; i++) { const v = i + j*TN, x = -ISL + i*TES, z = -ISL + j*TES, dd = Math.hypot(x - at.x, z - at.z); if (dd >= R || terrH[v] < -20) continue;
+      const step = Math.min(8, Math.floor((1 - dd/R)*9)); terrH[v] = Math.min(terrH[v], base - step*1.4); terrDmg[v] = Math.max(terrDmg[v], 1.6 + step*.1); }
+    syncTerrain(); placeGrass(); for (const b of world.bodies) if (b.mass > 0 && hdist(b.position, at) < R + 2 && b.wakeUp) b.wakeUp(); }
+  const hand = new THREE.Group(); bx(5, 1.2, 4, HELL.bone, 0, 0, 0, hand); const fingers = [];
+  for (let i = 0; i < 5; i++) { const f = new THREE.Group(); f.position.set((i - 2)*1.1, .3, i === 0 ? 1 : 2); if (i === 0) f.rotation.y = .9; for (let k = 0; k < 3; k++) bx(.7, .7, 2, HELL.bone, 0, 0, 1 + k*2.1, f); hand.add(f); fingers.push(f); }
+  bx(2, 6, 2, HELL.bone, 0, -3.5, -1.5, hand); noRayAll(hand); hand.position.set(at.x, at.y - 30, at.z); hand.rotation.x = -Math.PI/2; roundGroup.add(hand);
+  const chains = []; let t = 0, tick2 = 0, crushed = false;
+  tintSky(0x4A0A0A, 13); flash(.6); shakeAt(at, 2, 200); sfx('hell'); sfx('boom'); sfx('rumble');
+  if (key === G.localKey) toast('🌋 NINE CIRCLES OF HELL'); else toast('🌋 Hell is opening! Get away from it!');
+  fxAdd({update(dt){
+    t += dt; g.scale.set(Math.min(1, t/1.2), 1, Math.min(1, t/1.2)); rings.forEach((r, i) => r.material.color.setHSL(.02, .7, .18 + .1*Math.sin(t*3 - i*.6)));
+    const P = victimFor(key, team), inside = P && hdist(P.body.position, at) < R;
+    // burning chains drag everyone inside toward the center
+    if (t > 1 && t < 9.5 && P && !P.held && hdist(P.body.position, at) < R + 6) { const bp = P.body.position, d = hdist(bp, at) || 1, k = 9*dt; bp.x += (at.x - bp.x)/d*k; bp.z += (at.z - bp.z)/d*k;
+      if (!this.chain) { this.chain = tongue(HELL.ember); this.chain.scale.x = this.chain.scale.y = .5; } stretch(this.chain, V3(at.x, at.y - 6, at.z), V3(bp.x, bp.y + 1, bp.z)); }
+    else if (this.chain) { roundGroup.remove(this.chain); this.chain = null; }
+    PAIN.dummies.forEach(dm => { if (!dm.dead && t > 1 && t < 9.5) { const bp = dm.body.position, d = hdist(bp, at) || 1; if (d < R + 6) { dm.body.velocity.x += (at.x - bp.x)/d*8*dt; dm.body.velocity.z += (at.z - bp.z)/d*8*dt; } } });
+    // each ring band punishes in its own way
+    tick2 -= dt; if (tick2 <= 0 && t > 1 && t < 9.5) { tick2 = .5;
+      for (let i = 0; i < 6; i++) { const a = Math.random()*Math.PI*2, r = Math.random()*R, q = V3(at.x + Math.cos(a)*r, 0, at.z + Math.sin(a)*r); q.y = groundH(q.x, q.z);
+        if (r > R*.66) puff(V3(q.x, q.y + .5, q.z), 0x6A8A6A, 1.2);                                  // outer: soul-draining fog
+        else if (r > R*.33) { const s = cone(.1, .9, HELL.bone, 0, 0, 0, null, 4); s.rotation.x = Math.PI; const h = new THREE.Group(); h.add(s); noRayAll(h); addBomb({p:V3(q.x, q.y + 14, q.z), v:V3(rr(-3, 3), -22, rr(-3, 3)), m:h, owner:key, team, r:.2, R:1.6, dmg:6, kb:3, fx:{quiet:true}}); }   // middle: bone storm
+        else hellFlame(q, 2.4, .9, pick([HELL.ember, 0xFFB02E])); }                                   // inner: hellfire
+      if (inside) { const d = hdist(P.body.position, at); if (d > R*.66) { painHurt(P, 3, key); P.slowT = Math.max(P.slowT || 0, .6); } else if (d < R*.33) painHurt(P, 6, key); }
+      PAIN.dummies.forEach(dm => { if (!dm.dead && hdist(dm.body.position, at) < R) dummyHit(dm.body, 5); });
+      if (Math.random() < .5) sfx('crackle'); }
+    // the hand rises... and closes
+    if (t > 9) { const k = Math.min(1, (t - 9)/1.2); hand.position.y = at.y - 30 + k*36; hand.rotation.x = -Math.PI/2 + k*Math.PI/2*.2; fingers.forEach(f => f.rotation.x = t > 10.4 ? -Math.min(1.5, (t - 10.4)*5) : 0); }
+    if (!crushed && t > 10.7) { crushed = true; shakeAt(at, 3, 300); flash(.8, 2); sfx('boom'); sfx('thunder');
+      for (const e of bEnemies(key, team)) if (hdist(e.pos, at) < 12) { const from = V3(e.pos.x, e.pos.y, e.pos.z), t0 = G.t; grab({owner:key, team, done:false}, e.id, () => from.clone().setY(from.y - Math.min(8, (G.t - t0)*6)), 1.4, T => fling({owner:key}, T, 0, 20, 0, 85)); }
+      swordArea(key, team, V3(at.x, at.y + 2, at.z), 12, 20, 0, 0, {objects:true}); if (egg && egg.alive && hdist(egg.body.position, at) < 12) breakEgg('hell'); }
+    if (t > 11.2) { hand.position.y -= dt*20; g.scale.set(Math.max(.01, 1 - (t - 11.2)), 1, Math.max(.01, 1 - (t - 11.2))); }
+    if (t > 12.3) { roundGroup.remove(g); roundGroup.remove(hand); if (this.chain) roundGroup.remove(this.chain); return false; }
+  }});
+}
+function necroFrame(dt){
+  if (!G.pvp) return;
+  updateSouls(dt); updatePossession(dt); updateLiches(dt); updateDebts(dt);
+  NECRO.corpses = NECRO.corpses.filter(c => { if (!c.used && G.t - c.t > 30) useCorpse(c); return !c.used; });
+  // the steed: legs gallop, and skeletal hands claw up from its trail
+  for (const k in chars) { const P = chars[k]; if (!P || !P.carpet || P.carpet.type !== 'steed') continue; const c = P.carpet; if (k !== G.localKey) c.t += dt;
+    const sp0 = Math.hypot(P.body.velocity.x, P.body.velocity.z) + (P.remote ? 10 : 0); c.legs.forEach((l, i) => l.rotation.x = Math.sin(G.t*14 + i*1.6)*.7*Math.min(1, sp0/6));
+    c.handT -= dt; if (c.handT <= 0 && sp0 > 4) { c.handT = .3; const q = V3(P.body.position.x - Math.sin(P.face)*2, 0, P.body.position.z - Math.cos(P.face)*2); q.y = groundH(q.x, q.z); boneHand(q, 1, 2.5);
+      const owner = k, team = P.team; let t = 0, used = false; fxAdd({update(dt){ t += dt; const V = victimFor(owner, team); if (V && !used && hdist(V.body.position, q) < 1.3 && V.body.position.y - q.y < 1.5) { used = true; const hold = V3(V.body.position.x, V.body.position.y, V.body.position.z); V.held = {at:() => hold, until:G.t + .9}; painHurt(V, 6, owner); } return t < 2.5; }}); }
+    c.tr = (c.tr || 0) - dt; if (c.tr <= 0) { c.tr = .25; const V = victimFor(k, P.team); if (V && hdist(V.body.position, P.body.position) < 2.2 && Math.abs(V.body.position.y - P.body.position.y + 1) < 2.5) { painHurt(V, 12, k); knock(V, P.body.velocity.x*.6, 9, P.body.velocity.z*.6, .5); sfx('bonk'); } }
+    if (k !== G.localKey && c.t > c.dur + 3) { if (c.mesh.parent) c.mesh.parent.remove(c.mesh); P.carpet = null; } }
+}
+
 /* casting, locally and for other players */
 function runSkill(id, p, x){
   if (id === 'ki') { kiBlast(p); return; }
@@ -7942,6 +8475,7 @@ function runSkill(id, p, x){
   if (BOMBER[id]) { runBomber(id, p, x); return; }
   if (SWORD[id]) { runSword(id, p, x); return; }
   if (SUMMON[id]) { runSummon(id, p, x); return; }
+  if (NECRO_SK[id]) { runNecro(id, p, x); return; }
   if (PAIN_SKILLS[id]) { runPain(id, p, x); return; }
   castFX(id);
   const INST = {gravity:gravityGun, flip:flipWorld, slow:slowTime, freeze:freezeTime, night:nightTime, onepunch:() => punch(false), serious:() => punch(true)};
@@ -7973,12 +8507,13 @@ function runSkill(id, p, x){
   comboAfterCast(id, p);
 }
 function localCast(id, p, x){
-  const P = localP(); if (G.pvp && (!P || P.alive === false)) return;
-  if (G.egg && G.egg.over) return;
+  const P = localP(); if (G.pvp && (!P || P.alive === false) && id !== 'u_kill') return;
+  if (G.egg && G.egg.over && id !== 'u_kill') return;
   const o = P ? [+P.body.position.x.toFixed(2), +P.body.position.y.toFixed(2), +P.body.position.z.toFixed(2)] : null;   // before the power moves you (counter, storm...)
   G.casterKey = G.localKey;
   // a bug in a power's local effect must never stop everyone else from seeing the cast
   try { runSkill(id, p, x); } catch (e) { console.warn(e); } finally { G.casterKey = null; }
+  necroOnCast(G.localKey);
   if (!G.pvp) return;
   if (id !== 'ki' && id !== 'd_use' && id !== 'd_place') G.cd[id] = cdFor(id);
   netSend({t:'cast', id:G.localKey, s:id, p: p ? [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)] : null, y:+G.yaw.toFixed(3), o, ts:+(performance.now()/1000).toFixed(3), ...(x || {})});
@@ -7991,6 +8526,7 @@ function replayCast(m){
   G.casterKey = m.id; G.yaw = m.y;
   try { runSkill(m.s, m.p ? new THREE.Vector3(m.p[0], m.p[1], m.p[2]) : null, m); } catch (e) { console.warn(e); }
   G.yaw = saveYaw; G.casterKey = null;
+  necroOnCast(m.id);
 }
 function cdToast(id){ if (!G.lastCdToast || G.t - G.lastCdToast > 1) { G.lastCdToast = G.t; toast(`${skillDef(id).e} ${skillDef(id).name} is recharging (${Math.ceil(G.cd[id])} s).`); } }
 function fireKi(){
@@ -8363,7 +8899,7 @@ function showMatchEnd(w, text){
 }
 function killFeedText(t){ const box = $('killfeed'); if (!box) return; const d = document.createElement('div'); d.textContent = t; box.prepend(d); while (box.children.length > 5) box.removeChild(box.lastChild); setTimeout(() => d.remove(), 6000); }
 function killFeed(m){
-  if (m.v && m.v !== G.localKey) { painOwnerDied(m.v); bomberOwnerDied(m.v); swordOwnerDied(m.v); summonOwnerDied(m.v); }
+  if (m.v && m.v !== G.localKey) { painOwnerDied(m.v); bomberOwnerDied(m.v); swordOwnerDied(m.v); summonOwnerDied(m.v); necroOwnerDied(m.v); }
   const v = chars[m.v], by = m.by && chars[m.by];
   const vn = v ? v.name : 'Someone', bn = by ? by.name : null;
   killFeedText(bn ? `💥 ${bn} knocked out ${vn}` : `💥 ${vn} got knocked out`);
@@ -8411,6 +8947,7 @@ function renderPhase(){
   else if (G.phase === 'attack' && G.cls === 'bomber') { help.style.display = 'block'; help.innerHTML = bomberHelp(); }
   else if (G.phase === 'attack' && G.cls === 'sword') { help.style.display = 'block'; help.innerHTML = swordHelp(); }
   else if (G.phase === 'attack' && G.cls === 'summon') { help.style.display = 'block'; help.innerHTML = summonHelp(); }
+  else if (G.phase === 'attack' && G.cls === 'necro') { help.style.display = 'block'; help.innerHTML = necroHelp(); }
   else if (G.phase === 'attack' && G.mode === 'pain') { help.style.display = 'block'; help.innerHTML = painHelp() + '<br><b>Tab</b> switch class'; }
   else if (G.phase === 'attack') { help.style.display = 'block'; help.innerHTML = '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run<br><b>Click</b> energy blast (no skill picked)<br>Skills: press a key (see the Skills bar), aim the red marker, <b>click</b><br><b>Right-click</b> to put a skill away<br><b>E</b> grab stuff lying around, <b>click</b> to throw it<br><b>Tab</b> switch class'; }
   else help.style.display = 'none';
@@ -8424,6 +8961,7 @@ function eggHelp(){
     : G.cls === 'bomber' ? bomberHelp()
     : G.cls === 'sword' ? swordHelp()
     : G.cls === 'summon' ? summonHelp()
+    : G.cls === 'necro' ? necroHelp()
     : '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run<br>Skills: press a key (see the Skills bar), aim the red marker, <b>click</b><br>Every power has a cooldown<br><b>Right-click</b> to put a skill away<br><b>Tab</b> switch class (Bomber)';
 }
 function renderSide(title, html, kind){
@@ -8551,7 +9089,7 @@ function actionDown(){
   if (P.carry) { dropCarry(P, true); G.skipUp = true; return; }
   if (G.phase === 'attack' && G.targeting) { castAt(); G.skipUp = true; return; }
   if (G.phase === 'build') { if (!G.pvp || amDefender()) placeItem(); }
-  else if (G.phase === 'attack' && G.pvp) { if (G.cls === 'bomber') fireBazooka(); else if (G.cls === 'sword') swordSwing(); else if (G.cls === 'summon') summonCommand(); else if (G.mode === 'pain') chargeStart('p_rod', 'mouse'); else fireKi(); }
+  else if (G.phase === 'attack' && G.pvp) { if (G.cls === 'bomber') fireBazooka(); else if (G.cls === 'sword') swordSwing(); else if (G.cls === 'summon') summonCommand(); else if (G.cls === 'necro') fireSkull(); else if (G.mode === 'pain') chargeStart('p_rod', 'mouse'); else fireKi(); }
   else if (G.phase === 'attack') { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('Pick a skill first: press its key or tap it in the Skills bar.'); } }
 }
 function actionUp(){ if (G.mode === 'pain') chargeRelease('mouse'); if (G.skipUp) { G.skipUp = false; return; } if (G.phase === 'attack' && G.charging) fire(); }
@@ -8638,6 +9176,7 @@ addEventListener('keydown', e => {
   if (G.phase === 'attack' && !e.repeat && G.cls === 'bomber') { bomberKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'sword') { swordKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'summon') { summonKeyDown(k); return; }
+  if (G.phase === 'attack' && !e.repeat && G.cls === 'necro') { necroKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat) { if (G.mode === 'pain') { if (PAIN_KEYS[k]) painKeyDown(PAIN_KEYS[k], k); return; } const sp = {n:'nuke', b:'chibaku', g:'gravity', c:'comet', h:'army', t:'shinra', x:'bijuu', o:'tornado', v:'volcano', l:'lightning', m:'gcow', j:'frog', k:'knives', z:'antimatter', y:'hellgate', q:'fireball', p:'doomnuke', u:'judgement', i:'coming', '1':'satan', '2':'sword', '3':'flip', '4':'slow', '5':'freeze', '6':'tree', '7':'night', '8':'supernova', '9':'vacuum', '0':'eoe', f:'onepunch', r:'serious'}[k]; if (sp) useSpecial(sp); }
   if (G.phase === 'build') {
     if (k === 'r') G.ghostRot += Math.PI/4;
@@ -8931,7 +9470,7 @@ function frame(now){
   { const hm = (inPlay() && !isTouch && !G.locked && !G.eggCam) ? (G.fallback ? 2 : 1) : 0;
     if (hm !== G.hintMode) { G.hintMode = hm; const h = $('lockHint'); h.style.display = hm ? 'block' : 'none'; h.classList.toggle('fb', hm === 2);
       h.innerHTML = hm === 2 ? `🖱️ Mouse lock is blocked in this tab (${G.lockErr || 'refused'}). The camera follows your mouse; hold it at the screen edge to keep turning.<br><small>Click to retry. If it keeps happening, close this tab and open the game link again.</small>` : 'Click to control your character'; } }
-  updateVisuals(rdt); updateEdge(); pvpFrame(rdt); if (G.mode === 'pain' && G.phase === 'attack') painFrame(rdt); bomberFrame(rdt * G.fxScale); swordFrame(rdt); summonFrame(rdt * G.fxScale);
+  updateVisuals(rdt); updateEdge(); pvpFrame(rdt); if (G.mode === 'pain' && G.phase === 'attack') painFrame(rdt); bomberFrame(rdt * G.fxScale); swordFrame(rdt); summonFrame(rdt * G.fxScale); necroFrame(rdt * G.fxScale);
   SpaceWarp.render();
   perfTune(performance.now() - t0, rdt);
 }

@@ -179,6 +179,17 @@ skips them) until a bat's echolocation (`G.revealT`, marks in `SUM.marks`). The 
 deck with `platformVel` (`groundCheck` -> `P.platformV` carries riders); the eagle is a typed carpet
 ('eagle', 20 m/s, 9 m up; let go = hidden cast `u_eaglex`).
 
+**Necromancer** (module "NECROMANCER"): `n_*` ids in `NECRO_SK`, click = homing Hellfire Skull, ultimate
+Nine Circles on B (once per round, digs real terraces). Corpses in `NECRO.corpses` (player deaths via
+`necroOwnerDied`; practice dummies after 100 damage via `dummyDamage`). Curses: `NECRO.possessed`,
+`NECRO.debts` (`necroOnCast` in localCast/replayCast). Minions reuse the Summoner entities (`necroMinion`).
+BX bombs support homing (`home`, `turn`).
+
+**Summons can die**: `e.hp`/`SUMMON_HP`, hooks in `bBoom`, `swordArea`, `swordHit`, `blastAt`, `radialPush`,
+`conePush` (`summonsTakeArea/Cone`); the owner's screen decides death and sends hidden `u_kill`. Enemy
+summons are in `bEnemies` (ids start with 'S'), so projectiles hit them and summons fight each other.
+Known: duoall reported one host rejection of `n_furnace` aimed at a player 10 m away; not yet investigated.
+
 The Skills bar fills row by row and is sorted by key: click, 1-9, 0, then letters A-Z.
 
 ## Network checks (castOK)
