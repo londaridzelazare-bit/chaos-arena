@@ -197,6 +197,11 @@ mic off. Mute = disable the track. Talking indicators use analysers on the game'
 #talkers list and a 🔊 sprite over the speaker. Players stuck on the MQTT backup relay can't get voice.
 P used to be Chaos's World-ending nuke; that moved to '-'.
 
+**Pain class**: the Pain powers are also a class ('pain', first after the default in the Tab cycle) in every
+mode. `painKit()` = Pain class, or the default kit in Pain mode; input, dash, air jump, help and charge
+release use it. `painFrame` and `applyPainForces` run in every mode. Map rules (indestructible terrain, sky)
+stay tied to Pain mode (`isPain()`). In Pain mode the class is skipped (`classCycle`).
+
 Egg mode follows the cooldown setting like the other modes (it used to force cooldowns on).
 
 The Skills bar fills row by row and is sorted by key: click, 1-9, 0, then letters A-Z.

@@ -262,7 +262,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-03.8';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-03.9';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -842,7 +842,7 @@ function controlPlayer(P, dt, input){
   // 4.7 m/s takes you about 1.1 m up under 9.81 m/s2: an athletic jump, not a moon jump
   if (input && G.jumpQ > 0 && onGround && !(P.pinT > 0)) { b.velocity.y = 4.7 * Math.sqrt(comp); G.jumpQ = 0; sfx('jump'); P.airJumps = 0; P.jumpT = G.t; b._onGround = false; }
   // Pain: the air jump is the Gravity Jump, and it counts as your one air jump too
-  else if (input && G.jumpQ > 0 && !onGround && G.mode === 'pain') { G.jumpQ = 0; if (!(P.pinT > 0) && (P.airJumps || 0) < 1 && gravityJump()) { P.airJumps = 1; P.jumpT = G.t; } }
+  else if (input && G.jumpQ > 0 && !onGround && painKit()) { G.jumpQ = 0; if (!(P.pinT > 0) && (P.airJumps || 0) < 1 && gravityJump()) { P.airJumps = 1; P.jumpT = G.t; } }
   else if (input && G.jumpQ > 0 && !onGround && (P.airJumps || 0) < 1) { b.velocity.y = 4.2 * Math.sqrt(comp); G.jumpQ = 0; P.airJumps = 1; P.jumpT = G.t; doubleJumpFX(P); }
   if (len > .1) P.moveFace = Math.atan2(vx, vz);
   P.moving = len > .1;
@@ -1465,6 +1465,7 @@ const SPECIALS = {
 const specialsLeft = () => G.specials ? Object.values(G.specials).reduce((a,b) => a+b, 0) : 0;
 const effectsActive = () => holes.some(h => !h.done) || comets.some(c => !c.done) || G.gravOff > 0 || skels.some(k => !k.dead) || tornados.some(t => !t.done) || volcanoes.some(v => v.state === 'rise' || v.state === 'erupt') || bolts.some(b => !b.done) || gcows.some(c => !c.done) || frogs.some(f => !f.done) || storms.some(s => !s.done) || hands.some(h => !h.done) || fireballs.some(f => !f.done) || judgements.some(j => !j.done) || comings.some(c => !c.done) || satans.some(x => !x.done) || swords.some(x => !x.done) || novas.some(x => !x.done) || vacs.some(x => !x.done) || evas.some(x => !x.done) || G.freeze > 0 || G.flip > 0 || objs.some(o => !o.dead && (o.tag === 'nuke' || o.tag === 'chibaku' || o.tag === 'comet' || o.tag === 'bijuu' || o.tag === 'lava' || o.tag === 'knife' || o.tag === 'milk' || o.tag === 'antimatter' || o.tag === 'doomnuke'));
 function useSpecial(id){
+  if (PAIN_SKILLS[id]) { const P = localP(); if (G.phase !== 'attack' || !P || P.stun > 0 || P.lockT > 0 || (G.egg && G.egg.over)) return; if (amDefender()) { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('🛡️ You defend: click for energy blasts, E to grab and throw things.'); } return; } painUse(id); return; }
   if (BOMBER[id]) { bomberUse(id); return; }
   if (SUMMON[id]) { summonUse(id); return; }
   if (NECRO_SK[id]) { necroUse(id); return; }
@@ -1473,7 +1474,7 @@ function useSpecial(id){
   const P = chars[attacker()]; if (!P || P.stun > 0 || P.lockT > 0) return;
   if (amDefender()) { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('🛡️ You defend: click for energy blasts, E to grab and throw things.'); } return; }
   if (G.egg && G.egg.over) return;
-  if (G.mode === 'pain') { painUse(id); return; }
+  if (PAIN_SKILLS[id]) { painUse(id); return; }
   const INSTANT_IDS = ['gravity','flip','slow','freeze','night','onepunch','serious'];
   if (INSTANT_IDS.includes(id)) { if (G.spCd > 0) return; G.spCd = .4; if (G.pvp && (G.cd[id] || 0) > 0) { cdToast(id); return; } localCast(id, null); return; }
   setTargeting(id);
@@ -4185,7 +4186,7 @@ function snapWalkers(){
 
 /* ---------------- dash: double-tap Shift ---------------- */
 function dash(){
-  if (G.mode === 'pain') { painDash(); return; }
+  if (painKit()) { painDash(); return; }
   const P = activeChar(); if (!P || P.stun > 0 || P.body._frozen) return;
   if (G.dashCd > 0) return;
   G.dashCd = .5;
@@ -4629,7 +4630,9 @@ const PAIN_CFG = {
 };
 const PAIN = {fx:[], fields:[], rods:[], stuckRods:[], regrow:[], dummies:[], cores:[], orbits:{}, shots:[], charge:null, aim:null};
 function isPain(){ return G.mode === 'pain'; }
-function skillTable(){ return G.cls === 'bomber' ? BOMBER : G.cls === 'sword' ? SWORD : G.cls === 'summon' ? SUMMON : G.cls === 'necro' ? NECRO_SK : isPain() ? PAIN_SKILLS : SPECIALS; }
+// the Pain powers are in your hands: the Pain class in any mode, or the default kit in Pain mode (the map rules stay with the mode)
+function painKit(){ return G.cls === 'pain' || (G.cls === 'native' && isPain()); }
+function skillTable(){ return G.cls === 'bomber' ? BOMBER : G.cls === 'sword' ? SWORD : G.cls === 'summon' ? SUMMON : G.cls === 'necro' ? NECRO_SK : G.cls === 'pain' ? PAIN_SKILLS : isPain() ? PAIN_SKILLS : SPECIALS; }
 function skillDef(id){ return PAIN_SKILLS[id] || SPECIALS[id] || BOMBER[id] || SWORD[id] || SUMMON[id] || NECRO_SK[id]; }
 // cooldowns are a match setting (off by default): with them off every ability is ready again immediately
 function cdFor(id){ if (!G.cdOn) return 0;   // the match's cooldown setting covers every class (World Severance stays once per round)
@@ -5703,7 +5706,7 @@ function runPain(id, p, x){
 }
 // called every physics step from applyForces
 function applyPainForces(){
-  if (!isPain() || G.freeze > 0) return;
+  if (!G.pvp || G.freeze > 0) return;
   const g = -world.gravity.y, me = localP();
   if (me && me.alive !== false) {
     const b = me.body;
@@ -5725,7 +5728,6 @@ function painFrame(dt){
 }
 // a player was knocked out: their ongoing channelled abilities stop on every screen
 function painOwnerDied(id){
-  if (!isPain()) return;
   PAIN.fx.forEach(e => { if (e.owner === id && e.cancel) e.cancel(); });
   if (id === G.localKey) { PAIN.charge = null; PAIN.aim = null; const P = localP(); if (P) { P.fly = null; P.warp = null; P.lockT = 0; P.floatT = 0; } }
 }
@@ -5747,7 +5749,7 @@ function castOK(c, m){
   if (m.s === 'u_kill') return typeof m.k === 'string' && m.k.startsWith('S' + m.id + ':');   // only for your own summons, even while dead
   if (P.alive === false) return false;
   if (eggOn() && (G.egg.over || (m.id === G.egg.def && !['ki', 'b_bazooka', 'b_press', 's_slash', 'u_cmd', 'n_skull'].includes(m.s)))) return false;   // the defender only shoots
-  const def = m.s === 'ki' ? null : (BOMBER[m.s] || SWORD[m.s] || SUMMON[m.s] || NECRO_SK[m.s] || modeTable()[m.s]); if (m.s !== 'ki' && !def) return false;   // the mode's own kit or a class (anyone may switch class any time)
+  const def = m.s === 'ki' ? null : (BOMBER[m.s] || SWORD[m.s] || SUMMON[m.s] || NECRO_SK[m.s] || PAIN_SKILLS[m.s] || modeTable()[m.s]); if (m.s !== 'ki' && !def) return false;   // the mode's own kit or a class (anyone may switch class any time)
   // cast from where they actually are. Positions arrive ~15 times a second and can be late, so allow for how fast they
   // were moving and how old the last position is (knockbacks reach 50+ m/s), and for powers that teleport them
   const tNow = performance.now()/1000, age = P.netT ? tNow - P.netT : 0, spd = P.net ? Math.hypot(P.net.vx || 0, P.net.vz || 0) : 0;
@@ -5783,12 +5785,14 @@ function castOK(c, m){
    or the class button on the Skills bar. Cooldowns are kept per power id in G.cd (and in the host's castLog), so
    swapping away and back never resets them. The host accepts a cast if the power exists in the mode's kit or in
    any class, so players can swap freely without telling anyone. */
-const CLASS_IDS = ['native', 'bomber', 'sword', 'summon', 'necro'];
-function classInfo(c){ return c === 'bomber' ? {name:'Bomber', e:'💣'} : c === 'sword' ? {name:'Swordsman', e:'⚔️'} : c === 'summon' ? {name:'Summoner', e:'🐾'} : c === 'necro' ? {name:'Necromancer', e:'💀'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
+const CLASS_IDS = ['native', 'pain', 'bomber', 'sword', 'summon', 'necro'];
+// in Pain mode the default kit already is Pain, so the class is skipped there
+const classCycle = () => CLASS_IDS.filter(c => !(c === 'pain' && isPain()));
+function classInfo(c){ return c === 'pain' ? {name:'Pain', e:'🌑'} : c === 'bomber' ? {name:'Bomber', e:'💣'} : c === 'sword' ? {name:'Swordsman', e:'⚔️'} : c === 'summon' ? {name:'Summoner', e:'🐾'} : c === 'necro' ? {name:'Necromancer', e:'💀'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
 function modeTable(){ return isPain() ? PAIN_SKILLS : SPECIALS; }
-G.cls = (() => { try { const c = localStorage.getItem('ca-cls'); return c === 'bomber' || c === 'sword' || c === 'summon' || c === 'necro' ? c : 'native'; } catch (e) { return 'native'; } })();
+G.cls = (() => { try { const c = localStorage.getItem('ca-cls'); return c === 'pain' || c === 'bomber' || c === 'sword' || c === 'summon' || c === 'necro' ? c : 'native'; } catch (e) { return 'native'; } })();
 function switchClass(to){
-  const next = to || CLASS_IDS[(CLASS_IDS.indexOf(G.cls) + 1) % CLASS_IDS.length];
+  const cyc = classCycle(), next = to || cyc[(cyc.indexOf(G.cls) + 1) % cyc.length];
   if (next === G.cls) return;
   G.cls = next; G.targeting = null; G.armed = null; marker.visible = false;
   PAIN.charge = null; PAIN.aim = null;
@@ -7214,7 +7218,7 @@ function swordFrame(dt){
   // charge meter (Gate of Babylon, World Splitter)
   const ch = SW.charge;
   if (ch && typeof chargeUI !== 'undefined') { const s = performance.now()/1000 - ch.t0, cap = ch.id === 's_split' ? 2.5 : 3, k = Math.min(1, s/cap); chargeUI.style.display = 'block'; chargeUI.querySelector('i').style.width = k*100 + '%'; chargeUI.querySelector('i').style.background = k >= 1 ? '#FFD84D' : 'linear-gradient(90deg,#9FD8FF,#FFFFFF)'; chargeUI.querySelector('span').textContent = `${SWORD[ch.id].e} ${SWORD[ch.id].name} ${k >= 1 ? 'FULL. Release!' : Math.round(k*100) + '%'}`; }
-  else if (typeof chargeUI !== 'undefined' && !PAIN.charge && !PAIN.aim && G.mode !== 'pain') chargeUI.style.display = 'none';
+  else if (typeof chargeUI !== 'undefined' && !PAIN.charge && !PAIN.aim && !painKit()) chargeUI.style.display = 'none';
 }
 
 /* ===================================== SUMMONER =====================================
@@ -9025,7 +9029,7 @@ function renderPhase(){
   else if (G.phase === 'attack' && G.cls === 'sword') { help.style.display = 'block'; help.innerHTML = swordHelp(); }
   else if (G.phase === 'attack' && G.cls === 'summon') { help.style.display = 'block'; help.innerHTML = summonHelp(); }
   else if (G.phase === 'attack' && G.cls === 'necro') { help.style.display = 'block'; help.innerHTML = necroHelp(); }
-  else if (G.phase === 'attack' && G.mode === 'pain') { help.style.display = 'block'; help.innerHTML = painHelp() + '<br><b>Tab</b> switch class'; }
+  else if (G.phase === 'attack' && painKit()) { help.style.display = 'block'; help.innerHTML = painHelp() + '<br><b>Tab</b> switch class'; }
   else if (G.phase === 'attack') { help.style.display = 'block'; help.innerHTML = '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run<br><b>Click</b> energy blast (no skill picked)<br>Skills: press a key (see the Skills bar), aim the red marker, <b>click</b><br><b>Right-click</b> to put a skill away<br><b>E</b> grab stuff lying around, <b>click</b> to throw it<br><b>Tab</b> switch class'; }
   else help.style.display = 'none';
   $('tAct').textContent = G.phase === 'attack' ? 'Cast' : 'Place';
@@ -9039,6 +9043,7 @@ function eggHelp(){
     : G.cls === 'sword' ? swordHelp()
     : G.cls === 'summon' ? summonHelp()
     : G.cls === 'necro' ? necroHelp()
+    : G.cls === 'pain' ? painHelp()
     : '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run<br>Skills: press a key (see the Skills bar), aim the red marker, <b>click</b><br>' + (G.cdOn ? 'Every power has a cooldown' : 'Cooldowns are off') + '<br><b>Right-click</b> to put a skill away<br><b>Tab</b> switch class (Bomber)';
 }
 function renderSide(title, html, kind){
@@ -9098,7 +9103,7 @@ function renderTray(){
 // the class switch on the Skills bar (Tab does the same)
 function addClassButton(t){
   const bar = t.querySelector('.bar'); if (!bar) return;
-  const cur = classInfo(G.cls), nx = classInfo(CLASS_IDS[(CLASS_IDS.indexOf(G.cls) + 1) % CLASS_IDS.length]);
+  const cur = classInfo(G.cls), nx = classInfo(classCycle()[(classCycle().indexOf(G.cls) + 1) % classCycle().length]);
   const b = document.createElement('button'); b.className = 'btn'; b.id = 'clsB'; b.style.alignSelf = 'center'; b.style.lineHeight = '1.1';
   b.innerHTML = `${cur.e} ${cur.name}<small style="display:block;font-size:11px;font-weight:700">Tab: ${nx.e} ${nx.name}</small>`; b.title = 'Switch class (Tab)';
   b.onclick = e => { e.stopPropagation(); switchClass(); }; bar.appendChild(b);
@@ -9166,10 +9171,10 @@ function actionDown(){
   if (P.carry) { dropCarry(P, true); G.skipUp = true; return; }
   if (G.phase === 'attack' && G.targeting) { castAt(); G.skipUp = true; return; }
   if (G.phase === 'build') { if (!G.pvp || amDefender()) placeItem(); }
-  else if (G.phase === 'attack' && G.pvp) { if (G.cls === 'bomber') fireBazooka(); else if (G.cls === 'sword') swordSwing(); else if (G.cls === 'summon') summonCommand(); else if (G.cls === 'necro') fireSkull(); else if (G.mode === 'pain') chargeStart('p_rod', 'mouse'); else fireKi(); }
+  else if (G.phase === 'attack' && G.pvp) { if (G.cls === 'bomber') fireBazooka(); else if (G.cls === 'sword') swordSwing(); else if (G.cls === 'summon') summonCommand(); else if (G.cls === 'necro') fireSkull(); else if (painKit()) chargeStart('p_rod', 'mouse'); else fireKi(); }
   else if (G.phase === 'attack') { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('Pick a skill first: press its key or tap it in the Skills bar.'); } }
 }
-function actionUp(){ if (G.mode === 'pain') chargeRelease('mouse'); if (G.skipUp) { G.skipUp = false; return; } if (G.phase === 'attack' && G.charging) fire(); }
+function actionUp(){ if (painKit() || PAIN.charge) chargeRelease('mouse'); if (G.skipUp) { G.skipUp = false; return; } if (G.phase === 'attack' && G.charging) fire(); }
 
 let rdrag = null;
 const touches = {stick:null, look:null};
@@ -9255,18 +9260,18 @@ addEventListener('keydown', e => {
   if (G.phase === 'attack' && !e.repeat && G.cls === 'sword') { swordKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'summon') { summonKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'necro') { necroKeyDown(k); return; }
-  if (G.phase === 'attack' && !e.repeat) { if (G.mode === 'pain') { if (PAIN_KEYS[k]) painKeyDown(PAIN_KEYS[k], k); return; } const sp = {n:'nuke', b:'chibaku', g:'gravity', c:'comet', h:'army', t:'shinra', x:'bijuu', o:'tornado', v:'volcano', l:'lightning', m:'gcow', j:'frog', k:'knives', z:'antimatter', y:'hellgate', q:'fireball', '-':'doomnuke', u:'judgement', i:'coming', '1':'satan', '2':'sword', '3':'flip', '4':'slow', '5':'freeze', '6':'tree', '7':'night', '8':'supernova', '9':'vacuum', '0':'eoe', f:'onepunch', r:'serious'}[k]; if (sp) useSpecial(sp); }
+  if (G.phase === 'attack' && !e.repeat) { if (painKit()) { if (PAIN_KEYS[k]) painKeyDown(PAIN_KEYS[k], k); return; } const sp = {n:'nuke', b:'chibaku', g:'gravity', c:'comet', h:'army', t:'shinra', x:'bijuu', o:'tornado', v:'volcano', l:'lightning', m:'gcow', j:'frog', k:'knives', z:'antimatter', y:'hellgate', q:'fireball', '-':'doomnuke', u:'judgement', i:'coming', '1':'satan', '2':'sword', '3':'flip', '4':'slow', '5':'freeze', '6':'tree', '7':'night', '8':'supernova', '9':'vacuum', '0':'eoe', f:'onepunch', r:'serious'}[k]; if (sp) useSpecial(sp); }
   if (G.phase === 'build') {
     if (k === 'r') G.ghostRot += Math.PI/4;
     { const dk = Object.keys(DEFENSES).find(id => DEFENSES[id].key.toLowerCase() === k); if (dk) useDefense(dk); }
     if (k === 'f' || k === 'enter') finishBuild();
   }
 });
-addEventListener('keyup', e => { const k = keyName(e); keys[k] = false; if (G.mode === 'pain') painKeyUp(k); if (G.cls === 'sword') swordKeyUp(k); });
+addEventListener('keyup', e => { const k = keyName(e); keys[k] = false; if (painKit() || PAIN.charge || PAIN.aim) painKeyUp(k); if (G.cls === 'sword') swordKeyUp(k); });
 // leaving the tab never delivers the key-up for keys that were held, so start clean when it hides and when it comes back
-document.addEventListener('visibilitychange', () => { for (const k in keys) keys[k] = false; if (document.hidden && G.mode === 'pain') painKeyUp(null); });
+document.addEventListener('visibilitychange', () => { for (const k in keys) keys[k] = false; if (document.hidden) painKeyUp(null); });
 addEventListener('focus', () => { for (const k in keys) keys[k] = false; });
-addEventListener('blur', () => { for (const k in keys) keys[k] = false; if (G.mode === 'pain') painKeyUp(null); SW.charge = null; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; painKeyUp(null); SW.charge = null; });
 
 function readInput(){
   let x = 0, z = 0;
@@ -9548,7 +9553,7 @@ function frame(now){
   { const hm = (inPlay() && !isTouch && !G.locked && !G.eggCam) ? (G.fallback ? 2 : 1) : 0;
     if (hm !== G.hintMode) { G.hintMode = hm; const h = $('lockHint'); h.style.display = hm ? 'block' : 'none'; h.classList.toggle('fb', hm === 2);
       h.innerHTML = hm === 2 ? `🖱️ Mouse lock is blocked in this tab (${G.lockErr || 'refused'}). The camera follows your mouse; hold it at the screen edge to keep turning.<br><small>Click to retry. If it keeps happening, close this tab and open the game link again.</small>` : 'Click to control your character'; } }
-  updateVisuals(rdt); updateEdge(); pvpFrame(rdt); if (G.mode === 'pain' && G.phase === 'attack') painFrame(rdt); bomberFrame(rdt * G.fxScale); swordFrame(rdt); voiceFrame(rdt); summonFrame(rdt * G.fxScale); necroFrame(rdt * G.fxScale);
+  updateVisuals(rdt); updateEdge(); pvpFrame(rdt); if (G.pvp && G.phase === 'attack') painFrame(rdt); bomberFrame(rdt * G.fxScale); swordFrame(rdt); voiceFrame(rdt); summonFrame(rdt * G.fxScale); necroFrame(rdt * G.fxScale);
   SpaceWarp.render();
   perfTune(performance.now() - t0, rdt);
 }
