@@ -167,6 +167,20 @@ mines, buttons and the local player with their half. `G.splits` / `inVoid` / `vo
 Satan, bettys and dashes avoid the gap); falling in kills (`swordFrame`). Once per player per round
 (`G.severUsed`, host-checked); a new round regenerates the terrain.
 
+**Summoner** (module "SUMMONER", after the Swordsman): `u_*` ids in `SUMMON`; click = Command
+(`u_cmd`: every summon you own uses its signature move at the crosshair, `cmdPoint`), 20 animals on
+1-0 / Q R F G T Z X C V / B. Each summon is an entity in `SUM.list` (`makeSummon`, its own `tick`
+AI and `anim`), simulated on every screen; helpers `eTarget`, `eMove` (respects the void), `eArea` /
+`eCone` (victim-side), `grab` (holds the local player via `P.held` in `controlPlayer`, or a dummy via
+`SUM.held`), `fling`, `lashOut` (tongues/trunk), `dartTo` (BX bombs). Max 2 big summons per player.
+Peacock hypnosis = `P.hypno` (steers `controlPlayer`); octopus ink = `G.blindT` (#blindFx overlay) and
+`G.hiddenUntil`; chameleon also hides you; hidden = 'st' flag bit 32 (remote root hidden, finder arrow
+skips them) until a bat's echolocation (`G.revealT`, marks in `SUM.marks`). The turtle is a kinematic
+deck with `platformVel` (`groundCheck` -> `P.platformV` carries riders); the eagle is a typed carpet
+('eagle', 20 m/s, 9 m up; let go = hidden cast `u_eaglex`).
+
+The Skills bar fills row by row and is sorted by key: click, 1-9, 0, then letters A-Z.
+
 ## Network checks (castOK)
 
 Casts carry `o` (where the caster stood *before* the power moved them) and `ts` (the caster's own
