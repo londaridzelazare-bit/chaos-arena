@@ -236,6 +236,17 @@ materials, voxel particles (`UNIT` boxes), `perfTune` off. Nature: trees are sin
 instanced `DECOR` (bushes, branches, pebbles, mushrooms; `decorDamage/Erase`, rustle). Fire
 (`igniteAt` from fire blasts and `groundFire`) burns trees/logs/stumps/plants and spreads (`BURN`).
 
+## Camera (orbit, third-person RPG style)
+
+In the frame loop's camera block (`CAM`): yaw/pitch are applied directly, so the camera always circles the
+character (no position lerp that cut across on fast turns). Pivot height is damped (`CAM.py`), big moves
+(> 6 m: respawn, teleport) cut. `cameraBoom` now only *returns* the free boom length; `CAM.len` eases toward
+it (pulls in fast, lets out slowly), so obstacles and zoom never snap. `PITCH_MAX` is .62 (looking further
+up put the camera under the ground) and looking up shortens the boom. Mouse: `lookHold` ignores movement for
+160 ms after the lock is gained, the window regains focus or the tab comes back (Chrome sends stale jumps),
+events are clamped to ±400 px, and the free-cursor fallback only turns at the left/right edges (resting the
+cursor at the top used to tilt the camera up forever). Test: scratch `cam.mjs`.
+
 ## Combo builder (Chaos kit)
 
 Module "COMBO BUILDER". `localCast` snapshots carriers and calls `comboTrack`; `CB.refs` holds every

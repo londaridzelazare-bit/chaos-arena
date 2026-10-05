@@ -297,7 +297,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-06.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-06.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -10144,28 +10144,32 @@ function requestLock(){
 function releaseLock(){ if (document.pointerLockElement) try { document.exitPointerLock(); } catch(e) {} }
 document.addEventListener('pointerlockchange', () => {
   const was = G.locked; G.locked = document.pointerLockElement === canvas;
-  if (G.locked) { clearTimeout(lockWatch); lockDone = lockReq; lockFails = 0; G.fallback = false; } else if (was) lastUnlock = performance.now()/1000;
+  if (G.locked) { clearTimeout(lockWatch); lockDone = lockReq; lockFails = 0; G.fallback = false; if (!was && typeof holdLook === 'function') holdLook(); } else if (was) lastUnlock = performance.now()/1000;
 });
 document.addEventListener('pointerlockerror', lockFailed);
-const PITCH_MIN = -1.3, PITCH_MAX = 1.3;   // about 75 degrees down and up
+const PITCH_MIN = -1.25, PITCH_MAX = .62;   // about 72 degrees down, 35 up: further up only put the camera under the ground
 function look(dx, dy, s){ G.yaw -= dx*s; G.pitch = clamp(G.pitch - dy*s, PITCH_MIN, PITCH_MAX); }
 // Chrome on Windows sometimes reports one huge bogus jump while locked. Only drop an event that is both huge and
 // far beyond the recent movement: real flicks ramp up over several events, so they always get through.
-let mvAvg = 0;
+let mvAvg = 0, lookHold = 0;
+const holdLook = () => { lookHold = performance.now() + 160; mvAvg = 0; };
+addEventListener('focus', holdLook); document.addEventListener('visibilitychange', holdLook);
 document.addEventListener('mousemove', e => {
   if (!inPlay()) return;
   if (G.locked) {
+    if (performance.now() < lookHold) return;   // Chrome sends a stale jump right after the lock or focus returns
     const m = Math.max(Math.abs(e.movementX), Math.abs(e.movementY));
     const spike = m > 600 && m > mvAvg*8 + 60;
     mvAvg = mvAvg*.8 + Math.min(m, 2000)*.2;   // learn from every event: a sustained fast flick only loses its first event
-    if (!spike) look(e.movementX, e.movementY, .0026);
+    if (!spike) look(clamp(e.movementX, -400, 400), clamp(e.movementY, -400, 400), .0026);
     return;
   }
   // no mouse lock available: the camera follows the free cursor; edge turning (in frame) covers the screen edges
   G.mx = e.clientX; G.my = e.clientY;
   if (G.fallback && !rdrag) look(e.movementX, e.movementY, .0026);
 });
-document.documentElement.addEventListener('mouseleave', () => { G.mx = null; });
+document.documentElement.addEventListener('mouseleave', () => { G.mx = G.my = null; });
+addEventListener('blur', () => { G.mx = G.my = null; });
 
 function actionDown(){
   ensureAudio();
@@ -10289,7 +10293,7 @@ function readInput(){
 // (the camera used to end up inside boulders and tree crowns, hiding the whole view)
 const _boomDir = new THREE.Vector3();
 function cameraBoom(piv, want){
-  _boomDir.copy(want).sub(piv); const L = _boomDir.length(); if (L < .05) return; _boomDir.divideScalar(L);
+  _boomDir.copy(want).sub(piv); const L = _boomDir.length(); if (L < .05) return L; _boomDir.divideScalar(L);
   const dx = _boomDir.x, dy = _boomDir.y, dz = _boomDir.z, a2 = dx*dx + dz*dz;
   let best = L;
   const sphere = (cx, cy, cz, r) => { const ox = cx - piv.x, oy = cy - piv.y, oz = cz - piv.z, t = ox*dx + oy*dy + oz*dz; if (t < -r || t > best + r) return;
@@ -10318,11 +10322,12 @@ function cameraBoom(piv, want){
     box(A); };
   for (const o of objs) if (!o.dead && (o.kind === 'item' || o.kind === 'debris') && !isCarried(o) && o.body.mass > 30) solid(o.body);
   for (const g of golems) if (!g.done) solid(g.body);
-  if (best < L) { const k = Math.max(.7, best - .35); want.copy(piv).addScaledVector(_boomDir, k); want.y += Math.max(0, 2.6 - k)*.45; }   // pushed in close: rise to look over the shoulder
+  return best < L ? Math.max(.7, best - .35) : L;
 }
 function resize(){ if (PIXEL.on) { const pr = 1/pixelScale(); if (pr !== MAX_PR) { MAX_PR = MIN_PR = pr; renderer.setPixelRatio(pr); } } const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w/h; G.baseFov = w < h ? 68 : 55; camera.fov = G.baseFov; camera.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
 
+const CAM = {ok:false, px:0, py:0, pz:0, len:-1};
 const camPos = new THREE.Vector3(0, 30, 40), camLook = new THREE.Vector3(), tmpV = new THREE.Vector3(), tmpL = new THREE.Vector3();
 const FIXED = 1/60, FX_MAX = 200; let acc = 0, last = performance.now();
 
@@ -10414,7 +10419,6 @@ function frame(now){
     if (G.fallback && !G.locked && G.mx != null && !isTouch) {
       const E = 48;
       if (G.mx < E) G.yaw += rdt*2.6*(1 - G.mx/E + .3); else if (G.mx > innerWidth - E) G.yaw -= rdt*2.6*(1 - (innerWidth - G.mx)/E + .3);
-      if (G.my < E) G.pitch = clamp(G.pitch + rdt*1.3, PITCH_MIN, PITCH_MAX); else if (G.my > innerHeight - E) G.pitch = clamp(G.pitch - rdt*1.3, PITCH_MIN, PITCH_MAX);
     }
   }
 
@@ -10504,20 +10508,30 @@ function frame(now){
   // camera
   const cross = $('cross');
   if (inPlay() && act) {
+    /* orbit camera (third-person RPG style): turning is applied directly, so the camera always circles the
+       character and never cuts across; the pivot's height is lightly damped (jumps don't jolt the view); the boom
+       length eases: obstacles pull it in fast, it lets out slowly; looking up brings it closer instead of under
+       the ground. Big moves (respawn, teleport) cut straight to the new spot. */
     const bp = interpOn ? interpPos : act.body.position;
     const cp = Math.cos(G.pitch), f3 = tmpA.set(Math.sin(G.yaw)*cp, Math.sin(G.pitch), Math.cos(G.yaw)*cp);
     const right = tmpB.set(-Math.cos(G.yaw), 0, Math.sin(G.yaw));
-    const piv = tmpL.set(bp.x, bp.y + 1.75, bp.z).addScaledVector(right, .75);
-    const dist = (G.phase === 'attack' ? G.camDist*.85 : G.camDist) * (act.fly ? 2.4 : 1);
+    const ty = bp.y + 1.75;
+    if (!CAM.ok || Math.hypot(bp.x - CAM.px, ty - CAM.py, bp.z - CAM.pz) > 6) { CAM.px = bp.x; CAM.py = ty; CAM.pz = bp.z; CAM.len = -1; CAM.ok = true; }
+    else { CAM.px = bp.x; CAM.pz = bp.z; CAM.py += (ty - CAM.py)*(1 - Math.pow(.0004, rdt)); }
+    const piv = tmpL.set(CAM.px, CAM.py, CAM.pz).addScaledVector(right, .75);
+    const up = Math.max(0, G.pitch)/PITCH_MAX;
+    const dist = (G.phase === 'attack' ? G.camDist*.85 : G.camDist) * (act.fly ? 2.4 : 1) * (1 - .42*up);
     tmpV.copy(piv).addScaledVector(f3, -dist);
-    cameraBoom(piv, tmpV);
-    { const cg = Math.max(groundH(tmpV.x, tmpV.z), groundH((tmpV.x + bp.x)/2, (tmpV.z + bp.z)/2)) + .6; if (tmpV.y < cg) tmpV.y = cg; }
-    camPos.lerp(tmpV, 1 - Math.pow(.0005, rdt));
+    const reach = cameraBoom(piv, tmpV);
+    if (CAM.len < 0) CAM.len = reach;
+    else CAM.len += (reach - CAM.len)*(1 - Math.pow(reach < CAM.len ? 1e-9 : .06, rdt));
+    camPos.copy(piv).addScaledVector(f3, -CAM.len); camPos.y += Math.max(0, 2.6 - CAM.len)*.45;   // pushed in close: rise to look over the shoulder
+    { const cg = Math.max(groundH(camPos.x, camPos.z), groundH((camPos.x + bp.x)/2, (camPos.z + bp.z)/2)) + .6; if (camPos.y < cg) camPos.y = cg; }
     camera.position.copy(camPos);
     camLook.copy(camPos).addScaledVector(f3, 20);
     cross.style.display = 'block';
   } else {
-    cross.style.display = 'none';
+    cross.style.display = 'none'; CAM.ok = false;
     if (G.phase === 'title') { const a = G.t*.08; tmpV.set(Math.sin(a)*30, 14, Math.cos(a)*30); tmpL.set(0,1,0); }
     else if (G.eggCam && G.eggPos) { tmpL.copy(G.eggPos); tmpV.copy(G.eggPos).add(new THREE.Vector3(Math.sin(G.t*.3)*3.6, 2.4, Math.cos(G.t*.3)*3.6)); }
     else { const a = G.t*.12; tmpV.set(Math.sin(a)*20, 10, Math.cos(a)*20); tmpL.set(0,1,0); }
