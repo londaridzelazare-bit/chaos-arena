@@ -249,10 +249,15 @@ cursor at the top used to tilt the camera up forever). Test: scratch `cam.mjs`.
 
 ## Combo builder (Chaos kit)
 
-Module "COMBO BUILDER". `localCast` snapshots carriers and calls `comboTrack`; `CB.refs` holds every
-carrier in the combo (new carriers that soak it join), delayed fusions are credited in `comboFrame`
-(`CB.pending`). `comboUI` draws `#comboBar` ([icon] + [icon] + ?, name, "Add next") above the class tabs
-and marks `.combo-ok` / `.combo-in` on the Skills bar; arming a carrier power previews options.
+Module "COMBO BUILDER". The user wants combos built *before* casting: press a power (armed, `G.targeting`),
+press more powers and they join `CB.build` instead of replacing it (`comboPress`, called at the top of the
+Chaos branch of `useSpecial`, so keys and Skills-bar clicks both work). Compatible = brings an element
+(`SPECIAL_ELEM`) the combo doesn't have, max `COMBO_MAX` (4); pressing a member removes it; right-click
+cancels (comboFrame clears `CB.build` when `G.targeting` is gone). Instant powers fire at once when nothing
+is armed and join a combo when something is. Click -> `castAt` -> `comboFire`: every power is cast at the
+marker (carriers first), then `comboFuse` adds every element to every new carrier for 3 s (late carriers
+too). `#comboBar` shows [icon] + [icon] + ?, the combo name and "Can combine"; `.combo-ok` pulses on the
+Skills bar. Test: scratch `combo.mjs` (real key presses).
 
 ## Protection (Egg mode defender)
 

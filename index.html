@@ -297,7 +297,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-06.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-06.3';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -1526,6 +1526,7 @@ function useSpecial(id){
   if (amDefender()) { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('🛡️ You defend: click for energy blasts, E to grab and throw things.'); } return; }
   if (G.egg && G.egg.over) return;
   if (PAIN_SKILLS[id]) { painUse(id); return; }
+  if (comboPress(id)) return;   // something is armed: this power joins the combo instead (COMBO BUILDER)
   const INSTANT_IDS = ['gravity','flip','slow','freeze','night','onepunch','serious'];
   if (INSTANT_IDS.includes(id)) { if (G.spCd > 0) return; G.spCd = .4; if (G.pvp && (G.cd[id] || 0) > 0) { cdToast(id); return; } localCast(id, null); return; }
   setTargeting(id);
@@ -2095,6 +2096,7 @@ function castAt(){
   const id = G.targeting;
   if (!G.targetPoint) { toast(G.targetWhy || 'Aim at the ground.'); return; }
   if (G.spCd > 0) return; G.spCd = .22;
+  if (CB.build.length > 1 && CB.build.includes(id)) { comboFire(); return; }   // a built combo fires as one attack
   if (G.pvp && (G.cd[id] || 0) > 0) { cdToast(id); return; }
   localCast(id, G.targetPoint.clone());
 }
@@ -9097,100 +9099,114 @@ function worldFrame(rdt){ rainFrame(rdt); if (G.pvp || G.phase === 'attack' || G
 setRain(RAIN.on);
 
 /* ===================================== COMBO BUILDER (Chaos powers) =====================================
-   Powers fuse when an elemental power lands on a living "carrier" (tornado, black hole, Satan, a flying nuke…):
-   the carrier takes the new element (up to 3 on top of its own). This shows it while you build:
-   - picking a power that makes a carrier (or casting one) starts a chain: [icon] + ?
-   - every power that would still add a NEW element to it pulses on the Skills bar; the rest dim
-   - each power that really fused is added to the chain ([🌪️] + [🔥] + [⚡]), named like the game names it
-   - the chain ends when the carrier is gone or full. Only your own casts are tracked. */
+   Build a combined attack before you fire it:
+   - press a power: it is armed (aim marker), and the panel above the Skills bar shows [icon] + ?
+   - press more powers while it is armed: each compatible one joins the combo instead of replacing it
+     (compatible = brings an element the combo doesn't have yet; up to 4 powers). They pulse on the Skills bar;
+     pressing one that is already in the combo takes it out; right-click cancels the combo
+   - click (throw / trigger): every power in the combo fires at the marker at once, carriers first (tornado,
+     black hole, Satan, nukes…), and each carrier is fused with every element in the combo, also carriers that
+     appear a moment later (comboFrame keeps fusing for 3 s). Instant powers (freeze, flip, One Punch…) fire
+     straight away when nothing is armed, and join a combo when something is. */
 const CARRIER_BASE = {tornado:'wind', chibaku:'gravity', satan:'hell', gcow:'milk', knives:'blade', volcano:'fire', frog:'nature', fireball:'fire', hellgate:'hell', tree:'nature',
   vacuum:'void', judgement:'holy', coming:'holy', supernova:'fire', nuke:'blast', bijuu:'blast', doomnuke:'blast', antimatter:'void', comet:'fire'};
-const CB = {chain:null, refs:new Set(), sizes:new Map(), seen:new Set(), pending:[], name:'', endT:0, key:''};
-// every carrier in this combo (a new carrier soaks the old one up, and both keep going)
-const cbLive = () => getCarriers().filter(c => CB.refs.has(c.ref));
-const cbMain = live => live.reduce((a, c) => !a || (c.ref.elems ? c.ref.elems.size : 0) > (a.ref.elems ? a.ref.elems.size : 0) ? c : a, null);
-const cbElems = () => { const s = new Set(); for (const c of cbLive()) { s.add(c.base); if (c.ref.elems) c.ref.elems.forEach(e => s.add(e)); } return s; };
-const cbFull = () => { const m = cbMain(cbLive()); return !!(m && m.ref.elems && m.ref.elems.size >= 3); };
+const COMBO_INSTANT = ['gravity','flip','slow','freeze','night','onepunch','serious'];
+const COMBO_MAX = 4;
+const CB = {build:[], fuse:null, key:'', shout:null};
+const cbOn = () => G.pvp && G.phase === 'attack' && G.cls === 'native' && !isPain();
 function cbAvailable(id){ return SPECIALS[id] && !(G.cdOn && (G.cd[id] || 0) > 0) && (!G.specials || G.specials[id] > 0); }
-// which powers can still be added: their element isn't in the combo yet, and the carrier has room
-function cbCompatible(armed){
-  const out = new Set();
-  if (!(G.cls === 'native' && !isPain())) return out;
-  let have;
-  if (CB.chain) { if (cbFull()) return out; have = cbElems(); if (armed && SPECIAL_ELEM[armed]) have.add(SPECIAL_ELEM[armed]); }
-  else if (armed && CARRIER_BASE[armed]) have = new Set([CARRIER_BASE[armed]]);
-  else return out;
-  for (const id in SPECIALS) { const el = SPECIAL_ELEM[id]; if (el && !have.has(el) && id !== armed && cbAvailable(id)) out.add(id); }
+const cbList = () => CB.build.length ? CB.build : G.targeting && SPECIALS[G.targeting] ? [G.targeting] : [];
+const cbElemsOf = list => new Set(list.map(id => SPECIAL_ELEM[id]).filter(Boolean));
+// powers that can still join: a new element, room left
+function cbCompatible(){
+  const out = new Set(), list = cbList(); if (!cbOn() || !list.length || list.length >= COMBO_MAX) return out;
+  const have = cbElemsOf(list);
+  for (const id in SPECIALS) { const el = SPECIAL_ELEM[id]; if (el && !have.has(el) && !list.includes(id) && cbAvailable(id)) out.add(id); }
   return out;
 }
-// after one of our own casts: did it start a chain, feed it, or start a new carrier that soaked it up?
-function comboTrack(id, before){
-  if (!SPECIALS[id] || G.cls !== 'native' || isPain()) return;
-  const C = getCarriers(), fresh = C.filter(c => !before.has(c.ref)), size = c => c.ref.elems ? c.ref.elems.size : 0;
-  const live = CB.chain ? C.filter(c => CB.refs.has(c.ref)) : [];
-  if (live.length) {
-    const had = cbElems();
-    const grew = live.some(c => size(c) > (CB.sizes.get(c.ref) || 0));
-    const soaked = fresh.filter(f => size(f) > 0 && [...f.ref.elems].some(e => had.has(e)));
-    soaked.forEach(f => CB.refs.add(f.ref));
-    if (grew || soaked.length) { CB.chain.push(id); CB.endT = 0; cbPing(); }
-    else if (fresh.length) { CB.refs.clear(); cbStart(id, fresh[0]); }
-    // strikes and projectiles fuse when they land: credit the element when it shows up (comboFrame)
-    else if (SPECIAL_ELEM[id] && !had.has(SPECIAL_ELEM[id])) CB.pending.push({id, el:SPECIAL_ELEM[id], t:G.t});
-  } else if (fresh.length) { CB.refs.clear(); cbStart(id, fresh[0]); }
-  for (const c of getCarriers()) if (CB.refs.has(c.ref)) CB.sizes.set(c.ref, size(c));
-  if (CB.chain) cbElems().forEach(e => CB.seen.add(e));
-  cbName(); comboUI();
-}
-function cbName(){ const m = cbMain(cbLive()); if (m) CB.name = m.ref.elems && m.ref.elems.size ? comboName(m) : m.name; }
-function cbStart(id, c){ CB.chain = [id]; CB.refs = new Set([c.ref]); CB.sizes = new Map(); CB.seen = new Set(); CB.pending = []; CB.endT = 0; }
-function cbPing(){ const el = document.getElementById('comboBar'); if (el) { el.classList.remove('ping'); void el.offsetWidth; el.classList.add('ping'); } }
-function cbHint(){ if (!CB.hintT || G.t - CB.hintT > 3) { CB.hintT = G.t; toast('🔗 Too far from the combo: aim it onto the carrier (within ~14 m).'); } }
-function comboEnd(){ CB.chain = null; CB.refs = new Set(); CB.sizes = new Map(); CB.seen = new Set(); CB.pending = []; CB.endT = 0; comboUI(); }
-function comboFrame(dt){
-  CB.t = (CB.t || 0) - dt; if (CB.t > 0) return; CB.t = .2;
-  if (CB.chain && (!G.pvp || G.phase !== 'attack' || !cbLive().length)) { if (!CB.endT) { CB.endT = G.t; CB.key = ''; comboUI(); } else if (G.t - CB.endT > 1.2) comboEnd(); return; }
-  if (CB.chain) {
-    const now = cbElems();
-    for (const e of now) if (!CB.seen.has(e)) { CB.seen.add(e); const k = CB.pending.findIndex(q => q.el === e); if (k >= 0) { CB.chain.push(CB.pending[k].id); CB.pending.splice(k, 1); cbPing(); CB.key = ''; } }
-    CB.pending = CB.pending.filter(q => { if (G.t - q.t < 3.5) return true; cbHint(); return false; });
-    cbName();
+// a power key or button while something is armed: add it to (or take it out of) the combo. true = handled
+function comboPress(id){
+  if (!cbOn() || !G.targeting || !SPECIALS[G.targeting]) return false;
+  const list = cbList();
+  if (list.length === 1 && id === list[0]) return false;   // the armed power alone: normal put-away
+  if (list.includes(id)) {
+    CB.build = list.filter(x => x !== id); const rest = CB.build.slice(); if (CB.build.length === 1) CB.build = [];
+    if (G.targeting === id) G.targeting = rest[0];
+    sfx('place'); CB.key = ''; renderTray(); return true;
   }
+  if (!cbAvailable(id)) { if (G.cdOn && (G.cd[id] || 0) > 0) cdToast(id); return true; }
+  if (list.length >= COMBO_MAX) { toast(`🔗 A combo holds ${COMBO_MAX} powers. Click to fire it, or right-click to cancel.`); return true; }
+  const el = SPECIAL_ELEM[id], have = cbElemsOf(list);
+  if (!el || have.has(el)) { toast(`🔗 ${SPECIALS[id].e} ${SPECIALS[id].name} can't join: the combo already has ${el ? ELEM[el].e + ' ' + ELEM[el].adj.toLowerCase() : 'that'}.`); return true; }
+  CB.build = list.concat(id); sfx('grab'); CB.key = ''; renderTray(); cbPing(); return true;
+}
+function cbName(list){
+  const carrier = list.find(id => CARRIER_BASE[id]), base = carrier ? CARRIER_BASE[carrier] : null;
+  const adj = list.filter(id => id !== carrier).map(id => SPECIAL_ELEM[id]).filter(e => e && e !== base).map(e => ELEM[e].adj);
+  return (adj.length ? adj.join(' ') + ' ' : '') + (carrier ? SPECIALS[carrier].name : list.map(id => SPECIALS[id].name).join(' + '));
+}
+// click: fire the whole combo at the marker
+function comboFire(){
+  const list = CB.build.slice(), p = G.targetPoint.clone();
+  const cooling = list.find(id => G.cdOn && (G.cd[id] || 0) > 0); if (cooling) { cdToast(cooling); return; }
+  const order = list.filter(id => CARRIER_BASE[id]).concat(list.filter(id => !CARRIER_BASE[id]));
+  const before = new Set(getCarriers().map(c => c.ref)), elems = [...cbElemsOf(list)];
+  for (const id of order) localCast(id, COMBO_INSTANT.includes(id) ? null : p.clone());
+  CB.fuse = {before, elems, until:G.t + 3};
+  comboFuse();
+  const name = cbName(list);
+  CB.shout = {list, name, until:G.t + 2.2};
+  flash(.35, .8); sfx('boom'); shakeAt(p, .5, 120);
+  CB.build = []; G.targeting = null; CB.key = ''; renderTray();
+}
+// every carrier the combo made takes every element in it (some appear a moment later: strikes, drops)
+function comboFuse(){
+  const F = CB.fuse; if (!F) return;
+  for (const c of getCarriers()) if (!F.before.has(c.ref)) for (const e of F.elems) addElem(c, e, true);
+  if (G.t > F.until) CB.fuse = null;
+}
+function cbPing(){ const el = document.getElementById('comboBar'); if (el) { el.classList.remove('ping'); void el.offsetWidth; el.classList.add('ping'); } }
+function comboEnd(){ CB.build = []; CB.fuse = null; CB.shout = null; CB.key = ''; comboUI(); }
+function comboFrame(dt){
+  if (CB.fuse) comboFuse();
+  CB.t = (CB.t || 0) - dt; if (CB.t > 0) return; CB.t = .2;
+  if (CB.build.length && (!cbOn() || !G.targeting || !CB.build.includes(G.targeting))) CB.build = [];   // cancelled (right-click, class switch, death)
+  if (CB.shout && G.t > CB.shout.until) { CB.shout = null; CB.key = ''; }
   comboUI();
 }
-// the bar above the class tabs, and the highlights on the Skills bar
+// the panel above the class tabs, and the highlights on the Skills bar
 function comboUI(){
-  const armed = G.targeting && SPECIALS[G.targeting] ? G.targeting : null;
-  const show = G.pvp && G.phase === 'attack' && G.cls === 'native' && !isPain() && (CB.chain || (armed && CARRIER_BASE[armed]));
-  const ok = show && !CB.endT ? cbCompatible(armed) : new Set();
+  const list = cbOn() ? cbList() : [], building = list.length > 0 && list.some(id => SPECIAL_ELEM[id]);
+  const show = building || !!CB.shout;
+  const ok = building ? cbCompatible() : new Set();
   let el = document.getElementById('comboBar');
-  const key = show ? [CB.chain ? CB.chain.join(',') : '', armed, [...ok].join(','), CB.endT ? 1 : 0, CB.name].join('|') : '';
+  const key = show ? [list.join(','), [...ok].join(','), CB.shout ? CB.shout.name : ''].join('|') : '';
   if (key !== CB.key) { CB.key = key;
     if (!show) { if (el) el.style.display = 'none'; }
     else {
       if (!el) { el = document.createElement('div'); el.id = 'comboBar'; el.className = 'sticker'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite'); document.body.appendChild(el); }
-      const icon = (id, cls) => `<span class="cbI ${cls || ''}" title="${SPECIALS[id].name}">${SPECIALS[id].e}<kbd>${SPECIALS[id].key}</kbd></span>`;
-      const parts = (CB.chain || []).map(id => icon(id));
-      if (armed && (!CB.chain || !CB.chain.includes(armed) || CB.chain[CB.chain.length - 1] !== armed)) parts.push(icon(armed, 'armed'));
-      const full = !CB.endT && cbFull();
-      if (!CB.endT && !full) parts.push('<span class="cbI next" aria-hidden="true">?</span>');
-      const nexts = [...ok].slice(0, 12).map(id => `<span class="cbN" title="${SPECIALS[id].name}">${SPECIALS[id].e}<kbd>${SPECIALS[id].key}</kbd></span>`).join('');
-      const label = CB.endT ? `💥 ${CB.name || 'Combo'} is over` : CB.chain ? `🔗 ${CB.name}${full ? ' · FULL' : ''}` : `🔗 ${SPECIALS[armed].name} can start a combo`;
-      el.innerHTML = `<div class="cbChain">${parts.join('<b class="cbPlus">+</b>')}</div><div class="cbName">${label}</div>${nexts && !CB.endT ? `<div class="cbNext"><span>Add next:</span>${nexts}</div>` : ''}`;
-      el.style.display = 'block'; el.classList.toggle('over', !!CB.endT);
+      const icon = id => `<span class="cbI" title="${SPECIALS[id].name}">${SPECIALS[id].e}<kbd>${SPECIALS[id].key}</kbd></span>`;
+      let html;
+      if (building) {
+        const parts = list.map(icon); if (list.length < COMBO_MAX && ok.size) parts.push('<span class="cbI next" aria-hidden="true">?</span>');
+        const nexts = [...ok].slice(0, 14).map(id => `<span class="cbN" title="${SPECIALS[id].name}">${SPECIALS[id].e}<kbd>${SPECIALS[id].key}</kbd></span>`).join('');
+        const label = list.length > 1 ? `🔗 ${cbName(list)} · <b>click to unleash</b>` : `${SPECIALS[list[0]].e} ${SPECIALS[list[0]].name} armed · press another power to combine`;
+        html = `<div class="cbChain">${parts.join('<b class="cbPlus">+</b>')}</div><div class="cbName">${label}</div>${nexts ? `<div class="cbNext"><span>Can combine:</span>${nexts}</div>` : ''}`;
+      } else html = `<div class="cbChain">${CB.shout.list.map(icon).join('<b class="cbPlus">+</b>')}</div><div class="cbName">💥 ${CB.shout.name}!</div>`;
+      el.innerHTML = html; el.style.display = 'block'; el.classList.toggle('over', !building);
     }
   }
   if (el && show) { const bar = document.querySelector('#tray .bar'), tabs = document.querySelector('.classTabs');
     const br = bar ? bar.getBoundingClientRect() : null;
     if (br && br.top < innerHeight/2) { el.style.top = (br.bottom + 8) + 'px'; el.style.bottom = 'auto'; }   // touch: the bar sits at the top
     else { const top = tabs ? tabs.getBoundingClientRect().top : br ? br.top : innerHeight - 160; el.style.bottom = Math.max(8, innerHeight - top + 8) + 'px'; el.style.top = 'auto'; } }
-  comboMarkTray(show ? ok : null, show);
+  comboMarkTray(building ? ok : null, building, list);
 }
-function comboMarkTray(ok, active){
+function comboMarkTray(ok, active, list){
   const sk = document.querySelector('#tray .skills'); if (!sk) return;
   sk.classList.toggle('comboing', !!active && !!ok && ok.size > 0);
-  const inChain = new Set(CB.chain || []);
-  sk.querySelectorAll('[data-sp]').forEach(b => { const id = b.dataset.sp; b.classList.toggle('combo-ok', !!(ok && ok.has(id))); b.classList.toggle('combo-in', !!active && inChain.has(id)); });
+  const inList = new Set(active ? list : []);
+  sk.querySelectorAll('[data-sp]').forEach(b => { const id = b.dataset.sp; b.classList.toggle('combo-ok', !!(ok && ok.has(id))); b.classList.toggle('combo-in', inList.has(id)); });
 }
 
 /* ===================================== SWARM MODE =====================================
@@ -9586,10 +9602,8 @@ function localCast(id, p, x){
   if (G.egg && G.egg.over && id !== 'u_kill' && id !== 'g_break') return;
   const o = P ? [+P.body.position.x.toFixed(2), +P.body.position.y.toFixed(2), +P.body.position.z.toFixed(2)] : null;   // before the power moves you (counter, storm...)
   G.casterKey = G.localKey;
-  const cbBefore = SPECIALS[id] && G.cls === 'native' && !isPain() ? new Set(getCarriers().map(c => c.ref)) : null;
   // a bug in a power's local effect must never stop everyone else from seeing the cast
   try { runSkill(id, p, x); } catch (e) { console.warn(e); } finally { G.casterKey = null; }
-  if (cbBefore) comboTrack(id, cbBefore);
   necroOnCast(G.localKey);
   if (!G.pvp) return;
   if (id !== 'ki' && id !== 'd_use' && id !== 'd_place') G.cd[id] = cdFor(id);
