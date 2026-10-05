@@ -16,7 +16,7 @@ knockouts wins. Everyone has 100 HP, respawns after 4 s at their team's side.
   One Punch / Serious Punch, freeze/slow time, upside-down world, God's judgement, etc.
   Each has a cooldown in PvP (`CD` table). Skills fuse into combos via an element system
   (`ELEM`, `SPECIAL_ELEM`, `comboAfterCast`, `infuse`).
-- Deformable procedural terrain (heightfield + craters), destructible trees/rocks/ruins,
+- Procedural heightfield terrain that never changes shape (blasts only scorch it), destructible trees/rocks/ruins/logs/stumps,
   endless decorative countryside outside a 140×140 m play area.
 - Stylized look: toon shading, black inverted-hull outlines, gradient sky, clouds.
 
@@ -39,7 +39,7 @@ PeerJS 1.5.4 is inlined in a `<script>` block near the top.
 - Physics: cannon.js 0.6.2. Terrain is a `CANNON.Heightfield` (`hfBody`, collision group 8).
   Characters and skeletons do **not** collide with the heightfield; they walk on the surface
   via `groundH(x,z)` + `snapWalker()` (this fixed characters snagging on triangle edges).
-- Terrain: `genTerrain(seed)`, `craterAt(p, r, depth)`, `groundH`, `syncTerrain`.
+- Terrain: `genTerrain(seed)`, `groundH`, `syncTerrain`. `craterAt` now only scorches (`scorchAt`, colour only).
   Destructible props live in `props` (`damageProps`, `destroyProp`, `eraseProps`).
 - Game state lives in the global `G`. Players live in `chars` (keyed by player id).
   `attacker()` returns the current *caster* key (`G.casterKey || G.localKey` in PvP).
@@ -162,11 +162,10 @@ victim-side cones/spheres (`swordHit`, `swordArea`); `cutProjectiles` deletes bo
 Per-character state in `C.sw` (blade buff, orbiting blades, mirror copies); the sword in hand is
 `setHandSword` (others see it via 'st' flag bit 16). Hidden follow-ups: s_orbitx, s_prisonx, s_surfx,
 s_counterx, s_ldash. Perfect Counter hooks `hurt()` (`P.parryT` -> `parried`). Blade Surfing reuses
-the carpet (`P.carpet.type === 'sword'`). **World Severance** really rebuilds the heightfield:
-`severWorld` snapshots `terrH`, remaps each half away from the cut by `SEVER_GAP` (7 m each), sets the
-gap to -60 (dark in `terrainColor`, craters skip it), and moves props, objects, egg, pedestal, dome,
-mines, buttons and the local player with their half. `G.splits` / `inVoid` / `voidSteer` (skeletons,
-Satan, bettys and dashes avoid the gap); falling in kills (`swordFrame`). Once per player per round
+the carpet (`P.carpet.type === 'sword'`). **World Severance** no longer cuts the ground (the user wants
+an indestructible ground): the strike calls `severScar` (WORLD module), a glowing ribbon along the cut that
+cools over 9 s, destroys props on the line and throws everything away from it. `severWorld`, `G.splits`,
+`inVoid` and `voidSteer` remain but nothing creates splits now. Once per player per round
 (`G.severUsed`, host-checked); a new round regenerates the terrain.
 
 **Summoner** (module "SUMMONER", after the Swordsman): `u_*` ids in `SUMMON`; click = Command
@@ -207,6 +206,42 @@ stay tied to Pain mode (`isPain()`). In Pain mode the class is skipped (`classCy
 Egg mode follows the cooldown setting like the other modes (it used to force cooldowns on).
 
 The Skills bar fills row by row and is sorted by key: click, 1-9, 0, then letters A-Z.
+
+## Swarm mode (single-player)
+
+Module "SWARM MODE" (before "casting, locally and for other players"). Mode id 'swarm', practice only
+(host button disabled; `normMode` still maps online modes). Native kit = Chaos `SPECIALS`, all class tabs.
+`swarmSpawn(n)` (panel buttons 5/10/20/50/100, Alt+1-5; Alt+0 clear; Alt+G invincible) queues enemies on
+a ring 20-32 m out; types in `SWARM_TYPES` (grunt / runner / brute). Each enemy: one cannon sphere
+(group 16, ignores other enemies, material PM.char, tag 'dummy'), a record `e.rec` pushed into
+`PAIN.dummies` + `bodyObj` so every power that hits practice dummies hits them (`dummyHit` routes to
+`swarmHurt`). Also `summonsTakeArea/Cone` -> `swarmTakeArea/Cone`, `swarmBodyHurt` next to every
+`if (b.player) { hurt(...)` force-field damage, hard velocity changes (>9 m/s jolt) and fast flight.
+Same-frame damage through two channels counts once (`fa`/`fh`). AI: flow field (Dijkstra on the 70x70
+2 m grid from the player, `swarmBlockMap` marks props/barriers/heavy objects), straight line when clear
+and within 9 m, separation via cell buckets, windup -> strike (`swarmStrike`, `painHurt`). Rendering is
+all InstancedMesh (`SWARM.im`: body/head/arm/leg + outlines, eyes, mouth, billboard health bars, death
+voxels) — instance colours must be created before `count` is lowered. Damage numbers are a pooled sprite
+set with cached textures. Test: scratch `swarm.mjs` (100 enemies, every class, combos, rain, severance).
+
+## World: fog, rain, pixel look, nature
+
+Module "WORLD". `FOG` near/far (40/235). Rain (`RAIN`, ` key or 🌧️ button, local setting `ca-rain`):
+line streaks around the camera, splash rings, rain noise loop, `rainLight` scales whatever light/fog the
+game last set, `updateVisuals` tints sky/fog/clouds by `RAIN.k`. Pixel look (`PIXEL`, `ca-pixel`, title
+button reloads): renderer without antialias at pixel ratio 1/`pixelScale()` + CSS `image-rendering:
+pixelated`, `pixelGrain` (blocky object-space texel noise via onBeforeCompile, define GRAIN_D) on toon
+materials, voxel particles (`UNIT` boxes), `perfTune` off. Nature: trees are single merged meshes
+(`treeGeo` pine/oak/birch/dead, `NAT_MAT` vertex colours), `moreNature` adds logs, stumps, boulders and
+instanced `DECOR` (bushes, branches, pebbles, mushrooms; `decorDamage/Erase`, rustle). Fire
+(`igniteAt` from fire blasts and `groundFire`) burns trees/logs/stumps/plants and spreads (`BURN`).
+
+## Combo builder (Chaos kit)
+
+Module "COMBO BUILDER". `localCast` snapshots carriers and calls `comboTrack`; `CB.refs` holds every
+carrier in the combo (new carriers that soak it join), delayed fusions are credited in `comboFrame`
+(`CB.pending`). `comboUI` draws `#comboBar` ([icon] + [icon] + ?, name, "Add next") above the class tabs
+and marks `.combo-ok` / `.combo-in` on the Skills bar; arming a carrier power previews options.
 
 ## Protection (Egg mode defender)
 

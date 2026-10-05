@@ -197,6 +197,34 @@ body.touch #talkers{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 140px)}
 .classTabs button{flex:none;border:3px solid var(--edge);border-bottom:none;border-radius:10px 10px 0 0;background:var(--panel);color:var(--text);font:inherit;font-weight:800;font-size:12px;padding:4px 10px;cursor:pointer;opacity:.85}
 .classTabs button:first-child{margin-left:auto}.classTabs button:last-child{margin-right:auto}
 .classTabs button.on{background:var(--yolk);color:#1A1A1A;opacity:1}
+#rainB[aria-pressed="true"]{background:#5B6B80;color:#fff}
+#swarmPanel{position:fixed;right:12px;top:calc(env(safe-area-inset-top,0px) + 64px);z-index:12;display:none;padding:10px 12px;width:min(268px,48vw);background:var(--panel);color:var(--text)}
+#swarmPanel .swT{font-family:var(--display);font-size:20px;line-height:1}
+#swarmPanel .swRow{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0}
+#swarmPanel .btn{padding:5px 9px;font-size:14px;min-width:40px;min-height:34px}
+#swarmPanel #swGod[aria-pressed="true"]{background:var(--yolk);color:#1A1A1A}
+#swarmPanel .swStat{font-size:14px;margin-top:8px}
+#swarmPanel .swHint{font-size:11px;color:var(--muted);margin-top:4px}
+body.touch #swarmPanel{top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 150px)}
+#comboBar{position:fixed;left:50%;transform:translateX(-50%);z-index:6;display:none;padding:8px 14px 9px;background:var(--panel);color:var(--text);text-align:center;pointer-events:none;max-width:min(94vw,760px)}
+#comboBar .cbChain{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap}
+#comboBar .cbI{position:relative;display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;font-size:26px;border:3px solid var(--edge);border-radius:10px;background:var(--panel);box-shadow:2px 2px 0 var(--edge)}
+#comboBar .cbI kbd{position:absolute;right:-6px;bottom:-6px;min-width:16px;height:16px;padding:0 3px;border-radius:4px;background:var(--edge);color:#fff;font:900 10px/16px var(--body)}
+#comboBar .cbI.armed{border-style:dashed;animation:cbPulse 1s ease-in-out infinite}
+#comboBar .cbI.next{border-style:dashed;color:var(--muted);font-family:var(--display);font-size:22px;background:transparent;box-shadow:none;animation:cbPulse 1.1s ease-in-out infinite}
+#comboBar .cbPlus{font-family:var(--display);font-size:24px}
+#comboBar .cbName{font-weight:900;font-size:14px;margin-top:6px}
+#comboBar .cbNext{display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;margin-top:4px;font-size:12px;color:var(--muted)}
+#comboBar .cbN{position:relative;font-size:17px;padding:0 6px 0 2px}
+#comboBar .cbN kbd{font:900 9px var(--body);color:var(--text);margin-left:1px}
+#comboBar.over{opacity:.7}
+#comboBar.ping .cbChain{animation:cbPop .45s ease-out}
+.skills.comboing .skill:not(.combo-ok):not(.combo-in){opacity:.42}
+.skill.combo-ok{border-color:#E0A800;box-shadow:0 0 0 3px #FFD84D,0 0 14px 3px rgba(255,216,77,.8);animation:cbPulse 1s ease-in-out infinite;z-index:1}
+.skill.combo-in{box-shadow:0 0 0 3px #7FFFD4}
+@keyframes cbPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+@keyframes cbPop{0%{transform:scale(1.18)}100%{transform:scale(1)}}
+@media (prefers-reduced-motion: reduce){.skill.combo-ok,#comboBar .cbI.armed,#comboBar .cbI.next,#comboBar.ping .cbChain{animation:none}}
 #killfeed div{background:rgba(20,30,45,.82);color:#fff;padding:4px 10px;border-radius:999px;font-size:13px;animation:pop .2s ease-out}
 #blindFx{position:fixed;inset:0;pointer-events:none;z-index:3;opacity:0;background:radial-gradient(ellipse at center, rgba(5,5,12,.88) 30%, rgba(5,5,12,1) 80%)}
 #dmgFlash{position:fixed;inset:0;pointer-events:none;z-index:3;opacity:0;background:radial-gradient(ellipse at center, rgba(255,40,30,0) 45%, rgba(255,40,30,.75) 100%)}
@@ -214,6 +242,7 @@ body.touch #hpBar{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 58px);left
   <div id="phase" class="sticker">Chaos Arena</div>
   <div class="right">
     <div id="mapChip" class="chip" hidden></div>
+    <button id="rainB" class="icon" aria-pressed="false" aria-label="Rain" title="Make it rain (`)">🌤️</button>
     <button id="restart" class="icon" aria-label="Restart game" title="Restart game">↺</button>
     <button id="mute" class="icon" aria-label="Mute sound">🔊</button>
   </div>
@@ -268,7 +297,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-03.10';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-06.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -366,12 +395,17 @@ function sfx(n){
   try { SFX[n](); } catch(e) {}
 }
 $('restart').addEventListener('click', () => { if (typeof restartGame === 'function') restartGame(); });
+$('rainB').addEventListener('click', e => { e.stopPropagation(); ensureAudio(); setRain(!RAIN.on); });
 $('mute').addEventListener('click', () => { muted = !muted; $('mute').textContent = muted ? '🔇' : '🔊'; $('mute').setAttribute('aria-label', muted ? 'Unmute sound' : 'Mute sound'); });
 
 /* ---------------- three ---------------- */
 const canvas = $('c');
+// stylized 3D pixel look: draw at 1/2-1/4 resolution and scale up with hard pixel edges (no antialiasing);
+// toon materials get a blocky texel grain (pixelGrain), particles are cubes. Off: localStorage ca-pixel = off
+const PIXEL = {on:(() => { try { return localStorage.getItem('ca-pixel') !== 'off'; } catch (e) { return true; } })()};
+function pixelScale(){ return Math.max(2, Math.min(4, Math.floor(innerHeight/400))); }
 let renderer;
-try { renderer = new THREE.WebGLRenderer({canvas, antialias:true}); }
+try { renderer = new THREE.WebGLRenderer({canvas, antialias:!PIXEL.on}); }
 catch (e) {
   // Chrome blocks 3D in a tab after a graphics-driver reset; a reload in the same tab doesn't clear it, a new tab does
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p><b>3D graphics are blocked in this tab.</b></p><p>This happens after your graphics driver resets (for example when you switch windows, tabs or graphics cards). Close this tab and open the game link again. If that doesn’t help, turn on <i>Use graphics acceleration when available</i> in your browser’s settings.</p></div>';
@@ -389,13 +423,14 @@ function glBanner(lost){
 canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); glBanner(true); });
 canvas.addEventListener('webglcontextrestored', () => glBanner(false));
 // 2x resolution costs about 3x the GPU time of 1.5x for a barely visible difference; perfTune() lowers it further on slow GPUs
-const MAX_PR = Math.min(window.devicePixelRatio||1, 1.5), MIN_PR = .6;
-renderer.setPixelRatio(MAX_PR);
+let MAX_PR = PIXEL.on ? 1/pixelScale() : Math.min(window.devicePixelRatio||1, 1.5), MIN_PR = PIXEL.on ? MAX_PR : .6;
+renderer.setPixelRatio(MAX_PR); if (PIXEL.on) canvas.style.imageRendering = 'pixelated';
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = PIXEL.on ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9ED8F5);
-scene.fog = new THREE.Fog(0x9ED8F5, 110, 420);
+const FOG = {near:40, far:235};   // distance haze; rain thickens it (rainLight)
+scene.fog = new THREE.Fog(0x9ED8F5, FOG.near, FOG.far);
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
 const hemi = new THREE.HemisphereLight(0xDCEBFF, 0x6E8C52, 0.58); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xFFEFD6, 0.8);
@@ -406,10 +441,17 @@ sun.shadow.bias = -0.0008;
 scene.add(sun); scene.add(sun.target);
 
 const matCache = {};
-const UNIT = {tet:new THREE.TetrahedronGeometry(1), dod:new THREE.DodecahedronGeometry(1), oct:new THREE.OctahedronGeometry(1)};
+const UNIT = PIXEL.on ? {tet:new THREE.BoxGeometry(.95, .95, .95), dod:new THREE.BoxGeometry(1.2, 1.2, 1.2), oct:new THREE.BoxGeometry(1, 1, 1)}   // voxel particles
+  : {tet:new THREE.TetrahedronGeometry(1), dod:new THREE.DodecahedronGeometry(1), oct:new THREE.OctahedronGeometry(1)};
 const pmesh = (kind, size, mat) => { const m = new THREE.Mesh(UNIT[kind], mat); m.scale.setScalar(size); return m; };
 const TOON = (() => { const d = new Uint8Array([78, 138, 196, 238]); const t = new THREE.DataTexture(d, 4, 1, THREE.LuminanceFormat); t.minFilter = t.magFilter = THREE.NearestFilter; t.generateMipmaps = false; t.needsUpdate = true; return t; })();
-function M3(c){ if(!matCache[c]) matCache[c] = new THREE.MeshToonMaterial({color:c, gradientMap:TOON, flatShading:true}); return matCache[c]; }
+// blocky texel grain on toon materials (object-space cells, GRAIN_D per metre): surfaces read as pixel textures
+function grainHook(sh){
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vGrainP;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvGrainP = position;');
+  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vGrainP;').replace('#include <color_fragment>', '#include <color_fragment>\n{ vec3 gq = floor(vGrainP * GRAIN_D + 0.001); float gn = fract(sin(dot(gq, vec3(12.9898, 78.233, 37.719))) * 43758.5453); diffuseColor.rgb *= 0.9 + 0.14 * gn; }');
+}
+function pixelGrain(m, d){ if (!PIXEL.on) return m; m.defines = Object.assign(m.defines || {}, {GRAIN_D:(d || 6).toFixed(1)}); m.onBeforeCompile = grainHook; return m; }
+function M3(c){ if(!matCache[c]) matCache[c] = pixelGrain(new THREE.MeshToonMaterial({color:c, gradientMap:TOON, flatShading:true}), 7); return matCache[c]; }
 function bx(w,h,d,c,x=0,y=0,z=0,p){ const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d), typeof c==='number'?M3(c):c); m.position.set(x,y,z); m.castShadow=m.receiveShadow=true; if(p)p.add(m); return m; }
 function sp(r,c,x=0,y=0,z=0,p,detail=1){ const m=new THREE.Mesh(new THREE.IcosahedronGeometry(r,detail), typeof c==='number'?M3(c):c); m.position.set(x,y,z); m.castShadow=m.receiveShadow=true; if(p)p.add(m); return m; }
 function cone(r,h,c,x=0,y=0,z=0,p,seg=6){ const m=new THREE.Mesh(new THREE.ConeGeometry(r,h,seg), M3(c)); m.position.set(x,y,z); m.castShadow=true; if(p)p.add(m); return m; }
@@ -423,7 +465,7 @@ const TN = 71, TES = 2;
 const terrH = new Float32Array(TN*TN), terrDmg = new Float32Array(TN*TN);
 const terrGeo = new THREE.PlaneGeometry(ISL*2, ISL*2, TN-1, TN-1); terrGeo.rotateX(-Math.PI/2);
 terrGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(TN*TN*3), 3));
-const terrainMat = new THREE.MeshToonMaterial({color:0xffffff, gradientMap:TOON, flatShading:true, vertexColors:true});
+const terrainMat = pixelGrain(new THREE.MeshToonMaterial({color:0xffffff, gradientMap:TOON, flatShading:true, vertexColors:true}), 2.5);
 const islandTop = new THREE.Mesh(terrGeo, terrainMat); islandTop.receiveShadow = true; scene.add(islandTop);
 const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a)/(b - a))); return t*t*(3 - 2*t); };
 function tNoise(x, z, s){ return Math.sin(x*.045 + s*1.7)*Math.cos(z*.05 + s*.9) + .5*Math.sin(x*.11 - z*.07 + s*3.1) + .25*Math.sin(x*.23 + z*.19 + s*5.3); }
@@ -952,8 +994,8 @@ function buildRound(seed, keepChars){
   const place = (r, minR) => { for (let k=0;k<60;k++){ const a = rr(0,Math.PI*2), d = rr(minR, LIM - r); const p = new THREE.Vector3(Math.cos(a)*d, 0, Math.sin(a)*d); if (free(p, r)) { taken.push({x:p.x, z:p.z, r}); return p; } } return null; };
   const hillCols = G.map.ice ? [0xBFE6FA,0xD5F0FF] : G.map.bouncy ? [0xF093CC,0xFAB8DF] : [0x62A844,0x74B852,0x5E9E40];
   const addTree = (x, z, s) => {
-    const gy = groundH(x, z); const t = new THREE.Group(); t.position.set(x,gy,z); t.scale.setScalar(s);
-    bx(.35,1.6,.35,0x8B5A2B,0,.8,0,t); cone(1.1,1.8,pick([0x3E9B4F,0x358A45,0x46A456]),0,2.3,0,t,7); cone(.8,1.4,0x4FB35F,0,3.1,0,t,7);
+    const gy = groundH(x, z), r0 = rand(), kind = r0 < .45 ? 'pine' : r0 < .75 ? 'oak' : r0 < .9 ? 'birch' : 'dead';   // one merged mesh per tree (WORLD)
+    const t = natMesh(treeGeo(kind, Math.floor(rand()*3))); t.position.set(x,gy,z); t.scale.setScalar(s); t.rotation.y = rr(0, 6.28);
     addOutline(t); roundGroup.add(t);
     const b = new CANNON.Body({mass:0, material:PM.def});
     b.addShape(new CANNON.Box(new CANNON.Vec3(.2*s,.8*s,.2*s)), new CANNON.Vec3(0,.8*s,0));
@@ -975,16 +1017,17 @@ function buildRound(seed, keepChars){
     const b = new CANNON.Body({mass:0, material:PM.ground}); b.addShape(new CANNON.Sphere(R)); b.position.set(p.x, top - R, p.z); world.addBody(b);
   }
   // forests
-  const nF = 3 + Math.floor(rand()*4);
+  const nF = 5 + Math.floor(rand()*4);
   for (let i=0;i<nF;i++){
     const c = place(6, 18); if (!c) continue;
-    const n = 5 + Math.floor(rand()*6);
-    for (let k=0;k<n;k++){ const a = rr(0,Math.PI*2), d = rr(0,5.5); addTree(c.x + Math.cos(a)*d, c.z + Math.sin(a)*d, rr(.8,1.5)); }
+    const n = 6 + Math.floor(rand()*7);
+    for (let k=0;k<n;k++){ const a = rr(0,Math.PI*2), d = rr(0,6); addTree(c.x + Math.cos(a)*d, c.z + Math.sin(a)*d, rr(.8,1.5)); }
   }
-  for (let i=0;i<10;i++){ const p = place(1.5, 15); if (p) addTree(p.x, p.z, rr(.8,1.4)); }
+  for (let i=0;i<18;i++){ const p = place(1.5, 15); if (p) addTree(p.x, p.z, rr(.8,1.4)); }
   // rocks and a few big boulders
-  for (let i=0;i<18;i++){ const r = rr(.6,1.6), p = place(r+.5, 14); if (p) addRock(p.x, p.z, r); }
-  for (let i=0;i<4;i++){ const r = rr(2.4,4), p = place(r+1, 20); if (p) addRock(p.x, p.z, r); }
+  for (let i=0;i<26;i++){ const r = rr(.6,1.6), p = place(r+.5, 14); if (p) addRock(p.x, p.z, r); }
+  for (let i=0;i<6;i++){ const r = rr(2.4,4), p = place(r+1, 20); if (p) addRock(p.x, p.z, r); }
+  moreNature(place, addRock);   // logs, stumps, boulders, bushes, branches, pebbles, mushrooms (WORLD)
   // ponds
   const nP = 1 + Math.floor(rand()*3);
   for (let i=0;i<nP;i++){
@@ -1495,6 +1538,7 @@ function flash(op, dur){
 function blastAt(p, R, power, killR, reason){
   if (!G.blastNoPlayers && typeof summonsTakeArea === 'function') { const C = G.casterKey && chars[G.casterKey]; summonsTakeArea(p, R, power*2.2, G.casterKey || null, C ? C.team : null); }   // chaos explosions
   terrainBlast(p, R, power);
+  if (typeof REASON_ELEM !== 'undefined' && (REASON_ELEM[reason] === 'fire' || reason === 'lava')) igniteAt(p, R*.7);   // fire sets trees and bushes alight
   if (typeof REASON_ELEM !== 'undefined' && REASON_ELEM[reason] && G.phase === 'attack') infuse(p, REASON_ELEM[reason], R*.8, G.carriers);
   const shield = domeUp() && !inDome(p), D0 = shield ? G.dome : null;
   const inD0 = q => D0 && Math.hypot(q.x - D0.c.x, q.y - D0.c.y, q.z - D0.c.z) < D0.R;
@@ -1523,8 +1567,8 @@ function blastAt(p, R, power, killR, reason){
 const bmat = (c, o) => new THREE.MeshBasicMaterial({color:c, transparent:true, opacity:o, depthWrite:false});
 function boomVisual(p, mushroom, size, pal){
   pal = pal || {ball:0xFFB02E, core:0xFFF3B0, ring:0xFFFFFF};
-  const ball = new THREE.Mesh(new THREE.IcosahedronGeometry(1,2), bmat(pal.ball,1)); ball.position.copy(p);
-  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(.7,2), bmat(pal.core,1)); core.position.copy(p);
+  const ball = new THREE.Mesh(new THREE.IcosahedronGeometry(1, PIXEL.on ? 1 : 2), bmat(pal.ball,1)); ball.position.copy(p);
+  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(.7, PIXEL.on ? 1 : 2), bmat(pal.core,1)); core.position.copy(p);
   const ring = new THREE.Mesh(new THREE.RingGeometry(.8,1.1,48), bmat(pal.ring,.9)); ring.rotation.x = -Math.PI/2; ring.position.set(p.x, .06, p.z);
   const parts = [ball, core, ring], bm = {t:0, p, ball, core, ring, parts, size};
   if (pal.dome) { bm.dome = new THREE.Mesh(new THREE.IcosahedronGeometry(1,3), bmat(pal.dome,.7)); bm.dome.position.copy(p); parts.push(bm.dome); }
@@ -1872,7 +1916,7 @@ function applyTornados(){
       b.force.x += (dx/d*inward - dz/d*swirl) * b.mass * mf;
       b.force.z += (dz/d*inward + dx/d*swirl) * b.mass * mf;
       b.force.y += (lift - world.gravity.y*.75) * b.mass * mf;
-      if (b.player) { hurt(b.player, 7/60); b.player.stun = Math.max(b.player.stun, .4); b.player.stars.visible = true; }
+      swarmBodyHurt(b, 7/60); if (b.player) { hurt(b.player, 7/60); b.player.stun = Math.max(b.player.stun, .4); b.player.stars.visible = true; }
     }
   }
 }
@@ -2021,7 +2065,7 @@ const mkArrow = new THREE.Group(); marker.add(mkArrow);
   const shaft = new THREE.Mesh(new THREE.BoxGeometry(.35,.05,5), m); shaft.position.set(0,.12,3); mkArrow.add(shaft);
   const head = new THREE.Mesh(new THREE.ConeGeometry(.8,1.4,4), m); head.rotation.x = Math.PI/2; head.position.set(0,.12,6); mkArrow.add(head); }
 function setTargeting(id){
-  G.targeting = G.targeting === id ? null : id; G.armed = null;
+  G.targeting = G.targeting === id ? null : id; G.armed = null; CB.key = '';
   const s = skillDef(id);
   sfx(G.targeting ? 'grab' : 'place');
   if (G.targeting) toast(id === 'shinra' ? `${s.e} Aim the marker, face the way you want to push, then click. Press ${s.key} to put it away.` : `${s.e} ${s.name}: aim the red marker and click. Keep clicking to spam. Press ${s.key} to put it away.`);
@@ -2102,7 +2146,7 @@ function shinraTensei(at){
     const spread = (dx*side.x + dz*side.z) > 0 ? .12 : -.12;
     b.velocity.x += (dir.x + side.x*spread)*dv; b.velocity.z += (dir.z + side.z*spread)*dv; b.velocity.y += dv*.22 + 1.2;
     if (!b.fixedRotation) { b.angularVelocity.x += rr(-3,3); b.angularVelocity.z += rr(-3,3); }
-    if (b.player) { hurt(b.player, 25); b.player.stun = Math.max(b.player.stun, 1.4); b.player.stars.visible = true; }
+    swarmBodyHurt(b, 25); if (b.player) { hurt(b.player, 25); b.player.stun = Math.max(b.player.stun, 1.4); b.player.stars.visible = true; }
   }
   if (domeUp() && !inDome(origin)) { const ddx = G.dome.c.x - origin.x, ddz = G.dome.c.z - origin.z, ff = ddx*dir.x + ddz*dir.z, ll = Math.abs(ddx*side.x + ddz*side.z); if (ff > -1.5 && ff < L && ll < 4.5 + Math.max(0,ff)*.22 + G.dome.R) hurtDome(18*(1 - Math.max(0,ff)/L) + 6); }
   if (egg) egg.grace = 0;
@@ -2648,6 +2692,7 @@ function updateFireballs(dt){
   if (fireballs.length > 6) fireballs = fireballs.filter(f => !f.done);
 }
 function groundFire(p, r, n){
+  igniteAt(p, r + .5);
   if (typeof zones !== 'undefined') zones.push({p:V3(p.x, 1, p.z), elem:'fire', t:4});
   const parts = [];
   for (let i=0;i<n;i++){ const a = rr(0,6.28), d = rr(0,r); const f = new THREE.Mesh(new THREE.ConeGeometry(rr(.3,.6),rr(1,2),6), bmat(pick([0xFF6A1F,0xFFB02E,0xFF3B1F]),.85)); f.position.set(p.x + Math.cos(a)*d, .6, p.z + Math.sin(a)*d); f.userData.noRay = true; roundGroup.add(f); parts.push(f); }
@@ -2756,7 +2801,7 @@ function applyRapture(){
       b.force.x += dx/d*2*b.mass; b.force.z += dz/d*2*b.mass;
       b.velocity.x *= .985; b.velocity.z *= .985;
       b.angularVelocity.x *= .97; b.angularVelocity.z *= .97;
-      if (b.player) { hurt(b.player, 5/60); b.player.stun = Math.max(b.player.stun, .4); b.player.stars.visible = true; if (b.velocity.y > 3) b.velocity.y = 3; }
+      swarmBodyHurt(b, 5/60); if (b.player) { hurt(b.player, 5/60); b.player.stun = Math.max(b.player.stun, .4); b.player.stars.visible = true; if (b.velocity.y > 3) b.velocity.y = 3; }
     }
   }
 }
@@ -2869,7 +2914,7 @@ function worldEnd(W){
     if (b.wakeUp) b.wakeUp();
     b.velocity.x += dx/d*rr(18,38); b.velocity.z += dz/d*rr(18,38); b.velocity.y += rr(14,34);
     if (!b.fixedRotation) { b.angularVelocity.x += rr(-8,8); b.angularVelocity.z += rr(-8,8); }
-    if (b.player) { hurt(b.player, 999); b.player.stun = 5; b.player.stars.visible = true; if (b.player.carry) dropCarry(b.player, false); }
+    swarmBodyHurt(b, 999); if (b.player) { hurt(b.player, 999); b.player.stun = 5; b.player.stars.visible = true; if (b.player.carry) dropCarry(b.player, false); }
   }
   skels.forEach(s => { if (!s.dead) crumble(s); });
   if (egg && egg.alive) breakEgg('worldend');
@@ -3001,7 +3046,7 @@ function updateSwords(dt){
         const sg = lat >= 0 ? 1 : -1;
         { const k = heft(b, .5); b.velocity.x += s.side.x*sg*rr(8,14)*k; b.velocity.z += s.side.z*sg*rr(8,14)*k; b.velocity.y += rr(6,10)*k; }
         if (!b.fixedRotation) { b.angularVelocity.x += rr(-8,8); b.angularVelocity.z += rr(-8,8); }
-        if (b.player) { hurt(b.player, 65); b.player.stun = Math.max(b.player.stun, 2); b.player.stars.visible = true; }
+        swarmBodyHurt(b, 65); if (b.player) { hurt(b.player, 65); b.player.stun = Math.max(b.player.stun, 2); b.player.stars.visible = true; }
         if (b.tag === 'egg') breakEgg('sword');
       }
       for (const pr of props) { if (pr.dead) continue; const rx = pr.x - s.pivot.x, rz = pr.z - s.pivot.z, al = rx*s.dir.x + rz*s.dir.z, lt = rx*s.side.x + rz*s.side.z; if (al > 2 && al < 23 && Math.abs(lt) < 2.6) destroyProp(pr, new THREE.Vector3(s.pivot.x + s.dir.x*al, 0, s.pivot.z + s.dir.z*al), 40); }
@@ -3120,7 +3165,7 @@ function nightTime(){
 }
 function endNight(){
   hemi.intensity = .58; sun.intensity = .8; sun.color.set(0xFFEFD6);
-  scene.fog.near = 110; scene.fog.far = 420; const c = baseSky(); scene.background.set(c); scene.fog.color.set(c);
+  scene.fog.near = FOG.near; scene.fog.far = FOG.far; const c = baseSky(); scene.background.set(c); scene.fog.color.set(c);
   sea.material.color.set(0x4FB3E8);
   if (stars) { scene.remove(stars); scene.remove(moon); }
   toast('☀️ The sun is back.');
@@ -3806,7 +3851,7 @@ const grassGeo = new THREE.PlaneGeometry(ISL*2, ISL*2, 70, 70); grassGeo.rotateX
 { const pos = grassGeo.attributes.position, cols = new Float32Array(pos.count*3);
   for (let i=0;i<pos.count;i++){ const x = pos.getX(i), z = pos.getZ(i); const n = .5 + .25*Math.sin(x*.11 + z*.07) + .15*Math.sin(x*.31 - z*.23) + .1*Math.sin(z*.53 + x*.02); const v = .8 + n*.22; cols[i*3] = v*.97; cols[i*3+1] = v; cols[i*3+2] = v*.9; }
   grassGeo.setAttribute('color', new THREE.BufferAttribute(cols, 3)); }
-const grassMat = new THREE.MeshToonMaterial({color:0x6CB24A, gradientMap:TOON, vertexColors:true});
+const grassMat = pixelGrain(new THREE.MeshToonMaterial({color:0x6CB24A, gradientMap:TOON, vertexColors:true}), 2.5);
 const grass = new THREE.Mesh(grassGeo, grassMat); grass.position.y = .012; grass.receiveShadow = true; scene.add(grass);
 const tuftGeo = new THREE.ConeGeometry(.12, .55, 4); tuftGeo.translate(0,.27,0);
 const tufts = new THREE.InstancedMesh(tuftGeo, new THREE.MeshToonMaterial({color:0x4E9A38, gradientMap:TOON, flatShading:true}), 1600);
@@ -3837,16 +3882,17 @@ function updateVisuals(dt){
   const bg = scene.background;
   const isDefault = bg.getHex() === 0x9ED8F5;
   _c1.copy(bg); if (isDefault) _c1.lerp(_deep, .55); else _c1.multiplyScalar(.72);
+  if (RAIN.k > .01) _c1.lerp(RAIN_SKY, RAIN.k*.65);
   skyMat.uniforms.top.value.copy(_c1);
-  _c2.copy(bg).lerp(_white, isDefault ? .3 : .15); skyMat.uniforms.mid.value.copy(_c2);
+  _c2.copy(bg).lerp(_white, isDefault ? .3 : .15); if (RAIN.k > .01) _c2.lerp(RAIN_FOG, RAIN.k*.6); skyMat.uniforms.mid.value.copy(_c2);
   skyMat.uniforms.bot.value.copy(bg).multiplyScalar(.9);
   scene.fog.color.copy(_c2);
   skyDome.position.copy(camera.position);
   const sd = new THREE.Vector3(.45, .5, -.74).normalize();
   sunDisk.position.copy(camera.position).addScaledVector(sd, 400); sunDisk.lookAt(camera.position);
   sunGlow.position.copy(camera.position).addScaledVector(sd, 405); sunGlow.lookAt(camera.position);
-  const night = G.night > 0; sunDisk.visible = sunGlow.visible = !night;
-  cloudMat.color.copy(night ? _c1.setHex(0x2A3450) : G.mode === 'pain' ? _painCloud : _white);
+  const night = G.night > 0; sunDisk.visible = sunGlow.visible = !night && RAIN.k < .5;
+  cloudMat.color.copy(night ? _c1.setHex(0x2A3450) : G.mode === 'pain' ? _painCloud : _white); if (RAIN.k > .01) cloudMat.color.lerp(RAIN_CLOUD, RAIN.k*.7);
   for (const c of clouds) { c.position.x += c.userData.sp*dt; if (c.position.x > 220) c.position.x = -220; }
   const charred = islandTop.material !== terrainMat; tufts.material.color.set(charred ? 0x2A1E18 : 0x4E9A38); flowers.visible = !charred;
   foam.material.opacity = .4 + Math.sin(seaUniforms.uT.value*1.6)*.15;
@@ -4010,24 +4056,7 @@ function hideGrass(p, r){
 let lastCrack = 0;
 function craterAt(p, r, depth){
   if (G.mode === 'pain') return;   // Pain mode: the map itself never changes
-  if (Math.abs(p.x) > ISL - 1 || Math.abs(p.z) > ISL - 1) return;
-  const reach = r*1.45;
-  const i0 = Math.max(1, Math.floor((p.x - reach + ISL)/TES)), i1 = Math.min(TN - 2, Math.ceil((p.x + reach + ISL)/TES));
-  const j0 = Math.max(1, Math.floor((p.z - reach + ISL)/TES)), j1 = Math.min(TN - 2, Math.ceil((p.z + reach + ISL)/TES));
-  if (i0 > i1 || j0 > j1) return;
-  const home = eggHome();
-  for (let j=j0;j<=j1;j++) for (let i=i0;i<=i1;i++){
-    const v = i + j*TN, x = -ISL + i*TES, z = -ISL + j*TES, d = Math.hypot(x - p.x, z - p.z);
-    if (d > reach) continue;
-    if (terrH[v] < -20) continue;   // nothing fills the abyss
-    const protect = smooth(1.6, 3.4, Math.hypot(x - home.x, z - home.z));
-    let dh = d < r ? -depth*(1 - (d/r)*(d/r)) : depth*.25*(1 - (d - r)/(reach - r));
-    terrH[v] = Math.max(-7, terrH[v] + dh*protect);
-    if (d < r) terrDmg[v] += depth*(1 - d/r)*protect*.8;
-  }
-  syncTerrain(i0, i1, j0, j1);
-  for (const b of world.bodies) if (b.mass > 0 && Math.hypot(b.position.x - p.x, b.position.z - p.z) < reach + 1 && b.sleepState === CANNON.Body.SLEEPING && !b._frozen) b.wakeUp();
-  hideGrass(p, r);
+  scorchAt(p, r*1.1, depth);       // every mode: the ground keeps its shape, blasts only scorch it (see WORLD)
 }
 function terrainBlast(p, R, power){
   const gh = groundH(p.x, p.z);
@@ -4035,6 +4064,7 @@ function terrainBlast(p, R, power){
   damageProps(p, R, power*4);
 }
 function damageProps(p, R, dmg){
+  decorDamage(p, R, dmg);
   for (const pr of props) {
     if (pr.dead) continue;
     const d = Math.hypot(pr.x - p.x, pr.z - p.z); if (d > R || Math.abs(p.y - pr.y) > R + 6) continue;
@@ -4043,6 +4073,7 @@ function damageProps(p, R, dmg){
   }
 }
 function eraseProps(p, R){
+  decorErase(p, R);
   for (const pr of props) { if (pr.dead || Math.hypot(pr.x - p.x, pr.z - p.z) > R) continue; pr.dead = true; if (pr.body.world) world.removeBody(pr.body); roundGroup.remove(pr.mesh); if (pr.cap) roundGroup.remove(pr.cap); sparkle(new THREE.Vector3(pr.x, pr.y + 1, pr.z), 0x9B5CFF); }
 }
 function destroyProp(pr, from, dmg){
@@ -4068,13 +4099,13 @@ function destroyProp(pr, from, dmg){
     }
   } else {
     if (pr.cap) roundGroup.remove(pr.cap);
-    const b = new CANNON.Body({mass:pr.kind === 'wall' ? 5000 : 3000, material:PM.def});
+    const b = new CANNON.Body({mass:pr.mass || (pr.kind === 'wall' ? 5000 : 3000), material:PM.def});
     b.addShape(new CANNON.Box(new CANNON.Vec3(pr.hx, pr.hy, pr.hz)));
     b.position.set(pr.mesh.position.x, pr.mesh.position.y, pr.mesh.position.z); b.quaternion.setFromEuler(0, pr.mesh.rotation.y, 0);
     b.velocity.set(away.x*kick*.6, kick*.3, away.z*kick*.6); b.angularVelocity.set(away.z*2.5, 0, -away.x*2.5);
     addObj({body:b, mesh:pr.mesh, kind:'debris', bottom:pr.hy});
   }
-  debris(new THREE.Vector3(pr.x, pr.y + 1, pr.z), 4, pr.kind === 'tree' ? [0x3E9B4F,0x8B5A2B] : [0x9AA3AD,0xB9B1A2]);
+  debris(new THREE.Vector3(pr.x, pr.y + 1, pr.z), 4, pr.kind === 'tree' ? [0x3E9B4F,0x8B5A2B] : pr.kind === 'log' || pr.kind === 'stump' ? [0x7A5232,0xD9B47A] : [0x9AA3AD,0xB9B1A2]);
   if (G.t - lastCrack > .15) { lastCrack = G.t; sfx('crack'); }
   const db = objs.filter(o => o.kind === 'debris' && !o.dead); if (db.length > 60) removeObj(db[0]);
 }
@@ -4127,7 +4158,7 @@ function firePunch(pk){
     const f = (1 - al/L*.5)*heft(b, .5);
     b.velocity.x += pk.dir.x*push*f + rr(-3,3); b.velocity.z += pk.dir.z*push*f + rr(-3,3); b.velocity.y += (S ? 18 : 9)*f;
     if (!b.fixedRotation) { b.angularVelocity.x += rr(-10,10); b.angularVelocity.z += rr(-10,10); }
-    if (b.player) { hurt(b.player, S ? 150 : 75); b.player.stun = Math.max(b.player.stun, S ? 4 : 2.5); b.player.stars.visible = true; }
+    swarmBodyHurt(b, S ? 150 : 75); if (b.player) { hurt(b.player, S ? 150 : 75); b.player.stun = Math.max(b.player.stun, S ? 4 : 2.5); b.player.stars.visible = true; }
   }
   for (const pr of props) { if (pr.dead) continue; const al = inPath(pr.x, pr.z, 1); if (al < 0) continue; if (S && rand() < .5) { pr.dead = true; if (pr.body.world) world.removeBody(pr.body); roundGroup.remove(pr.mesh); if (pr.cap) roundGroup.remove(pr.cap); } else destroyProp(pr, origin.clone().addScaledVector(pk.dir, Math.max(0, al - 3)), 60); }
   skels.forEach(k => { if (!k.dead && inPath(k.body.position.x, k.body.position.z) >= 0) crumble(k); });
@@ -4296,6 +4327,7 @@ const LOOK_COUNT = CHARS.length;
 const casterTeam = () => { const P = chars[attacker()]; return P ? P.team : null; };
 const localP = () => chars[G.localKey];
 function teamSpawn(team){
+  if (G.mode === 'swarm') { const a = Math.random()*Math.PI*2, x = Math.cos(a)*3, z = Math.sin(a)*3; return new THREE.Vector3(x, groundH(x, z) + .3, z); }   // Swarm: the middle of the island
   if (G.pvp && G.mode === 'egg' && team === 'blue') { const a = Math.random()*Math.PI*2, x = Math.cos(a)*6.5, z = Math.sin(a)*6.5; return new THREE.Vector3(x, groundH(x, z) + .3, z); }   // the defender starts next to the egg
   const x = team === 'blue' ? -48 : 48, z = (Math.random() - .5)*36; return new THREE.Vector3(x, groundH(x, z) + .3, z); }
 function nearestEnemy(x, z, team){
@@ -4386,7 +4418,7 @@ function addPlayer(info, isLocal){
 function removePlayer(id){ const P = chars[id]; if (!P) return; roundGroup.remove(P.root); if (P.body.world) world.removeBody(P.body); delete chars[id]; }
 function startMatch(seed, list, score, mode, cdOn, eg){
   hideOverlay(); $('matchEnd').style.display = 'none'; $('eggBanner').style.display = 'none';
-  G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' ? mode : 'chaos'; G.cdOn = !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
+  G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' || mode === 'swarm' ? mode : 'chaos'; G.cdOn = !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
   if (G.mode === 'egg' && !eg) eg = {def:G.localKey, round:1, total:1, pts:{}};
   buildRound(seed);
   painReset(); painAmbience(); barReset(); bomberReset(); swordReset(); summonReset(); necroReset();
@@ -4405,8 +4437,10 @@ function startMatch(seed, list, score, mode, cdOn, eg){
   renderScore(); renderTray(); updateHud(); $('hud2').style.display = 'block';
   requestLock();
   if (isPain() && !NET.peer) spawnDummies();
-  $('eggPts').style.display = G.mode === 'egg' ? 'block' : 'none'; document.querySelector('#top .score').style.display = G.mode === 'egg' ? 'none' : '';
+  if (G.mode === 'swarm') swarmStart();
+  $('eggPts').style.display = G.mode === 'egg' ? 'block' : 'none'; document.querySelector('#top .score').style.display = G.mode === 'egg' || G.mode === 'swarm' ? 'none' : '';
   if (G.mode === 'egg') { eggStart(eg); return; }
+  if (G.mode === 'swarm') { toast('👾 Swarm mode: spawn enemies from the Swarm panel (or Alt+1–5) and try every class on them.'); return; }
   toast(isPain() ? (NET.peer ? `🌑 Pain mode! First team to ${WIN_SCORE} knockouts wins.` : '🌑 Pain practice: throw the training dummies around with every gravity power.')
     : NET.peer ? `⚔️ Match on! First team to ${WIN_SCORE} knockouts wins.` : '⚔️ Practice mode: try every skill on the map.');
 }
@@ -4712,6 +4746,7 @@ function forEachObject(fn){
 }
 function spin(b, s){ if (!b.fixedRotation) { b.angularVelocity.x += rr(-s, s); b.angularVelocity.y += rr(-s, s); b.angularVelocity.z += rr(-s, s); } }
 function dummyHit(b, amount){
+  { const so = bodyObj.get(b); if (so && so.swarm) { swarmHurt(so.swarm, amount, 'h'); return; } }   // Swarm enemies
   dummyDamage(b, amount);
   const o = bodyObj.get(b); if (!o || G.t - (o.hitT || -9) < .2) return; o.hitT = G.t;
   popText(V3(b.position.x, b.position.y + 2.5, b.position.z), '-' + Math.max(1, Math.round(amount)));
@@ -4753,7 +4788,7 @@ function liftProp(pr, v){
   const m = pr.mesh; let b;
   if (pr.kind === 'tree') { const s = pr.s; b = new CANNON.Body({mass:400*s*s*s, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(.2*s, .8*s, .2*s)), new CANNON.Vec3(0, .8*s, 0)); b.addShape(new CANNON.Sphere(.8*s), new CANNON.Vec3(0, 2.7*s, 0)); }
   else if (pr.kind === 'rock') { b = new CANNON.Body({mass:Math.max(20, 2000*pr.r*pr.r*pr.r), material:PM.def}); b.addShape(new CANNON.Sphere(pr.r*.9)); }
-  else { b = new CANNON.Body({mass:pr.kind === 'wall' ? 5000 : 3000, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(pr.hx, pr.hy, pr.hz))); }
+  else { b = new CANNON.Body({mass:pr.mass || (pr.kind === 'wall' ? 5000 : 3000), material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(pr.hx, pr.hy, pr.hz))); }
   b.position.set(m.position.x, m.position.y + .05, m.position.z); b.quaternion.set(m.quaternion.x, m.quaternion.y, m.quaternion.z, m.quaternion.w);
   b.velocity.set(v.x, v.y, v.z); spin(b, 2);
   b.allowSleep = true; b.sleepSpeedLimit = .5; b.sleepTimeLimit = .4; b.linearDamping = .08; b.angularDamping = .25;
@@ -4836,6 +4871,7 @@ function kickCores(fn, full){ for (const core of PAIN.cores) { if (core.done) co
 // debris that reaches the core leaves the physics world and rides on the mass
 function stickToCore(core, b){
   const o = bodyObj.get(b); if (!o || o.dead || core.stuck.length >= core.maxStuck) return;
+  if (o.swarm) { swarmHurt(o.swarm, 9999, 'h'); return; }
   const m = o.mesh; removeObj(o);
   core.g.updateMatrixWorld(); core.g.attach(m); m.position.setLength(core.shell*rr(.75, 1)); core.stuck.push(m);
 }
@@ -5595,6 +5631,7 @@ function spawnDummies(){
 }
 function updateDummies(dt){
   PAIN.dummies.forEach((o, i) => {
+    if (o.swarm) return;
     const lost = o.dead || o.body.position.y < -6 || Math.abs(o.body.position.x) > ISL + 4 || Math.abs(o.body.position.z) > ISL + 4;
     if (!lost) { o.lostT = 0; return; }
     o.lostT = (o.lostT || 0) + dt;
@@ -7168,7 +7205,7 @@ function sSever({key, C, team, pos, yaw}, p){
         // anyone directly under the blade is simply gone
         const P = victimFor(key, team); if (P && Math.abs(splitSide({c, n:f}, P.body.position.x, P.body.position.z)) < 3.5) { painHurt(P, 9999, key); toast('🌌 Severed.'); }
         PAIN.dummies.forEach(dm => { if (!dm.dead && Math.abs(splitSide({c, n:f}, dm.body.position.x, dm.body.position.z)) < 3.5) { dummyHit(dm.body, 999); removeObj(dm); } });
-        severWorld(c, f); } return true; }
+        severScar(c, f); } return true; }
     // the blade sinks into the abyss and fades
     g.position.y -= dt*40; aura.material.opacity = Math.max(0, .18 - (t - WIND)*.08);
     if (t > WIND + 3) { roundGroup.remove(g); return false; }
@@ -7351,13 +7388,13 @@ function summonHurt(e, dmg){
 }
 // damage to every enemy summon in a ball / a cone (key/team = whoever did it; unknown = everyone's summons)
 function summonsTakeArea(at, R, dmg, key, team){
-  barriersTakeArea(at, R, dmg, key, team);
+  barriersTakeArea(at, R, dmg, key, team); swarmTakeArea(at, R, dmg);
   if (!SUM.list.length || !(dmg > 0)) return;
   for (const e of SUM.list) { if (e.done || (key && e.owner === key) || (team && e.team === team)) continue;
     const c = V3(e.p.x, e.p.y + 1.2*e.S, e.p.z), d = c.distanceTo(at); if (d < R + .8*e.S) summonHurt(e, dmg*(d < R ? 1 - .5*d/R : .5)); }
 }
 function summonsTakeCone(from, yaw, range, arc, dmg, key, team){
-  barriersTakeCone(from, yaw, range, arc, dmg, key, team);
+  barriersTakeCone(from, yaw, range, arc, dmg, key, team); swarmTakeCone(from, yaw, range, arc, dmg);
   if (!SUM.list.length || !(dmg > 0)) return;
   const fx = Math.sin(yaw), fz = Math.cos(yaw), cosA = Math.cos(arc/2);
   for (const e of SUM.list) { if (e.done || (key && e.owner === key) || (team && e.team === team)) continue;
@@ -8440,14 +8477,11 @@ function nCircles(ci, p){
   const at = V3(p.x, groundH(p.x, p.z), p.z), R = 24, g = new THREE.Group();
   // nine descending rings, each its own color of punishment
   const cols = [0x6A6A7A, 0x5A7A8A, 0x8A6A3A, 0x7A3A2A, 0x6A2A2A, 0x8A1A1A, 0xA01A0A, 0xC4300E, 0xFF6A1F], rings = [];
-  for (let i = 0; i < 9; i++) { const r0 = R*(1 - i/9), r1 = R*(1 - (i + 1)/9); const ring = new THREE.Mesh(new THREE.RingGeometry(Math.max(.5, r1), r0, 48), new THREE.MeshBasicMaterial({color:cols[i], side:THREE.DoubleSide})); ring.rotation.x = -Math.PI/2; ring.position.y = -i*1.4; g.add(ring); rings.push(ring);
+  for (let i = 0; i < 9; i++) { const r0 = R*(1 - i/9), r1 = R*(1 - (i + 1)/9); const ring = new THREE.Mesh(new THREE.RingGeometry(Math.max(.5, r1), r0, 48), new THREE.MeshBasicMaterial({color:cols[i], side:THREE.DoubleSide})); ring.rotation.x = -Math.PI/2; ring.position.y = .02 + i*.012; g.add(ring); rings.push(ring);
   }
-  const lava = new THREE.Mesh(new THREE.CircleGeometry(R/9, 24), new THREE.MeshBasicMaterial({color:0xFFB02E})); lava.rotation.x = -Math.PI/2; lava.position.y = -9*1.4 + .05; g.add(lava);
+  const lava = new THREE.Mesh(new THREE.CircleGeometry(R/9, 24), new THREE.MeshBasicMaterial({color:0xFFB02E})); lava.rotation.x = -Math.PI/2; lava.position.y = .14; g.add(lava);
   noRayAll(g); g.position.set(at.x, at.y + .12, at.z); g.scale.set(.01, 1, .01); roundGroup.add(g);
-  // the ground really opens: nine terraces, 1.4 m each, stepping down to the center (it stays for the round)
-  { const base = at.y; for (let j = 0; j < TN; j++) for (let i = 0; i < TN; i++) { const v = i + j*TN, x = -ISL + i*TES, z = -ISL + j*TES, dd = Math.hypot(x - at.x, z - at.z); if (dd >= R || terrH[v] < -20) continue;
-      const step = Math.min(8, Math.floor((1 - dd/R)*9)); terrH[v] = Math.min(terrH[v], base - step*1.4); terrDmg[v] = Math.max(terrDmg[v], 1.6 + step*.1); }
-    syncTerrain(); placeGrass(); for (const b of world.bodies) if (b.mass > 0 && hdist(b.position, at) < R + 2 && b.wakeUp) b.wakeUp(); }
+  // painted on the ground: the ground itself never opens (see WORLD)
   const hand = new THREE.Group(); bx(5, 1.2, 4, HELL.bone, 0, 0, 0, hand); const fingers = [];
   for (let i = 0; i < 5; i++) { const f = new THREE.Group(); f.position.set((i - 2)*1.1, .3, i === 0 ? 1 : 2); if (i === 0) f.rotation.y = .9; for (let k = 0; k < 3; k++) bx(.7, .7, 2, HELL.bone, 0, 0, 1 + k*2.1, f); hand.add(f); fingers.push(f); }
   bx(2, 6, 2, HELL.bone, 0, -3.5, -1.5, hand); noRayAll(hand); hand.position.set(at.x, at.y - 30, at.z); hand.rotation.x = -Math.PI/2; roundGroup.add(hand);
@@ -8793,6 +8827,721 @@ function guardField(key, team, p, kind){
   }});
 }
 
+/* ===================================== WORLD: rain, nature, an unbreakable ground =====================================
+   The ground never changes shape any more: craterAt() only scorches it (colour), World Severance leaves a glowing
+   scar instead of an abyss and the Nine Circles are painted on the ground. Props still break, fly and burn: trees
+   (pine, oak, birch, dead), rocks and boulders, logs, stumps and ruins are physics props; bushes, fallen branches,
+   pebbles and mushrooms are instanced decor (a few draw calls for hundreds) that scatter, rustle and burn.
+   Rain is a local view setting (` key or the 🌧️ button): streaks around the camera, splashes, darker light, thicker
+   fog and a rain loop. Fog distances live in FOG (near the renderer). */
+
+/* ---------- the ground only scorches ---------- */
+function scorchAt(p, r, depth){
+  if (Math.abs(p.x) > ISL - 1 || Math.abs(p.z) > ISL - 1) return;
+  const i0 = Math.max(0, Math.floor((p.x - r + ISL)/TES)), i1 = Math.min(TN - 1, Math.ceil((p.x + r + ISL)/TES));
+  const j0 = Math.max(0, Math.floor((p.z - r + ISL)/TES)), j1 = Math.min(TN - 1, Math.ceil((p.z + r + ISL)/TES));
+  const col = terrGeo.attributes.color; let n = 0;
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const v = i + j*TN, x = -ISL + i*TES, z = -ISL + j*TES, d = Math.hypot(x - p.x, z - p.z); if (d > r) continue;
+    terrDmg[v] = Math.min(3, terrDmg[v] + depth*(1 - d/r)*.8); const c = terrainColor(v, x, z); col.setXYZ(v, c.r, c.g, c.b); n++;
+  }
+  if (n) col.needsUpdate = true;
+  hideGrass(p, r);
+}
+
+/* a strip of quads that follows the ground along a line (World Severance's scar) */
+function groundRibbon(c, dir, L, w, col, op){
+  const N = Math.max(2, Math.ceil(L/1.5)), side = V3(dir.z, 0, -dir.x), pos = new Float32Array((N + 1)*2*3), idx = [];
+  for (let i = 0; i <= N; i++) { const a = -L/2 + L*i/N, x = c.x + dir.x*a, z = c.z + dir.z*a;
+    for (let s = 0; s < 2; s++) { const sx = x + side.x*w*(s ? .5 : -.5), sz = z + side.z*w*(s ? .5 : -.5), k = (i*2 + s)*3; pos[k] = sx; pos[k + 1] = groundH(sx, sz) + .09; pos[k + 2] = sz; }
+    if (i < N) { const a0 = i*2; idx.push(a0, a0 + 1, a0 + 2, a0 + 1, a0 + 3, a0 + 2); } }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:op, depthWrite:false, side:THREE.DoubleSide})); m.userData.noRay = true; m.renderOrder = 3; return m;
+}
+// World Severance, ground-safe: the cut glows and cools, everything near it is thrown away from the line
+function severScar(c, n){
+  const along = V3(n.z, 0, -n.x), L = ISL*2.6;
+  const glow = groundRibbon(c, along, L, 7, 0xFF4A2E, .55), core = groundRibbon(c, along, L, 1.6, 0xFFF4E0, 1); roundGroup.add(glow); roundGroup.add(core);
+  const lineD = (x, z) => (x - c.x)*n.x + (z - c.z)*n.z;
+  for (const pr of props) { if (pr.dead) continue; const d = Math.abs(lineD(pr.x, pr.z)); if (d < 3.2) destroyProp(pr, V3(pr.x - n.x*Math.sign(lineD(pr.x, pr.z)), pr.y, pr.z - n.z*Math.sign(lineD(pr.x, pr.z))), 60); else if (d < 8) { pr.hp -= 40; if (pr.hp <= 0) destroyProp(pr, V3(c.x, pr.y, c.z), 40); } }
+  decorDamageLine(c, n, 4);
+  for (const b of world.bodies) { if (b.mass === 0 || b.player || b._frozen) continue; const s = lineD(b.position.x, b.position.z), d = Math.abs(s); if (d > 12) continue;
+    const k = 1 - d/12, sg = Math.sign(s) || 1; if (b.wakeUp) b.wakeUp(); b.velocity.x += n.x*sg*22*k; b.velocity.z += n.z*sg*22*k; b.velocity.y += 10*k; }
+  for (let i = 0; i < 26; i++) { const a = rr(-ISL, ISL), sg = Math.random() < .5 ? -1 : 1, q = V3(c.x + along.x*a + n.x*sg*rr(.5, 3), 0, c.z + along.z*a + n.z*sg*rr(.5, 3)); if (Math.abs(q.x) > ISL || Math.abs(q.z) > ISL) continue; q.y = groundH(q.x, q.z) + .2;
+    const mm = pmesh('tet', rr(.25, .8), M3(pick([0x7E5433, 0x5E3F24, 0x6B5A4E, 0x9AA3AD]))); mm.position.copy(q); mm.userData.noRay = true; roundGroup.add(mm); fx.push({mesh:mm, v:V3(n.x*sg*rr(2, 6), rr(6, 14), n.z*sg*rr(2, 6)), r:V3(5, 5, 0), life:3}); }
+  let t = 0;
+  fxAdd({update(dt){ t += dt; const k = Math.max(0, 1 - t/9);
+    core.material.color.setRGB(1, .55 + .4*k, .3 + .6*k*k); core.material.opacity = .25 + .75*k; glow.material.opacity = .55*k;
+    if (Math.random() < .6*k) { const a = rr(-L/2, L/2), q = V3(c.x + along.x*a, 0, c.z + along.z*a); if (Math.abs(q.x) < ISL && Math.abs(q.z) < ISL) { q.y = groundH(q.x, q.z) + .2; puff(q, pick([0xFF6A1F, 0xFFB02E, 0x3A2A22]), .35); } }
+    if (t > 9) { roundGroup.remove(glow); roundGroup.remove(core); glow.geometry.dispose(); core.geometry.dispose(); return false; } }});
+}
+
+/* ---------- nature: merged meshes (one draw + one outline per prop) ---------- */
+const NAT_MAT = pixelGrain(new THREE.MeshToonMaterial({color:0xffffff, gradientMap:TOON, flatShading:true, vertexColors:true}), 6);
+const _nm = new THREE.Matrix4(), _ne = new THREE.Euler(), _nq = new THREE.Quaternion(), _nv = new THREE.Vector3(), _ns = new THREE.Vector3();
+function natAt(g, x, y, z, rx, ry, rz, sx, sy, sz){ _ne.set(rx || 0, ry || 0, rz || 0); _nq.setFromEuler(_ne); _nm.compose(_nv.set(x, y, z), _nq, _ns.set(sx || 1, sy || sx || 1, sz || sx || 1)); return g.applyMatrix4(_nm); }
+function natGeo(parts){
+  let n = 0; const gs = parts.map(([g, c]) => { const q = g.index ? g.toNonIndexed() : g; n += q.attributes.position.count; return [q, new THREE.Color(c)]; });
+  const pos = new Float32Array(n*3), nor = new Float32Array(n*3), col = new Float32Array(n*3); let o = 0;
+  for (const [q, c] of gs) { const p = q.attributes.position.array, nn = q.attributes.normal ? q.attributes.normal.array : null, cnt = q.attributes.position.count;
+    pos.set(p, o*3); if (nn) nor.set(nn, o*3); for (let i = 0; i < cnt; i++) { col[(o + i)*3] = c.r; col[(o + i)*3 + 1] = c.g; col[(o + i)*3 + 2] = c.b; } o += cnt; }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.computeBoundingSphere(); return g;
+}
+const NAT_GEO = {};
+function natCached(key, make){ return NAT_GEO[key] || (NAT_GEO[key] = make()); }
+const LEAF_SETS = [[0x3E9B4F, 0x358A45, 0x4FB35F], [0x5AA845, 0x4A9238, 0x6CBF55], [0x2F7D5A, 0x276B4C, 0x3B946A]];
+function treeGeo(kind, v){
+  return natCached(kind + v, () => {
+    const L = LEAF_SETS[v % LEAF_SETS.length], bark = [0x8B5A2B, 0x7A4E26, 0x6B4423][v % 3];
+    if (kind === 'pine') return natGeo([[natAt(new THREE.BoxGeometry(.35, 1.6, .35), 0, .8, 0), bark], [natAt(new THREE.ConeGeometry(1.25, 1.7, 7), 0, 1.95, 0), L[1]], [natAt(new THREE.ConeGeometry(1, 1.5, 7), 0, 2.75, 0, 0, .4), L[0]], [natAt(new THREE.ConeGeometry(.65, 1.2, 7), 0, 3.5, 0, 0, .9), L[2]]]);
+    if (kind === 'oak') return natGeo([[natAt(new THREE.BoxGeometry(.42, 1.7, .42), 0, .85, 0), bark], [natAt(new THREE.BoxGeometry(.18, .9, .18), .35, 1.6, 0, 0, 0, -.7), bark], [natAt(new THREE.BoxGeometry(.16, .8, .16), -.3, 1.7, .1, .3, 0, .7), bark],
+      [natAt(new THREE.IcosahedronGeometry(1.15, 0), 0, 2.75, 0, .3, .5, 0), L[0]], [natAt(new THREE.IcosahedronGeometry(.85, 0), .75, 2.35, .2, .8, 0, .2), L[1]], [natAt(new THREE.IcosahedronGeometry(.8, 0), -.7, 2.45, -.25, .1, 1, .4), L[2]], [natAt(new THREE.IcosahedronGeometry(.7, 0), .1, 3.45, .2, .6, .2, 0), L[2]]]);
+    if (kind === 'birch') { const parts = [[natAt(new THREE.BoxGeometry(.28, 2.4, .28), 0, 1.2, 0), 0xEDE8DC], [natAt(new THREE.IcosahedronGeometry(.85, 0), 0, 3, 0, 0, 0, 0, 1, 1.45, 1), 0xB8C94A], [natAt(new THREE.IcosahedronGeometry(.55, 0), .35, 2.4, .1, .4, 0, 0), 0xA3B83E]];
+      for (let i = 0; i < 5; i++) parts.push([natAt(new THREE.BoxGeometry(.3, .07, .3), 0, .3 + i*.42, 0, 0, i, 0), 0x2B2B2B]); return natGeo(parts); }
+    // dead tree: bare, crooked branches
+    return natGeo([[natAt(new THREE.BoxGeometry(.36, 2.2, .36), 0, 1.1, 0, 0, 0, .06), 0x5E5048], [natAt(new THREE.BoxGeometry(.16, 1.2, .16), .45, 2.1, 0, 0, 0, -.8), 0x5E5048], [natAt(new THREE.BoxGeometry(.13, 1, .13), -.4, 2.3, .1, .2, 0, .9), 0x524540],
+      [natAt(new THREE.BoxGeometry(.11, .8, .11), .05, 2.6, -.35, -.7, 0, 0), 0x524540], [natAt(new THREE.BoxGeometry(.5, .25, .5), 0, .1, 0), 0x4A3E36]]);
+  });
+}
+function natMesh(geo){ const m = new THREE.Mesh(geo, NAT_MAT); m.castShadow = m.receiveShadow = true; return m; }
+
+/* ---------- more props (called from buildRound with its placement helper, so every screen builds the same map) ---------- */
+function moreNature(place, addRock){
+  const addLog = (x, z) => {
+    const L = rr(2.4, 4.2), r = rr(.28, .42), rot = rr(0, Math.PI), gy = groundH(x, z);
+    const geo = natCached('log' + Math.round(L*2) + Math.round(r*20), () => natGeo([[natAt(new THREE.CylinderGeometry(r, r*1.05, L, 7), 0, 0, 0, 0, 0, Math.PI/2), 0x7A5232], [natAt(new THREE.CylinderGeometry(r*.8, r*.8, .04, 7), L/2 + .01, 0, 0, 0, 0, Math.PI/2), 0xD9B47A],
+      [natAt(new THREE.CylinderGeometry(r*.8, r*.8, .04, 7), -L/2 - .01, 0, 0, 0, 0, Math.PI/2), 0xD9B47A], [natAt(new THREE.BoxGeometry(L*.4, .08, r*1.1), L*.12, r*.92, 0), 0x5E8C3A]]));
+    const m = natMesh(geo); m.position.set(x, gy + r*.95, z); m.rotation.y = rot; addOutline(m); roundGroup.add(m);
+    const b = new CANNON.Body({mass:0, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(L/2, r, r))); b.position.set(x, gy + r*.95, z); b.quaternion.setFromEuler(0, rot, 0); world.addBody(b);
+    props.push({kind:'log', mesh:m, body:b, hp:28 + L*6, x, z, y:gy, hx:L/2, hy:r, hz:r, mass:Math.round(260*L*r)});
+  };
+  const addStump = (x, z) => {
+    const r = rr(.33, .52), h = rr(.45, .85), gy = groundH(x, z);
+    const geo = natCached('stump' + Math.round(r*20) + Math.round(h*10), () => natGeo([[new THREE.CylinderGeometry(r, r*1.15, h, 7), 0x7A5232], [natAt(new THREE.CylinderGeometry(r*.85, r*.85, .04, 7), 0, h/2 + .01, 0), 0xD9B47A],
+      [natAt(new THREE.BoxGeometry(.18, .16, r*1.2), r*.9, -h/2 + .08, 0, 0, 0, .3), 0x6B4423], [natAt(new THREE.BoxGeometry(r*1.2, .16, .18), 0, -h/2 + .08, r*.9, -.3, 0, 0), 0x6B4423], [natAt(new THREE.BoxGeometry(.16, .14, r), -r*.85, -h/2 + .07, -.2, 0, .5, -.3), 0x6B4423]]));
+    const m = natMesh(geo); m.position.set(x, gy + h/2, z); m.rotation.y = rr(0, 6); addOutline(m); roundGroup.add(m);
+    const b = new CANNON.Body({mass:0, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(r*.85, h/2, r*.85))); b.position.set(x, gy + h/2, z); b.quaternion.setFromEuler(0, m.rotation.y, 0); world.addBody(b);
+    props.push({kind:'stump', mesh:m, body:b, hp:40, x, z, y:gy, hx:r*.85, hy:h/2, hz:r*.85, mass:180});
+  };
+  for (let i = 0; i < 16; i++) { const p = place(2.2, 12); if (p) addLog(p.x, p.z); }
+  for (let i = 0; i < 16; i++) { const p = place(.8, 12); if (p) addStump(p.x, p.z); }
+  // small boulders, and rock clusters
+  for (let i = 0; i < 22; i++) { const r = rr(.35, .6), p = place(r + .3, 10); if (p) addRock(p.x, p.z, r); }
+  for (let i = 0; i < 5; i++) { const p = place(3, 16); if (!p) continue; addRock(p.x, p.z, rr(1.2, 1.8)); for (let k = 0; k < 3; k++) { const a = rr(0, 6.28), d = rr(1.8, 2.6); addRock(p.x + Math.cos(a)*d, p.z + Math.sin(a)*d, rr(.4, .8)); } }
+  decorBuild(place);
+}
+
+/* ---------- decor: bushes, fallen branches, pebbles, mushrooms ---------- */
+const DECOR = {types:{}, list:[], dirty:new Set()};
+const DECOR_DEFS = {
+  bush:{n:170, shadow:true, hp:10, make:() => natGeo([[natAt(new THREE.IcosahedronGeometry(.55, 0), 0, .45, 0, .3, .2, 0), 0x3F8F3A], [natAt(new THREE.IcosahedronGeometry(.45, 0), .45, .35, .15, .6, 0, .3), 0x4FA347], [natAt(new THREE.IcosahedronGeometry(.42, 0), -.4, .33, -.1, .1, .9, 0), 0x367D33],
+    [natAt(new THREE.BoxGeometry(.1, .1, .1), .25, .7, .32), 0xE8434F], [natAt(new THREE.BoxGeometry(.1, .1, .1), -.3, .55, .3), 0xE8434F], [natAt(new THREE.BoxGeometry(.1, .1, .1), .05, .85, -.25), 0xE8434F]]), cols:[0xFFFFFF, 0xE5F2C8, 0xD4E8FF, 0xFFF0C8]},
+  branch:{n:100, hp:6, make:() => natGeo([[natAt(new THREE.BoxGeometry(1.9, .14, .14), 0, .07, 0), 0x6E4A2C], [natAt(new THREE.BoxGeometry(.7, .09, .09), .35, .06, .22, 0, -.6, 0), 0x6E4A2C], [natAt(new THREE.BoxGeometry(.5, .08, .08), -.45, .06, -.18, 0, .7, 0), 0x5E3F24],
+    [natAt(new THREE.BoxGeometry(.18, .06, .14), .65, .1, .35), 0x5E8C3A], [natAt(new THREE.BoxGeometry(.16, .06, .12), -.7, .09, -.3), 0x4A7A30]]), cols:[0xFFFFFF, 0xE8D8C8, 0xC8B8A8]},
+  pebbles:{n:90, hp:14, make:() => natGeo([[natAt(new THREE.DodecahedronGeometry(.22, 0), 0, .12, 0, .4, .2, 0), 0x9AA3AD], [natAt(new THREE.DodecahedronGeometry(.15, 0), .3, .08, .12, .1, .7, .2), 0x8A939C], [natAt(new THREE.DodecahedronGeometry(.12, 0), -.22, .07, .2, .5, 0, .3), 0xB1B8C0], [natAt(new THREE.DodecahedronGeometry(.1, 0), .05, .06, -.28), 0x8A939C]]), cols:[0xFFFFFF, 0xE8E0D0, 0xD0D8E8]},
+  mushroom:{n:70, hp:4, make:() => natGeo([[natAt(new THREE.CylinderGeometry(.07, .09, .3, 6), 0, .15, 0), 0xF2E8D5], [natAt(new THREE.ConeGeometry(.22, .18, 7), 0, .36, 0), 0xD8352A], [natAt(new THREE.BoxGeometry(.05, .03, .05), .09, .38, .05), 0xFFFFFF], [natAt(new THREE.BoxGeometry(.05, .03, .05), -.07, .4, -.06), 0xFFFFFF],
+    [natAt(new THREE.CylinderGeometry(.05, .06, .2, 6), .22, .1, .12), 0xF2E8D5], [natAt(new THREE.ConeGeometry(.14, .12, 7), .22, .24, .12), 0xC9A050]]), cols:[0xFFFFFF, 0xFFD8A0, 0xE0C8FF]}
+};
+const _dm = new THREE.Matrix4(), _dq = new THREE.Quaternion(), _dv = new THREE.Vector3(), _ds = new THREE.Vector3(), _dc = new THREE.Color(), _dup = new THREE.Vector3(0, 1, 0), _dzero = new THREE.Matrix4().makeScale(0, 0, 0);
+function decorType(kind){
+  let T = DECOR.types[kind]; if (T && T.mesh.parent) return T;
+  const D = DECOR_DEFS[kind], geo = natCached('decor-' + kind, D.make);
+  if (!T) { const og = geo.clone(); og.computeBoundingBox(); const c = og.boundingBox.getCenter(new THREE.Vector3()); og.translate(-c.x, -c.y, -c.z); og.scale(1.1, 1.18, 1.1); og.translate(c.x, c.y, c.z);
+    T = DECOR.types[kind] = {kind, D, mesh:new THREE.InstancedMesh(geo, NAT_MAT, D.n), out:new THREE.InstancedMesh(og, OUTLINE_MAT, D.n), used:0};
+    T.mesh.castShadow = !!D.shadow; T.mesh.receiveShadow = true; T.out.userData.isOutline = true;
+    for (const m of [T.mesh, T.out]) { m.userData.noRay = true; m.userData.outlined = true; m.frustumCulled = false; m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); } }
+  roundGroup.add(T.mesh); roundGroup.add(T.out); return T;
+}
+function decorMatrix(d, wob){
+  const s = d.s*(d.burnT > 0 ? Math.max(.2, 1 - d.burnK*.6) : 1), w = wob ? Math.sin(G.t*30)*.12*wob : 0;
+  _dq.setFromAxisAngle(_dup, d.rot); _dm.compose(_dv.set(d.x, d.y, d.z), _dq, _ds.set(s*(1 + w), s*(1 - w), s*(1 + w))); return _dm;
+}
+function decorBuild(place){
+  DECOR.list = []; DECOR.dirty.clear();
+  for (const kind in DECOR_DEFS) {
+    const T = decorType(kind), D = T.D; T.used = 0;
+    for (let i = 0; i < D.n; i++) {
+      const p = place(kind === 'branch' ? 1 : .5, 9); if (!p) continue;
+      const d = {kind, T, i:T.used++, x:p.x, z:p.z, y:groundH(p.x, p.z), s:rr(.75, 1.35)*(kind === 'mushroom' ? 1.3 : 1), rot:rr(0, 6.28), hp:D.hp, dead:false, wob:0, burnT:0, burnK:0};
+      DECOR.list.push(d); T.mesh.setMatrixAt(d.i, decorMatrix(d)); T.out.setMatrixAt(d.i, _dm); T.mesh.setColorAt(d.i, _dc.setHex(pick(D.cols)));
+    }
+    T.mesh.count = T.out.count = T.used; T.mesh.instanceMatrix.needsUpdate = T.out.instanceMatrix.needsUpdate = true; if (T.mesh.instanceColor) T.mesh.instanceColor.needsUpdate = true;
+  }
+}
+function decorKill(d, from, fire){
+  if (d.dead) return; d.dead = true; d.T.mesh.setMatrixAt(d.i, _dzero); d.T.out.setMatrixAt(d.i, _dzero); d.T.mesh.instanceMatrix.needsUpdate = d.T.out.instanceMatrix.needsUpdate = true;
+  const p = V3(d.x, d.y + .4*d.s, d.z);
+  if (fire || d.burnT > 0) { debris(p, 4, [0x2A1E18, 0x4A3A30, 0x8A7A6A]); return; }
+  if (d.kind === 'bush') debris(p, 6, [0x3F8F3A, 0x4FA347, 0xE8434F]);
+  else if (d.kind === 'pebbles') debris(p, 5, [0x9AA3AD, 0x8A939C]);
+  else if (d.kind === 'mushroom') { debris(p, 3, [0xD8352A, 0xF2E8D5]); puff(p, 0xE8E0C0, .4); }
+  else if (d.kind === 'branch' && from && objs.filter(o => o.kind === 'debris' && !o.dead).length < 50) {
+    // a fallen branch gets thrown around as a real object
+    const m = new THREE.Mesh(natCached('decor-branch', DECOR_DEFS.branch.make), NAT_MAT); m.scale.setScalar(d.s); m.castShadow = true;
+    const b = new CANNON.Body({mass:6, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(.95*d.s, .08, .2*d.s))); b.position.set(d.x, d.y + .25, d.z); b.quaternion.setFromEuler(0, d.rot, 0);
+    const away = V3(d.x - from.x, 0, d.z - from.z), L = away.length() || 1; b.velocity.set(away.x/L*rr(4, 9), rr(4, 8), away.z/L*rr(4, 9)); b.angularVelocity.set(rr(-8, 8), rr(-8, 8), rr(-8, 8));
+    b.allowSleep = true; b.sleepSpeedLimit = .5; addObj({body:b, mesh:m, kind:'debris', bottom:.1});
+  } else debris(p, 4, [0x6E4A2C, 0x5E3F24]);
+}
+function decorDamage(p, R, dmg){
+  if (!DECOR.list.length || !(dmg > 0)) return;
+  for (const d of DECOR.list) { if (d.dead) continue; const dd = Math.hypot(d.x - p.x, d.z - p.z); if (dd > R || Math.abs(p.y - d.y) > R + 3) continue; d.hp -= dmg*(1 - dd/R*.6); if (d.hp <= 0) decorKill(d, p); }
+}
+function decorErase(p, R){ for (const d of DECOR.list) if (!d.dead && Math.hypot(d.x - p.x, d.z - p.z) < R) { decorKill(d, null, false); } }
+function decorDamageLine(c, n, w){ for (const d of DECOR.list) if (!d.dead && Math.abs((d.x - c.x)*n.x + (d.z - c.z)*n.z) < w) decorKill(d, c); }
+
+/* ---------- fire: trees, logs, stumps and plants burn, and fire spreads ---------- */
+const BURN = [];
+const BURNABLE = {tree:1, log:1, stump:1};
+function igniteAt(p, R){
+  if (G.mode === 'pain') return;
+  for (const pr of props) { if (pr.dead || pr.burn || !BURNABLE[pr.kind] || BURN.length >= 18) continue; if (Math.hypot(pr.x - p.x, pr.z - p.z) <= R + 1 && Math.abs(p.y - pr.y) < R + 6) startBurn(pr); }
+  for (const d of DECOR.list) if (!d.dead && !(d.burnT > 0) && d.kind !== 'pebbles' && Math.hypot(d.x - p.x, d.z - p.z) <= R + .5) { d.burnT = rr(1.2, 2.2); d.burnK = 0; DECOR.dirty.add(d); }
+}
+function startBurn(pr){
+  pr.burn = {t:0, dur:rr(4.5, 7), fx:0, spread:1};
+  if (pr.mesh && pr.mesh.material && !pr.burnMat) { pr.burnMat = pr.mesh.material.clone(); pr.mesh.material = pr.burnMat; }
+  BURN.push(pr);
+}
+const _char = new THREE.Color(0x2A1E18), _white3 = new THREE.Color(0xffffff);
+function burnFrame(dt){
+  for (let i = BURN.length - 1; i >= 0; i--) {
+    const pr = BURN[i], b = pr.burn; if (pr.dead || !b) { BURN.splice(i, 1); continue; }
+    b.t += dt; const k = Math.min(1, b.t/b.dur), h = pr.kind === 'tree' ? 3.4*pr.s : pr.hy*2 + .4;
+    if (pr.burnMat) pr.burnMat.color.copy(_white3).lerp(_char, k*.85);
+    b.fx -= dt; if (b.fx <= 0) { b.fx = .07; puff(V3(pr.x + rr(-.7, .7), pr.y + rr(.2, 1)*h, pr.z + rr(-.7, .7)), pick([0xFF6A1F, 0xFFB02E, 0xFFD84D, 0xC4300E]), .5 + .35*Math.random()); if (Math.random() < .3) puff(V3(pr.x, pr.y + h + .5, pr.z), 0x3A3A3A, .5); }
+    b.spread -= dt; if (b.spread <= 0) { b.spread = 1.1; if (Math.random() < .35) igniteAt(V3(pr.x + rr(-2.5, 2.5), pr.y, pr.z + rr(-2.5, 2.5)), 1.5); if (Math.random() < .3) sfx('crackle'); }
+    if (b.t >= b.dur) { BURN.splice(i, 1); pr.burn = null;
+      if (pr.kind === 'tree') destroyProp(pr, V3(pr.x + rr(-1, 1), pr.y, pr.z + rr(-1, 1)), 12);
+      else { pr.dead = true; if (pr.body.world) world.removeBody(pr.body); roundGroup.remove(pr.mesh); debris(V3(pr.x, pr.y + .5, pr.z), 8, [0x2A1E18, 0x4A3A30, 0x8A7A6A]); } }
+  }
+  for (const d of DECOR.dirty) {
+    if (d.dead) { DECOR.dirty.delete(d); continue; }
+    if (d.burnT > 0) { d.burnK = Math.min(1, d.burnK + dt/d.burnT); d.T.mesh.setColorAt(d.i, _dc.setHex(0xffffff).lerp(_char, d.burnK)); d.T.mesh.instanceColor.needsUpdate = true;
+      if (Math.random() < .35) puff(V3(d.x + rr(-.3, .3), d.y + .5*d.s, d.z + rr(-.3, .3)), pick([0xFF6A1F, 0xFFB02E, 0xFFD84D]), .28);
+      if (d.burnK >= 1) { decorKill(d, null, true); DECOR.dirty.delete(d); continue; } }
+    if (d.wob > 0) d.wob = Math.max(0, d.wob - dt*2.2);
+    d.T.mesh.setMatrixAt(d.i, decorMatrix(d, d.wob)); d.T.out.setMatrixAt(d.i, _dm); d.T.mesh.instanceMatrix.needsUpdate = d.T.out.instanceMatrix.needsUpdate = true;
+    if (!(d.burnT > 0) && d.wob <= 0) DECOR.dirty.delete(d);
+  }
+}
+// bushes rustle as you walk through them
+function rustleFrame(){
+  const me = localP(); if (!me || !DECOR.list.length) return; const p = me.body.position, sp = Math.hypot(me.body.velocity.x, me.body.velocity.z); if (sp < 1.5) return;
+  for (const d of DECOR.list) if (!d.dead && d.kind === 'bush' && Math.abs(d.x - p.x) < 1.1 && Math.abs(d.z - p.z) < 1.1 && d.wob < .5) { d.wob = 1; DECOR.dirty.add(d); }
+}
+
+/* ---------- rain ---------- */
+const RAIN = {on:(() => { try { return localStorage.getItem('ca-rain') === 'on'; } catch (e) { return false; } })(), k:0, N:2600, box:26, lines:null, pos:null, floor:null, spl:null, splT:[], splI:0, gain:null, hemiSet:-1, sunSet:-1, nearSet:-1, farSet:-1, hemiBase:0, sunBase:0, nearBase:0, farBase:0};
+const RAIN_SKY = new THREE.Color(0x56606E), RAIN_FOG = new THREE.Color(0x8C96A3), RAIN_CLOUD = new THREE.Color(0x6E7884);
+function rainInit(){
+  if (RAIN.lines) return;
+  const N = RAIN.N, pos = new Float32Array(N*6); RAIN.pos = pos; RAIN.floor = new Float32Array(N); RAIN.spd = new Float32Array(N);
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+  RAIN.lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({color:0xC9D6E8, transparent:true, opacity:.5, depthWrite:false}));
+  RAIN.lines.frustumCulled = false; RAIN.lines.userData.noRay = true; RAIN.lines.renderOrder = 5; scene.add(RAIN.lines);
+  for (let i = 0; i < N; i++) rainDrop(i, true);
+  const sg = new THREE.RingGeometry(.04, .11, 6); sg.rotateX(-Math.PI/2);
+  RAIN.spl = new THREE.InstancedMesh(sg, new THREE.MeshBasicMaterial({color:0xDCE8F5, transparent:true, opacity:.7, depthWrite:false}), 90);
+  RAIN.spl.frustumCulled = false; RAIN.spl.userData.noRay = true; RAIN.spl.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  for (let i = 0; i < 90; i++) { RAIN.spl.setMatrixAt(i, _dzero); RAIN.splT.push({t:9, x:0, y:0, z:0}); } scene.add(RAIN.spl);
+}
+function rainDrop(i, anyHeight){
+  const c = camera.position, B = RAIN.box, x = c.x + rr(-B, B), z = c.z + rr(-B, B), y = c.y + (anyHeight ? rr(-12, 18) : rr(12, 20));
+  const p = RAIN.pos, k = i*6; p[k] = x; p[k + 1] = y; p[k + 2] = z; p[k + 3] = x; p[k + 4] = y + .7; p[k + 5] = z;
+  RAIN.floor[i] = Math.abs(x) < ISL && Math.abs(z) < ISL ? groundH(x, z) : -6.5; RAIN.spd[i] = rr(24, 30);
+}
+function setRain(on){
+  RAIN.on = on; try { localStorage.setItem('ca-rain', on ? 'on' : 'off'); } catch (e) {}
+  const b = document.getElementById('rainB'); if (b) { b.setAttribute('aria-pressed', on ? 'true' : 'false'); b.textContent = on ? '🌧️' : '🌤️'; b.title = on ? 'Rain is on (` to stop it)' : 'Make it rain (`)'; }
+}
+function rainSound(k){
+  if (!actx) return;
+  if (!RAIN.gain) { if (k < .02) return;
+    const len = actx.sampleRate*2, buf = actx.createBuffer(1, len, actx.sampleRate), d = buf.getChannelData(0); let last = 0;
+    for (let i = 0; i < len; i++) { const w = Math.random()*2 - 1; last = last*.6 + w*.4; d[i] = last*(Math.random() < .0015 ? 3 : 1); }
+    const src = actx.createBufferSource(); src.buffer = buf; src.loop = true;
+    const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2600; const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 380;
+    RAIN.gain = actx.createGain(); RAIN.gain.gain.value = 0; src.connect(lp); lp.connect(hp); hp.connect(RAIN.gain); RAIN.gain.connect(actx.destination); src.start(); }
+  RAIN.gain.gain.setTargetAtTime(muted ? 0 : .2*k, actx.currentTime, .3);
+}
+// light and fog: scale whatever the game last set (night, Pain mode, tinted skies) instead of fighting it
+function rainLight(k){
+  if (hemi.intensity !== RAIN.hemiSet) RAIN.hemiBase = hemi.intensity; if (sun.intensity !== RAIN.sunSet) RAIN.sunBase = sun.intensity;
+  if (scene.fog.near !== RAIN.nearSet) RAIN.nearBase = scene.fog.near; if (scene.fog.far !== RAIN.farSet) RAIN.farBase = scene.fog.far;
+  hemi.intensity = RAIN.hemiSet = RAIN.hemiBase*(1 - .3*k); sun.intensity = RAIN.sunSet = RAIN.sunBase*(1 - .55*k);
+  scene.fog.near = RAIN.nearSet = RAIN.nearBase*(1 - .55*k); scene.fog.far = RAIN.farSet = RAIN.farBase*(1 - .5*k);
+}
+function rainFrame(dt){
+  const goal = RAIN.on ? 1 : 0; RAIN.k += clamp(goal - RAIN.k, -dt*.5, dt*.5);   // about two seconds to start or stop
+  const k = RAIN.k; rainSound(k);
+  if (k <= 0 && !RAIN.lines) return;
+  rainInit(); rainLight(k);
+  RAIN.lines.visible = RAIN.spl.visible = k > 0; if (k <= 0) return;
+  RAIN.lines.material.opacity = .5*Math.min(1, k*1.4);
+  const N = RAIN.N, n = Math.floor(N*Math.min(1, k*1.2)), p = RAIN.pos, c = camera.position, B = RAIN.box, wx = (G.wind ? G.wind.x : 0)*.25 + 1.2, wz = (G.wind ? G.wind.z : 0)*.25 + .6;
+  for (let i = 0; i < n; i++) {
+    const j = i*6, s = RAIN.spd[i]*dt; p[j] += wx*dt; p[j + 1] -= s; p[j + 2] += wz*dt;
+    if (p[j + 1] < RAIN.floor[i] || p[j + 1] < c.y - 16 || Math.abs(p[j] - c.x) > B + 2 || Math.abs(p[j + 2] - c.z) > B + 2) {
+      if (p[j + 1] < RAIN.floor[i] + .5 && Math.random() < .12) { const sp = RAIN.splT[RAIN.splI = (RAIN.splI + 1) % RAIN.splT.length]; sp.t = 0; sp.x = p[j]; sp.y = RAIN.floor[i] + .03; sp.z = p[j + 2]; }
+      rainDrop(i, false); continue; }
+    p[j + 3] = p[j] - wx*.03; p[j + 4] = p[j + 1] + .75; p[j + 5] = p[j + 2] - wz*.03;
+  }
+  RAIN.lines.geometry.setDrawRange(0, n*2); RAIN.lines.geometry.attributes.position.needsUpdate = true;
+  for (let i = 0; i < RAIN.splT.length; i++) { const sp = RAIN.splT[i]; if (sp.t > .35) continue; sp.t += dt; const s = sp.t > .35 ? 0 : .6 + sp.t*6;
+    _dm.compose(_dv.set(sp.x, sp.y, sp.z), _dq.identity(), _ds.set(s, s, s)); RAIN.spl.setMatrixAt(i, sp.t > .35 ? _dzero : _dm); }
+  RAIN.spl.instanceMatrix.needsUpdate = true;
+}
+function worldFrame(rdt){ rainFrame(rdt); if (G.pvp || G.phase === 'attack' || G.phase === 'build') { burnFrame(rdt*(G.fxScale == null ? 1 : G.fxScale)); rustleFrame(); } }
+setRain(RAIN.on);
+
+/* ===================================== COMBO BUILDER (Chaos powers) =====================================
+   Powers fuse when an elemental power lands on a living "carrier" (tornado, black hole, Satan, a flying nuke…):
+   the carrier takes the new element (up to 3 on top of its own). This shows it while you build:
+   - picking a power that makes a carrier (or casting one) starts a chain: [icon] + ?
+   - every power that would still add a NEW element to it pulses on the Skills bar; the rest dim
+   - each power that really fused is added to the chain ([🌪️] + [🔥] + [⚡]), named like the game names it
+   - the chain ends when the carrier is gone or full. Only your own casts are tracked. */
+const CARRIER_BASE = {tornado:'wind', chibaku:'gravity', satan:'hell', gcow:'milk', knives:'blade', volcano:'fire', frog:'nature', fireball:'fire', hellgate:'hell', tree:'nature',
+  vacuum:'void', judgement:'holy', coming:'holy', supernova:'fire', nuke:'blast', bijuu:'blast', doomnuke:'blast', antimatter:'void', comet:'fire'};
+const CB = {chain:null, refs:new Set(), sizes:new Map(), seen:new Set(), pending:[], name:'', endT:0, key:''};
+// every carrier in this combo (a new carrier soaks the old one up, and both keep going)
+const cbLive = () => getCarriers().filter(c => CB.refs.has(c.ref));
+const cbMain = live => live.reduce((a, c) => !a || (c.ref.elems ? c.ref.elems.size : 0) > (a.ref.elems ? a.ref.elems.size : 0) ? c : a, null);
+const cbElems = () => { const s = new Set(); for (const c of cbLive()) { s.add(c.base); if (c.ref.elems) c.ref.elems.forEach(e => s.add(e)); } return s; };
+const cbFull = () => { const m = cbMain(cbLive()); return !!(m && m.ref.elems && m.ref.elems.size >= 3); };
+function cbAvailable(id){ return SPECIALS[id] && !(G.cdOn && (G.cd[id] || 0) > 0) && (!G.specials || G.specials[id] > 0); }
+// which powers can still be added: their element isn't in the combo yet, and the carrier has room
+function cbCompatible(armed){
+  const out = new Set();
+  if (!(G.cls === 'native' && !isPain())) return out;
+  let have;
+  if (CB.chain) { if (cbFull()) return out; have = cbElems(); if (armed && SPECIAL_ELEM[armed]) have.add(SPECIAL_ELEM[armed]); }
+  else if (armed && CARRIER_BASE[armed]) have = new Set([CARRIER_BASE[armed]]);
+  else return out;
+  for (const id in SPECIALS) { const el = SPECIAL_ELEM[id]; if (el && !have.has(el) && id !== armed && cbAvailable(id)) out.add(id); }
+  return out;
+}
+// after one of our own casts: did it start a chain, feed it, or start a new carrier that soaked it up?
+function comboTrack(id, before){
+  if (!SPECIALS[id] || G.cls !== 'native' || isPain()) return;
+  const C = getCarriers(), fresh = C.filter(c => !before.has(c.ref)), size = c => c.ref.elems ? c.ref.elems.size : 0;
+  const live = CB.chain ? C.filter(c => CB.refs.has(c.ref)) : [];
+  if (live.length) {
+    const had = cbElems();
+    const grew = live.some(c => size(c) > (CB.sizes.get(c.ref) || 0));
+    const soaked = fresh.filter(f => size(f) > 0 && [...f.ref.elems].some(e => had.has(e)));
+    soaked.forEach(f => CB.refs.add(f.ref));
+    if (grew || soaked.length) { CB.chain.push(id); CB.endT = 0; cbPing(); }
+    else if (fresh.length) { CB.refs.clear(); cbStart(id, fresh[0]); }
+    // strikes and projectiles fuse when they land: credit the element when it shows up (comboFrame)
+    else if (SPECIAL_ELEM[id] && !had.has(SPECIAL_ELEM[id])) CB.pending.push({id, el:SPECIAL_ELEM[id], t:G.t});
+  } else if (fresh.length) { CB.refs.clear(); cbStart(id, fresh[0]); }
+  for (const c of getCarriers()) if (CB.refs.has(c.ref)) CB.sizes.set(c.ref, size(c));
+  if (CB.chain) cbElems().forEach(e => CB.seen.add(e));
+  cbName(); comboUI();
+}
+function cbName(){ const m = cbMain(cbLive()); if (m) CB.name = m.ref.elems && m.ref.elems.size ? comboName(m) : m.name; }
+function cbStart(id, c){ CB.chain = [id]; CB.refs = new Set([c.ref]); CB.sizes = new Map(); CB.seen = new Set(); CB.pending = []; CB.endT = 0; }
+function cbPing(){ const el = document.getElementById('comboBar'); if (el) { el.classList.remove('ping'); void el.offsetWidth; el.classList.add('ping'); } }
+function cbHint(){ if (!CB.hintT || G.t - CB.hintT > 3) { CB.hintT = G.t; toast('🔗 Too far from the combo: aim it onto the carrier (within ~14 m).'); } }
+function comboEnd(){ CB.chain = null; CB.refs = new Set(); CB.sizes = new Map(); CB.seen = new Set(); CB.pending = []; CB.endT = 0; comboUI(); }
+function comboFrame(dt){
+  CB.t = (CB.t || 0) - dt; if (CB.t > 0) return; CB.t = .2;
+  if (CB.chain && (!G.pvp || G.phase !== 'attack' || !cbLive().length)) { if (!CB.endT) { CB.endT = G.t; CB.key = ''; comboUI(); } else if (G.t - CB.endT > 1.2) comboEnd(); return; }
+  if (CB.chain) {
+    const now = cbElems();
+    for (const e of now) if (!CB.seen.has(e)) { CB.seen.add(e); const k = CB.pending.findIndex(q => q.el === e); if (k >= 0) { CB.chain.push(CB.pending[k].id); CB.pending.splice(k, 1); cbPing(); CB.key = ''; } }
+    CB.pending = CB.pending.filter(q => { if (G.t - q.t < 3.5) return true; cbHint(); return false; });
+    cbName();
+  }
+  comboUI();
+}
+// the bar above the class tabs, and the highlights on the Skills bar
+function comboUI(){
+  const armed = G.targeting && SPECIALS[G.targeting] ? G.targeting : null;
+  const show = G.pvp && G.phase === 'attack' && G.cls === 'native' && !isPain() && (CB.chain || (armed && CARRIER_BASE[armed]));
+  const ok = show && !CB.endT ? cbCompatible(armed) : new Set();
+  let el = document.getElementById('comboBar');
+  const key = show ? [CB.chain ? CB.chain.join(',') : '', armed, [...ok].join(','), CB.endT ? 1 : 0, CB.name].join('|') : '';
+  if (key !== CB.key) { CB.key = key;
+    if (!show) { if (el) el.style.display = 'none'; }
+    else {
+      if (!el) { el = document.createElement('div'); el.id = 'comboBar'; el.className = 'sticker'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite'); document.body.appendChild(el); }
+      const icon = (id, cls) => `<span class="cbI ${cls || ''}" title="${SPECIALS[id].name}">${SPECIALS[id].e}<kbd>${SPECIALS[id].key}</kbd></span>`;
+      const parts = (CB.chain || []).map(id => icon(id));
+      if (armed && (!CB.chain || !CB.chain.includes(armed) || CB.chain[CB.chain.length - 1] !== armed)) parts.push(icon(armed, 'armed'));
+      const full = !CB.endT && cbFull();
+      if (!CB.endT && !full) parts.push('<span class="cbI next" aria-hidden="true">?</span>');
+      const nexts = [...ok].slice(0, 12).map(id => `<span class="cbN" title="${SPECIALS[id].name}">${SPECIALS[id].e}<kbd>${SPECIALS[id].key}</kbd></span>`).join('');
+      const label = CB.endT ? `💥 ${CB.name || 'Combo'} is over` : CB.chain ? `🔗 ${CB.name}${full ? ' · FULL' : ''}` : `🔗 ${SPECIALS[armed].name} can start a combo`;
+      el.innerHTML = `<div class="cbChain">${parts.join('<b class="cbPlus">+</b>')}</div><div class="cbName">${label}</div>${nexts && !CB.endT ? `<div class="cbNext"><span>Add next:</span>${nexts}</div>` : ''}`;
+      el.style.display = 'block'; el.classList.toggle('over', !!CB.endT);
+    }
+  }
+  if (el && show) { const bar = document.querySelector('#tray .bar'), tabs = document.querySelector('.classTabs');
+    const br = bar ? bar.getBoundingClientRect() : null;
+    if (br && br.top < innerHeight/2) { el.style.top = (br.bottom + 8) + 'px'; el.style.bottom = 'auto'; }   // touch: the bar sits at the top
+    else { const top = tabs ? tabs.getBoundingClientRect().top : br ? br.top : innerHeight - 160; el.style.bottom = Math.max(8, innerHeight - top + 8) + 'px'; el.style.top = 'auto'; } }
+  comboMarkTray(show ? ok : null, show);
+}
+function comboMarkTray(ok, active){
+  const sk = document.querySelector('#tray .skills'); if (!sk) return;
+  sk.classList.toggle('comboing', !!active && !!ok && ok.size > 0);
+  const inChain = new Set(CB.chain || []);
+  sk.querySelectorAll('[data-sp]').forEach(b => { const id = b.dataset.sp; b.classList.toggle('combo-ok', !!(ok && ok.has(id))); b.classList.toggle('combo-in', !!active && inChain.has(id)); });
+}
+
+/* ===================================== SWARM MODE =====================================
+   Practice alone against hordes: spawn 5-100 enemies at a time (Alt+1-5 or the Swarm panel) that chase you and hit
+   you, and try every class's powers on them. Built for 100+ at once:
+   - each enemy is ONE cannon sphere (cheap terrain contacts) in collision group 16, which ignores other enemies;
+     separation steering keeps the crowd apart instead of physics contacts
+   - every body part, the eyes, the health bars and the death voxels are InstancedMeshes: ~14 draw calls total
+   - paths come from a flow field on the 2 m terrain grid (Dijkstra from the player, props/barriers/heavy objects
+     blocked), rebuilt a few times a second; up close with a clear line they run straight at you
+   - damage arrives three ways: explicit hits (they sit in PAIN.dummies, which every class already hits through
+     dummyHit), area/cone damage (summonsTakeArea/Cone call swarmTakeArea/Cone), and hard velocity changes
+     (explosions, tornadoes, black holes, landing from a fling) measured each frame. A power that hits through two
+     channels in one frame counts once (the bigger one). */
+const SWARM_TYPES = {
+  grunt:  {name:'Grunt',  hp:60,  spd:5.4, dmg:6,  cd:1.3, wind:.32, S:1,    r:.42, mass:70,  w:7, body:0x5E9E4A, skin:0x9BD07A, eye:0xFFE14D, pants:0x4A3A2A},
+  runner: {name:'Runner', hp:28,  spd:8.6, dmg:3,  cd:.9,  wind:.2,  S:.78,  r:.34, mass:45,  w:2, body:0x7A4FB8, skin:0xC09AF0, eye:0x7FFFD4, pants:0x3A2A55},
+  brute:  {name:'Brute',  hp:240, spd:3.4, dmg:16, cd:2.1, wind:.6,  S:1.65, r:.7,  mass:240, w:1, body:0xA8402E, skin:0xE08A68, eye:0xFFFFFF, pants:0x3A2A22}
+};
+const SWARM_CAP = 200, SG = 70, SGC = 2;   // flow grid: 70 x 70 cells of 2 m over the island
+const SWARM = {list:[], queue:[], killed:0, god:false, seq:0, frame:0, built:false, flowT:0, blockT:0, tc:-1, panel:null, nums:[], numI:0, texCache:new Map(), sndT:0,
+  blocked:new Uint8Array(SG*SG), dist:new Float32Array(SG*SG), fx:new Float32Array(SG*SG), fz:new Float32Array(SG*SG), head:new Int32Array(SG*SG), next:new Int32Array(SWARM_CAP + 8)};
+const swarmOn = () => G.mode === 'swarm' && G.pvp && G.phase === 'attack';
+
+/* ---------- instanced meshes ---------- */
+const SW_PARTS = {   // size, pivot, offset below the pivot; arms/legs/eyes come in pairs (x mirrored)
+  body: {s:[.72, .78, .46], p:[0, .98, 0]},
+  head: {s:[.66, .58, .58], p:[0, 1.67, .02]},
+  arm:  {s:[.2, .66, .22], p:[.47, 1.3, 0], o:-.3, pair:true},
+  leg:  {s:[.26, .6, .28], p:[.19, .62, 0], o:-.3, pair:true},
+  eye:  {s:[.14, .11, .04], p:[.15, 1.72, .32], pair:true},
+  mouth:{s:[.34, .07, .04], p:[0, 1.52, .32]}
+};
+function swarmBuild(){
+  if (SWARM.built) { for (const k in SWARM.im) roundGroup.add(SWARM.im[k]); return; }
+  SWARM.built = true; SWARM.im = {};
+  const box = new THREE.BoxGeometry(1, 1, 1), boxO = new THREE.BoxGeometry(1.14, 1.1, 1.14);
+  const toon = pixelGrain(new THREE.MeshToonMaterial({color:0xffffff, gradientMap:TOON, flatShading:true}), 7);
+  const mk = (name, geo, mat, n, shadow) => { const m = new THREE.InstancedMesh(geo, mat, n); if (!mat.isLineBasicMaterial && mat !== OUTLINE_MAT && name !== 'mouth' && name !== 'barBg') m.setColorAt(0, new THREE.Color(0xffffff)); m.count = 0; m.frustumCulled = false; m.castShadow = !!shadow; m.receiveShadow = !mat.isMeshBasicMaterial; m.userData.noRay = true; m.userData.outlined = true; m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); SWARM.im[name] = m; roundGroup.add(m); return m; };
+  for (const k of ['body', 'head', 'arm', 'leg']) { const n = SWARM_CAP*(SW_PARTS[k].pair ? 2 : 1); mk(k, box, toon, n, k === 'body' || k === 'head'); const o = mk(k + 'O', boxO, OUTLINE_MAT, n); o.userData.isOutline = true; }
+  mk('eye', box, new THREE.MeshBasicMaterial({color:0xffffff}), SWARM_CAP*2); mk('mouth', box, new THREE.MeshBasicMaterial({color:0x1A0F0A}), SWARM_CAP);
+  const bar = new THREE.PlaneGeometry(1, 1);
+  mk('barBg', bar, new THREE.MeshBasicMaterial({color:0x12161C}), SWARM_CAP); mk('barFg', bar, new THREE.MeshBasicMaterial({color:0xffffff}), SWARM_CAP);
+  SWARM.im.barBg.renderOrder = 20; SWARM.im.barFg.renderOrder = 21;
+  mk('vox', box, pixelGrain(new THREE.MeshToonMaterial({color:0xffffff, gradientMap:TOON, flatShading:true}), 7), 1600, false);
+  SWARM.vox = {n:0, max:1600, p:new Float32Array(1600*3), v:new Float32Array(1600*3), life:new Float32Array(1600), s:new Float32Array(1600), c:new Float32Array(1600*3)};
+}
+
+/* ---------- spawning ---------- */
+function swarmPickType(){ const r = Math.random()*10; return r < 7 ? 'grunt' : r < 9 ? 'runner' : 'brute'; }
+function swarmSpawn(n){
+  if (!swarmOn()) return;
+  const me = localP(); if (!me) return;
+  const room = SWARM_CAP - SWARM.list.filter(e => e.alive).length - SWARM.queue.length;
+  if (room <= 0) { toast(`👾 That's the limit: ${SWARM_CAP} enemies at once.`); return; }
+  n = Math.min(n, room); swarmBuild(); swarmBlockMap(true);
+  const c = me.body.position, groups = n >= 20 ? 3 : n >= 10 ? 2 : 1, a0 = Math.random()*6.28;
+  for (let i = 0; i < n; i++) {
+    let x = 0, z = 0, ok = false;
+    for (let k = 0; k < 14 && !ok; k++) {
+      const a = a0 + (i % groups)*(6.28/groups) + rr(-.5, .5), d = rr(20, 32) + (n > 50 ? rr(0, 8) : 0);
+      x = clamp(c.x + Math.cos(a)*d, -ISL + 5, ISL - 5); z = clamp(c.z + Math.sin(a)*d, -ISL + 5, ISL - 5);
+      ok = !SWARM.blocked[swCell(x, z)] && Math.hypot(x - c.x, z - c.z) > 12;
+    }
+    if (ok) SWARM.queue.push({x, z, type:swarmPickType(), t:i*Math.min(.04, 1.6/n)});
+  }
+  toast(`👾 ${n} enem${n === 1 ? 'y' : 'ies'} incoming!`); sfx('portal'); sfx('demon');
+  swarmPanel();
+}
+function swarmMake(q){
+  const T = SWARM_TYPES[q.type], gy = groundH(q.x, q.z);
+  const b = new CANNON.Body({mass:T.mass, material:PM.char}); b.addShape(new CANNON.Sphere(T.r));
+  b.position.set(q.x, gy + T.r + .05, q.z); b.fixedRotation = true; b.updateMassProperties(); b.linearDamping = .02; b.allowSleep = false;
+  b.collisionFilterGroup = 16; b.collisionFilterMask = -1 ^ 16; b.keepMask = true; b.tag = 'dummy'; world.addBody(b);
+  const e = {id:++SWARM.seq, type:q.type, T, body:b, hp:T.hp, alive:true, state:'walk', face:rr(0, 6.28), walk:rr(0, 6), atkT:0, cd:rr(.2, 1), flash:0, tilt:0, calm:0,
+    pv:{x:0, y:0, z:0}, lock:0, fFrame:-1, fa:0, fh:0, rise:0, stuckT:0, sx:q.x, sz:q.z, dieT:-1, arm:0};
+  e.rec = {body:b, dead:false, swarm:e, kind:'swarm', mesh:null}; bodyObj.set(b, e.rec); PAIN.dummies.push(e.rec);
+  SWARM.list.push(e);
+  for (let i = 0; i < 4; i++) puff(V3(q.x + rr(-.5, .5), gy + .2, q.z + rr(-.5, .5)), pick([0x7A4FB8, 0x3A2A55, 0x6E5A48]), .4);
+}
+
+/* ---------- damage ---------- */
+// one power often reaches an enemy through two channels in the same frame (area + dummyHit): count it once
+function swarmHurt(e, dmg, ch){
+  if (!e || !e.alive || e.dieT >= 0 || !(dmg > 0)) return;
+  if (e.fFrame !== SWARM.frame) { e.fFrame = SWARM.frame; e.fa = e.fh = 0; }
+  const before = Math.max(e.fa, e.fh); if (ch === 'a') e.fa += dmg; else e.fh += dmg; const add = Math.max(e.fa, e.fh) - before; if (add <= 0) return;
+  e.hp -= add; e.flash = 1; e.lock = G.t + .3; e.tilt = Math.min(.7, e.tilt + .12 + add/90);
+  swarmNumber(e, add);
+  if (e.hp <= 0) swarmKill(e);
+}
+// powers that hurt whoever their forces touch (tornadoes, slams, punches) hurt Swarm enemies the same way
+function swarmBodyHurt(b, dmg){ if (b.tag !== 'dummy') return; const o = bodyObj.get(b); if (o && o.swarm) swarmHurt(o.swarm, dmg*1.4, 'h'); }
+function swarmTakeArea(at, R, dmg){
+  if (!SWARM.list.length || !(dmg > 0)) return;
+  for (const e of SWARM.list) { if (!e.alive) continue; const p = e.body.position, d = Math.hypot(p.x - at.x, p.y + .4*e.T.S - at.y, p.z - at.z); if (d < R + e.T.r) swarmHurt(e, dmg*(d < R ? 1 - .5*d/R : .5), 'a'); }
+}
+function swarmTakeCone(from, yaw, range, arc, dmg){
+  if (!SWARM.list.length || !(dmg > 0)) return;
+  const fx = Math.sin(yaw), fz = Math.cos(yaw), cosA = Math.cos(arc/2);
+  for (const e of SWARM.list) { if (!e.alive) continue; const dx = e.body.position.x - from.x, dz = e.body.position.z - from.z, d = Math.hypot(dx, dz) - e.T.r; if (d > range) continue;
+    if (d < 1.1 || (dx*fx + dz*fz)/Math.max(.01, Math.hypot(dx, dz)) > cosA) swarmHurt(e, dmg, 'a'); }
+}
+function swarmKill(e, quiet){
+  if (!e.alive || e.dieT >= 0) return;
+  e.dieT = 0; e.hp = 0; e.rec.dead = true; bodyObj.delete(e.body); if (e.body.world) world.removeBody(e.body);
+  SWARM.killed++; if (quiet) { e.dieT = 9; e.quiet = true; return; }
+  const p = e.body.position;
+  if (typeof NECRO !== 'undefined' && NECRO.corpses && NECRO.corpses.length < 24 && typeof addCorpse === 'function' && Math.abs(p.x) < ISL && Math.abs(p.z) < ISL) addCorpse(V3(p.x, groundH(p.x, p.z), p.z));
+}
+// pooled floating damage numbers; textures are cached per number so 100 hits don't make 100 canvases
+function swarmNumber(e, dmg){
+  if (G.t - (e.numT || -9) < .18) { e.numAcc = (e.numAcc || 0) + dmg; return; }
+  dmg += e.numAcc || 0; e.numAcc = 0; e.numT = G.t;
+  const txt = String(Math.max(1, Math.round(dmg))), big = dmg >= 40;
+  const key = txt + (big ? '!' : ''); let tex = SWARM.texCache.get(key);
+  if (!tex) { if (SWARM.texCache.size > 400) SWARM.texCache.clear();
+    const c = document.createElement('canvas'); c.width = 64; c.height = 32; const x = c.getContext('2d'); x.imageSmoothingEnabled = false;
+    x.font = '900 24px Nunito, system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineWidth = 5; x.strokeStyle = '#05090D'; x.strokeText(txt, 32, 17); x.fillStyle = big ? '#FF8A2E' : '#FFE14D'; x.fillText(txt, 32, 17);
+    tex = new THREE.CanvasTexture(c); tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; SWARM.texCache.set(key, tex); }
+  let s = SWARM.nums[SWARM.numI];
+  if (!s) { s = SWARM.nums[SWARM.numI] = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, transparent:true, depthWrite:false, depthTest:false})); s.renderOrder = 40; s.userData.noRay = true; s.userData.outlined = true; }
+  SWARM.numI = (SWARM.numI + 1) % 48;
+  s.material.map = tex; s.material.opacity = 1; s.userData.t = 0; s.userData.vx = rr(-.6, .6);
+  const p = e.body.position; s.position.set(p.x, p.y + 1.7*e.T.S + .3, p.z); s.scale.set(big ? 1.5 : 1.1, big ? .75 : .55, 1); if (s.parent !== roundGroup) roundGroup.add(s);
+}
+
+/* ---------- the flow field ---------- */
+const swCell = (x, z) => clamp(Math.floor((x + ISL)/SGC), 0, SG - 1) + clamp(Math.floor((z + ISL)/SGC), 0, SG - 1)*SG;
+function swarmBlockMap(force){
+  if (!force && G.t - SWARM.blockT < 1.2) return; SWARM.blockT = G.t;
+  const B = SWARM.blocked; B.fill(0);
+  for (let i = 0; i < SG; i++) { B[i] = B[i + (SG - 1)*SG] = B[i*SG] = B[i*SG + SG - 1] = 1; }
+  const mark = (x, z, R, test) => { const i0 = Math.max(0, Math.floor((x - R + ISL)/SGC)), i1 = Math.min(SG - 1, Math.floor((x + R + ISL)/SGC)), j0 = Math.max(0, Math.floor((z - R + ISL)/SGC)), j1 = Math.min(SG - 1, Math.floor((z + R + ISL)/SGC));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const cx = -ISL + (i + .5)*SGC, cz = -ISL + (j + .5)*SGC; if (test(cx, cz)) B[i + j*SG] = 1; } };
+  for (const pr of props) { if (pr.dead) continue;
+    if (pr.kind === 'tree') mark(pr.x, pr.z, 1, (cx, cz) => Math.hypot(cx - pr.x, cz - pr.z) < .3*pr.s + .75);
+    else if (pr.kind === 'rock') { if (pr.r > .55) mark(pr.x, pr.z, pr.r + 1, (cx, cz) => Math.hypot(cx - pr.x, cz - pr.z) < pr.r*.9 + .7); }
+    else { const m = pr.mesh.position, a = pr.mesh.rotation.y, c = Math.cos(a), s = Math.sin(a), R = Math.hypot(pr.hx, pr.hz) + 1;
+      if (pr.hy*2 < .5) continue; mark(m.x, m.z, R, (cx, cz) => { const dx = cx - m.x, dz = cz - m.z, lx = dx*c - dz*s, lz = dx*s + dz*c; return Math.abs(lx) < pr.hx + .6 && Math.abs(lz) < pr.hz + .6; }); } }
+  if (typeof BARS !== 'undefined') for (const b of BARS.list) if (!b.dead) mark(b.p.x, b.p.z, 4, (cx, cz) => barContains(b, cx, cz, .6));
+  for (const o of objs) { if (o.dead || !o.body || o.body.mass < 300 || o.kind === 'debris') continue; const p = o.body.position; if (Math.hypot(o.body.velocity.x, o.body.velocity.z) > 1) continue; mark(p.x, p.z, 2, (cx, cz) => Math.hypot(cx - p.x, cz - p.z) < 1.6); }
+}
+// Dijkstra from the player's cell (8 neighbours, no corner cutting); each cell keeps the direction downhill
+const SW_HEAP = new Int32Array(SG*SG*4), SW_HP = new Float32Array(SG*SG*4);
+function swarmFlow(px, pz){
+  const D = SWARM.dist, B = SWARM.blocked, N = SG; D.fill(1e9);
+  const start = swCell(px, pz); let n = 0;
+  const push = (i, d) => { let k = n++; while (k > 0) { const p = (k - 1) >> 1; if (SW_HP[p] <= d) break; SW_HEAP[k] = SW_HEAP[p]; SW_HP[k] = SW_HP[p]; k = p; } SW_HEAP[k] = i; SW_HP[k] = d; };
+  const pop = () => { const top = SW_HEAP[0]; const li = SW_HEAP[--n], ld = SW_HP[n]; let k = 0; for (;;) { let c = 2*k + 1; if (c >= n) break; if (c + 1 < n && SW_HP[c + 1] < SW_HP[c]) c++; if (SW_HP[c] >= ld) break; SW_HEAP[k] = SW_HEAP[c]; SW_HP[k] = SW_HP[c]; k = c; } SW_HEAP[k] = li; SW_HP[k] = ld; return top; };
+  D[start] = 0; push(start, 0);
+  while (n > 0) {
+    const d0 = SW_HP[0], i = pop(); if (d0 > D[i]) continue; const x = i % N, z = (i - x)/N;
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) { if (!dx && !dz) continue; const nx = x + dx, nz = z + dz; if (nx < 0 || nz < 0 || nx >= N || nz >= N) continue;
+      const j = nx + nz*N; if (B[j]) continue; if (dx && dz && (B[x + dx + z*N] || B[x + (z + dz)*N])) continue;
+      const nd = d0 + (dx && dz ? 1.414 : 1); if (nd < D[j]) { D[j] = nd; if (n < SW_HEAP.length) push(j, nd); } }
+  }
+  for (let i = 0; i < N*N; i++) { SWARM.fx[i] = SWARM.fz[i] = 0; if (D[i] >= 1e9 || i === start) continue; const x = i % N, z = (i - x)/N; let best = D[i], bx = 0, bz = 0;
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) { const nx = x + dx, nz = z + dz; if ((!dx && !dz) || nx < 0 || nz < 0 || nx >= N || nz >= N) continue; const j = nx + nz*N; if (D[j] < best && !(dx && dz && (B[x + dx + z*N] || B[x + (z + dz)*N]))) { best = D[j]; bx = dx; bz = dz; } }
+    const L = Math.hypot(bx, bz) || 1; SWARM.fx[i] = bx/L; SWARM.fz[i] = bz/L; }
+}
+function swarmClear(x0, z0, x1, z1){   // nothing blocked on the straight line between two points
+  const L = Math.hypot(x1 - x0, z1 - z0), n = Math.ceil(L/1.2); for (let i = 1; i < n; i++) if (SWARM.blocked[swCell(x0 + (x1 - x0)*i/n, z0 + (z1 - z0)*i/n)]) return false; return true;
+}
+
+/* ---------- per frame ---------- */
+const _sm = new THREE.Matrix4(), _sr = new THREE.Matrix4(), _sl = new THREE.Matrix4(), _sq = new THREE.Quaternion(), _sq2 = new THREE.Quaternion(), _se = new THREE.Euler(), _sv = new THREE.Vector3(), _ss = new THREE.Vector3(), _sc = new THREE.Color(), _sw = new THREE.Color(0xffffff), _sY = new THREE.Vector3(0, 1, 0), _sZ = new THREE.Matrix4().makeScale(0, 0, 0);
+function swarmFrame(dt){
+  SWARM.frame++;
+  if (G.mode !== 'swarm') { if (SWARM.list.length || SWARM.queue.length) swarmReset(); return; }
+  swarmPanelTick(dt);
+  if (!SWARM.built) return;
+  const me = localP(), live = me && me.alive !== false, frozen = G.freeze > 0;
+  // spawn queue: staggered so a wave of 100 doesn't hitch, enemies climb out of the ground
+  if (SWARM.queue.length) { for (const q of SWARM.queue) q.t -= dt; while (SWARM.queue.length && SWARM.queue[0].t <= 0) swarmMake(SWARM.queue.shift()); }
+  // paths
+  swarmBlockMap(false);
+  if (live) { const pc = swCell(me.body.position.x, me.body.position.z); SWARM.flowT -= dt; if (SWARM.flowT <= 0 || (pc !== SWARM.tc && SWARM.flowT < .2)) { SWARM.flowT = .35; SWARM.tc = pc; swarmFlow(me.body.position.x, me.body.position.z); } }
+  // neighbour buckets for separation
+  const H = SWARM.head, NX = SWARM.next; H.fill(-1); const L = SWARM.list;
+  for (let i = 0; i < L.length; i++) { const e = L[i]; if (!e.alive || e.dieT >= 0) continue; const c = swCell(e.body.position.x, e.body.position.z); NX[i] = H[c]; H[c] = i; e.cell = c; }
+  const tp = live ? me.body.position : null;
+  for (let i = 0; i < L.length; i++) {
+    const e = L[i]; if (!e.alive) continue;
+    if (e.dieT >= 0) { e.dieT += dt; continue; }
+    const T = e.T, b = e.body, p = b.position, v = b.velocity;
+    if (e.rec.dead) { swarmKill(e); continue; }   // removed by some power (punched out of the world, sucked into a core…)
+    if (p.y < -7 || Math.abs(p.x) > ISL + 6 || Math.abs(p.z) > ISL + 6) { swarmKill(e, true); puff(V3(clamp(p.x, -ISL, ISL), -6, clamp(p.z, -ISL, ISL)), 0xFFFFFF, .5); continue; }
+    if (e.rise < 1) e.rise = Math.min(1, e.rise + dt*2.2);
+    e.flash = Math.max(0, e.flash - dt*7); e.tilt = Math.max(0, e.tilt - dt*2.5); e.cd -= dt;
+    // hard velocity changes hurt (explosions, tornadoes, slams, landing from a fling)
+    if (!frozen) { const dv = Math.hypot(v.x - e.pv.x, v.y - e.pv.y, v.z - e.pv.z); if (dv > 9 && G.t > e.lock) swarmHurt(e, (dv - 9)*2.2, 'v'); if (!e.alive || e.dieT >= 0) continue; }
+    const gh = groundH(p.x, p.z), onG = p.y - T.r <= gh + .25, hs = Math.hypot(v.x, v.z);
+    if (!frozen) { const sp = Math.hypot(hs, v.y); if (sp > 11 && !onG) { swarmHurt(e, (sp - 11)*dt*2.5, 'v'); if (!e.alive || e.dieT >= 0) continue; } }
+    if (e.state === 'tumble') { if (onG && hs < T.spd + 2 && Math.abs(v.y) < 3) { e.calm += dt; if (e.calm > .2) { e.state = 'walk'; e.calm = 0; } } else e.calm = 0; if (onG) { const k = Math.exp(-5*dt); v.x *= k; v.z *= k; } }
+    else if ((!onG && v.y > 3) || hs > T.spd + 6) { e.state = 'tumble'; e.calm = 0; e.arm = 0; }
+    let tdx = 0, tdz = 0, td = 99;
+    if (tp) { tdx = tp.x - p.x; tdz = tp.z - p.z; td = Math.hypot(tdx, tdz) || .01; }
+    if (!frozen && !b._frozen && e.state !== 'tumble' && e.rise >= 1) {
+      let dx = 0, dz = 0;
+      if (tp) {
+        const reach = T.r + .55 + .35*T.S;
+        if (td < reach) { dx = dz = 0; }
+        else if (td < 9 && swarmClear(p.x, p.z, tp.x, tp.z)) { dx = tdx/td; dz = tdz/td; }
+        else { const c = swCell(p.x, p.z); if (SWARM.dist[c] < 1e9 && (SWARM.fx[c] || SWARM.fz[c])) { dx = SWARM.fx[c]; dz = SWARM.fz[c]; const cx = -ISL + ((c % SG) + .5)*SGC, cz = -ISL + (Math.floor(c/SG) + .5)*SGC; dx += (cx - p.x)*.18; dz += (cz - p.z)*.18; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l; } else { dx = tdx/td; dz = tdz/td; } }
+        // attack: plant, wind up, swing
+        if (e.state === 'walk' && td < reach + .15 && e.cd <= 0 && live) { e.state = 'windup'; e.atkT = 0; }
+      }
+      if (e.state === 'windup') { dx = dz = 0; e.atkT += dt; e.arm = Math.min(1, e.atkT/T.wind);
+        if (e.atkT >= T.wind) { e.state = 'walk'; e.cd = T.cd*rr(.85, 1.2); e.arm = -1.2;
+          if (live && td < T.r + .55 + .35*T.S + .7 && Math.abs(tp.y - p.y) < 2.2) swarmStrike(e, tdx/td, tdz/td); } }
+      else if (e.arm < 0) e.arm = Math.min(0, e.arm + dt*6);
+      // separation from neighbours
+      let sx = 0, sz = 0; const cx = e.cell % SG, cz = (e.cell - cx)/SG;
+      for (let oz = -1; oz <= 1; oz++) for (let ox = -1; ox <= 1; ox++) { const nx = cx + ox, nz = cz + oz; if (nx < 0 || nz < 0 || nx >= SG || nz >= SG) continue;
+        for (let j = H[nx + nz*SG]; j !== -1; j = NX[j]) { if (j === i) continue; const o = L[j], q = o.body.position, ddx = p.x - q.x, ddz = p.z - q.z, dd = Math.hypot(ddx, ddz) || .01, min = (T.r + o.T.r)*1.25; if (dd < min) { const k = (min - dd)/min; sx += ddx/dd*k; sz += ddz/dd*k; } } }
+      const spd = T.spd*(e.slowT > G.t ? .45 : 1)*(e.state === 'windup' ? 0 : 1);
+      let wx = dx*spd + sx*4, wz = dz*spd + sz*4;
+      if (onG) { const k = Math.min(1, dt*9); v.x += (wx - v.x)*k; v.z += (wz - v.z)*k; }
+      // stuck against something: hop and sidestep
+      e.stuckT += dt; if (e.stuckT > 1.2) { const moved = Math.hypot(p.x - e.sx, p.z - e.sz); if (moved < .5 && (dx || dz) && onG) { v.y = 5.5; v.x += -dz*3*(Math.random() < .5 ? 1 : -1); v.z += dx*3; } e.stuckT = 0; e.sx = p.x; e.sz = p.z; }
+      const want = (dx || dz) ? Math.atan2(dx, dz) : tp ? Math.atan2(tdx, tdz) : e.face; e.face = turnTo(e.face, want, dt*8);
+    }
+    e.walk += dt*Math.min(12, hs*1.6);
+    e.pv.x = v.x; e.pv.y = v.y; e.pv.z = v.z;
+  }
+  swarmDraw(dt);
+  // the dead leave the list once their burst has played
+  for (const e of L) if (e.alive && e.dieT > .25) { e.alive = false; if (!e.quiet) swarmBurst(e); }
+  if (SWARM.frame % 30 === 0) { SWARM.list = SWARM.list.filter(e => e.alive); PAIN.dummies = PAIN.dummies.filter(d => !(d.swarm && d.dead)); }
+}
+function swarmStrike(e, nx, nz){
+  const me = localP(); if (!me) return;
+  if (G.t - SWARM.sndT > .08) { SWARM.sndT = G.t; sfx(e.type === 'brute' ? 'thud' : 'punch'); }
+  if (SWARM.god) { if (G.t - (SWARM.godT || -9) > .6) { SWARM.godT = G.t; puff(V3(me.body.position.x, me.body.position.y + 1.2, me.body.position.z), 0xFFE14D, .4); } return; }
+  painHurt(me, e.T.dmg, null);
+  const kb = e.type === 'brute' ? 9 : e.type === 'runner' ? 1.5 : 3;
+  knock(me, nx*kb, e.type === 'brute' ? 5 : 1.2, nz*kb, e.type === 'brute' ? .35 : 0);
+}
+// death: a squash and flash, then a burst of voxels in the enemy's colours
+function swarmBurst(e){
+  const p = e.body.position, T = e.T, n = e.type === 'brute' ? 34 : e.type === 'runner' ? 12 : 18, gy = Math.max(groundH(p.x, p.z), p.y - T.r);
+  const cols = [T.body, T.body, T.skin, T.skin, T.pants, T.eye];
+  for (let i = 0; i < n; i++) swarmVox(p.x + rr(-.3, .3)*T.S, gy + rr(.3, 1.8)*T.S, p.z + rr(-.3, .3)*T.S, rr(-5, 5), rr(3, 9), rr(-5, 5), rr(.12, .26)*Math.sqrt(T.S), pick(cols), rr(.9, 1.6));
+  if (G.t - (SWARM.popT || -9) > .05) { SWARM.popT = G.t; sfx('poof'); if (Math.random() < .5) sfx('splat'); }
+}
+function swarmVox(x, y, z, vx, vy, vz, s, col, life){
+  const V = SWARM.vox; if (!V) return; let i = V.n < V.max ? V.n++ : Math.floor(Math.random()*V.max);
+  V.p[i*3] = x; V.p[i*3 + 1] = y; V.p[i*3 + 2] = z; V.v[i*3] = vx; V.v[i*3 + 1] = vy; V.v[i*3 + 2] = vz; V.s[i] = s; V.life[i] = life; _sc.setHex(col); V.c[i*3] = _sc.r; V.c[i*3 + 1] = _sc.g; V.c[i*3 + 2] = _sc.b;
+}
+function swarmDraw(dt){
+  const IM = SWARM.im, L = SWARM.list, camQ = camera.quaternion, cr = _ss.set(1, 0, 0).applyQuaternion(camQ).clone(); let n = 0, n2 = 0;
+  for (const e of L) {
+    if (!e.alive) continue;
+    const T = e.T, p = e.body.position, S = T.S;
+    let sy = 1, sxz = 1, lift = 0;
+    if (e.dieT >= 0) { const k = Math.min(1, e.dieT/.25); sy = 1 - .55*k; sxz = 1 + .35*k; }
+    if (e.rise < 1) lift = -(1 - e.rise)*1.9*S;
+    const bob = e.state === 'tumble' ? 0 : Math.abs(Math.sin(e.walk))*.06*S;
+    _se.set(-e.tilt*.6 + (e.state === 'windup' ? -.18*e.arm : 0), e.face, e.state === 'tumble' ? Math.sin(G.t*9 + e.id)*.5 : 0, 'YXZ'); _sq.setFromEuler(_se);
+    _sm.compose(_sv.set(p.x, p.y - T.r + lift + bob, p.z), _sq, _ss.set(S*sxz, S*sy, S*sxz));
+    const fl = e.dieT >= 0 ? 1 : e.flash;
+    const part = (name, idx, P, side, rx, col) => {
+      const px = P.p[0]*(side || 1); _sq2.setFromAxisAngle(_sv.set(1, 0, 0), rx || 0);
+      _sl.compose(_sv.set(px, P.p[1], P.p[2]), _sq2, _ss.set(1, 1, 1)); _sr.makeTranslation(0, P.o || 0, 0); _sl.multiply(_sr); _sr.makeScale(P.s[0], P.s[1], P.s[2]); _sl.multiply(_sr);
+      _sr.multiplyMatrices(_sm, _sl); IM[name].setMatrixAt(idx, _sr); if (IM[name + 'O']) IM[name + 'O'].setMatrixAt(idx, _sr);
+      if (col != null) IM[name].setColorAt(idx, _sc.setHex(col).lerp(_sw, fl*.85));
+    };
+    const sw = e.state === 'tumble' ? Math.sin(G.t*14 + e.id)*.9 : Math.sin(e.walk)*.7*Math.min(1, Math.hypot(e.body.velocity.x, e.body.velocity.z)/3);
+    const armR = e.arm > 0 ? -2.4*e.arm : e.arm < 0 ? -2.4 - e.arm*1.2 : 0;
+    part('body', n, SW_PARTS.body, 1, 0, T.body); part('head', n, SW_PARTS.head, 1, 0, T.skin); part('mouth', n, SW_PARTS.mouth, 1, 0);
+    part('arm', n*2, SW_PARTS.arm, 1, (armR || sw), T.skin); part('arm', n*2 + 1, SW_PARTS.arm, -1, (armR ? armR*.8 : -sw), T.skin);
+    part('leg', n*2, SW_PARTS.leg, 1, -sw, T.pants); part('leg', n*2 + 1, SW_PARTS.leg, -1, sw, T.pants);
+    part('eye', n*2, SW_PARTS.eye, 1, 0, e.state === 'windup' ? 0xFF3B30 : T.eye); part('eye', n*2 + 1, SW_PARTS.eye, -1, 0, e.state === 'windup' ? 0xFF3B30 : T.eye);
+    // health bar: billboarded, left-anchored fill
+    if (e.dieT < 0) {
+      const w = .9*S, h = .09, k = clamp(e.hp/T.hp, 0, 1), y = p.y - T.r + lift + 2.15*S;
+      _sm.compose(_sv.set(p.x, y, p.z), camQ, _ss.set(w + .08, h + .07, 1)); IM.barBg.setMatrixAt(n2, _sm);
+      const off = -(w/2)*(1 - k); _sm.compose(_sv.set(p.x + cr.x*off, y + cr.y*off, p.z + cr.z*off), camQ, _ss.set(Math.max(.001, w*k), h, 1)); _sv.set(0, 0, .01).applyQuaternion(camQ); _sm.elements[12] += _sv.x; _sm.elements[13] += _sv.y; _sm.elements[14] += _sv.z;
+      IM.barFg.setMatrixAt(n2, _sm); IM.barFg.setColorAt(n2, _sc.setHSL(.33*k, .78, .46)); n2++;
+    }
+    n++;
+  }
+  for (const k of ['body', 'head', 'mouth']) { IM[k].count = n; if (IM[k + 'O']) IM[k + 'O'].count = n; }
+  for (const k of ['arm', 'leg', 'eye']) { IM[k].count = n*2; if (IM[k + 'O']) IM[k + 'O'].count = n*2; }
+  IM.barBg.count = IM.barFg.count = n2;
+  for (const k in IM) { if (k === 'vox') continue; IM[k].instanceMatrix.needsUpdate = true; if (IM[k].instanceColor) IM[k].instanceColor.needsUpdate = true; }
+  // voxels: fly, bounce, shrink
+  const V = SWARM.vox, d = dt*(G.fxScale == null ? 1 : G.fxScale); let m = 0;
+  for (let i = 0; i < V.n; i++) {
+    if (V.life[i] <= 0) continue; V.life[i] -= dt; const j = i*3;
+    V.v[j + 1] -= 18*d; V.p[j] += V.v[j]*d; V.p[j + 1] += V.v[j + 1]*d; V.p[j + 2] += V.v[j + 2]*d;
+    const gh = groundH(V.p[j], V.p[j + 2]) + V.s[i]*.5; if (V.p[j + 1] < gh) { V.p[j + 1] = gh; V.v[j + 1] = Math.abs(V.v[j + 1])*.35; V.v[j] *= .6; V.v[j + 2] *= .6; }
+    const s = V.s[i]*Math.min(1, V.life[i]*3); _sq.setFromAxisAngle(_sY, i + V.life[i]*4); _sm.compose(_sv.set(V.p[j], V.p[j + 1], V.p[j + 2]), _sq, _ss.set(s, s, s));
+    IM.vox.setMatrixAt(m, _sm); IM.vox.setColorAt(m, _sc.setRGB(V.c[j], V.c[j + 1], V.c[j + 2])); m++;
+  }
+  if (m === 0) V.n = 0; IM.vox.count = m; IM.vox.instanceMatrix.needsUpdate = true; if (IM.vox.instanceColor) IM.vox.instanceColor.needsUpdate = true;
+  // damage numbers float up and fade
+  for (const s of SWARM.nums) { if (!s || !s.parent) continue; s.userData.t += dt; s.position.y += dt*1.8; s.position.x += s.userData.vx*dt; s.material.opacity = Math.max(0, 1 - s.userData.t/.9); if (s.userData.t > .9) roundGroup.remove(s); }
+}
+function swarmReset(){
+  for (const e of SWARM.list) { if (e.body.world) world.removeBody(e.body); bodyObj.delete(e.body); e.rec.dead = true; e.alive = false; }
+  SWARM.list = []; SWARM.queue = []; SWARM.killed = 0; SWARM.tc = -1;
+  if (SWARM.vox) SWARM.vox.n = 0;
+  if (SWARM.im) for (const k in SWARM.im) SWARM.im[k].count = 0;
+  PAIN.dummies = PAIN.dummies.filter(d => !d.swarm);
+  swarmPanel();
+}
+function swarmClearAll(){
+  if (!SWARM.list.length && !SWARM.queue.length) return;
+  SWARM.queue = []; for (const e of SWARM.list) if (e.alive && e.dieT < 0) swarmKill(e); toast('🧹 Swarm cleared.');
+}
+function swarmStart(){
+  swarmReset(); swarmBuild(); swarmBlockMap(true);
+  const me = localP(); if (me) swarmFlow(me.body.position.x, me.body.position.z);
+  swarmPanel();
+}
+
+/* ---------- the Swarm panel ---------- */
+function swarmPanel(){
+  let el = document.getElementById('swarmPanel');
+  const show = G.mode === 'swarm' && G.pvp && G.phase === 'attack' && !G.matchOver;
+  if (!show) { if (el) el.style.display = 'none'; return; }
+  if (!el) { el = document.createElement('div'); el.id = 'swarmPanel'; el.className = 'sticker'; el.setAttribute('role', 'region'); el.setAttribute('aria-label', 'Swarm controls'); document.body.appendChild(el);
+    el.innerHTML = `<div class="swT">👾 Swarm</div><div class="swRow">${[5, 10, 20, 50, 100].map((n, i) => `<button class="btn" data-n="${n}" title="Spawn ${n} (Alt+${i + 1})">${n}</button>`).join('')}</div>
+      <div class="swRow"><button class="btn" id="swClear" title="Remove every enemy (Alt+0)">🧹 Clear</button><button class="btn" id="swGod" aria-pressed="false" title="Enemies can't hurt you (Alt+G)">🛡️ Invincible</button></div>
+      <div class="swStat" id="swStat"></div><div class="swHint">Esc frees the mouse · Alt+1–5 spawn · Alt+0 clear</div>`;
+    el.querySelectorAll('[data-n]').forEach(b => { b.onpointerdown = e => { e.stopPropagation(); e.preventDefault(); swarmSpawn(+b.dataset.n); }; b.onclick = e => e.stopPropagation(); });
+    el.querySelector('#swClear').onpointerdown = e => { e.stopPropagation(); e.preventDefault(); swarmClearAll(); };
+    el.querySelector('#swGod').onpointerdown = e => { e.stopPropagation(); e.preventDefault(); swarmGod(); };
+    el.onpointerdown = e => e.stopPropagation(); el.onclick = e => e.stopPropagation(); }
+  el.style.display = 'block'; el.querySelector('#swGod').setAttribute('aria-pressed', SWARM.god ? 'true' : 'false'); el.querySelector('#swGod').textContent = SWARM.god ? '🛡️ Invincible: on' : '🛡️ Invincible: off';
+  swarmPanelTick(1);
+}
+function swarmGod(){ SWARM.god = !SWARM.god; toast(SWARM.god ? '🛡️ Enemies can’t hurt you now.' : '🛡️ Enemies can hurt you again.'); swarmPanel(); }
+function swarmPanelTick(dt){
+  SWARM.uiT = (SWARM.uiT || 0) - dt; if (SWARM.uiT > 0) return; SWARM.uiT = .25;
+  const el = document.getElementById('swarmPanel'); if (!el) return;
+  const show = G.mode === 'swarm' && G.pvp && G.phase === 'attack' && !G.matchOver; el.style.display = show ? 'block' : 'none'; if (!show) return;
+  const alive = SWARM.list.filter(e => e.alive && e.dieT < 0).length + SWARM.queue.length;
+  el.querySelector('#swStat').innerHTML = `<b>${alive}</b> alive · <b>${SWARM.killed}</b> defeated`;
+}
+// Alt+1-5 spawn 5/10/20/50/100, Alt+0 clears, Alt+G invincible (works while the mouse is captured)
+addEventListener('keydown', e => {
+  if (!e.altKey || G.mode !== 'swarm' || !swarmOn()) return;
+  const m = /^Digit([0-5])$/.exec(e.code || ''), n = m ? +m[1] : -1;
+  if (n >= 1) { e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) swarmSpawn([5, 10, 20, 50, 100][n - 1]); }
+  else if (n === 0) { e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) swarmClearAll(); }
+  else if (e.code === 'KeyG') { e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) swarmGod(); }
+}, true);
+
 /* casting, locally and for other players */
 function runSkill(id, p, x){
   if (id === 'ki') { kiBlast(p); return; }
@@ -8837,8 +9586,10 @@ function localCast(id, p, x){
   if (G.egg && G.egg.over && id !== 'u_kill' && id !== 'g_break') return;
   const o = P ? [+P.body.position.x.toFixed(2), +P.body.position.y.toFixed(2), +P.body.position.z.toFixed(2)] : null;   // before the power moves you (counter, storm...)
   G.casterKey = G.localKey;
+  const cbBefore = SPECIALS[id] && G.cls === 'native' && !isPain() ? new Set(getCarriers().map(c => c.ref)) : null;
   // a bug in a power's local effect must never stop everyone else from seeing the cast
   try { runSkill(id, p, x); } catch (e) { console.warn(e); } finally { G.casterKey = null; }
+  if (cbBefore) comboTrack(id, cbBefore);
   necroOnCast(G.localKey);
   if (!G.pvp) return;
   if (id !== 'ki' && id !== 'd_use' && id !== 'd_place') G.cd[id] = cdFor(id);
@@ -9152,7 +9903,7 @@ function netTick(dt){
 }
 
 /* ---------- menus and HUD ---------- */
-const ME = {name:'', team:'blue', look:Math.floor(Math.random()*LOOK_COUNT), mode:(() => { try { return normMode(localStorage.getItem('ca-mode2') || 'egg'); } catch (e) { return 'egg'; } })(),
+const ME = {name:'', team:'blue', look:Math.floor(Math.random()*LOOK_COUNT), mode:(() => { try { const m = localStorage.getItem('ca-mode2') || 'egg'; return m === 'swarm' ? 'swarm' : normMode(m); } catch (e) { return 'egg'; } })(),
   cdOn:(() => { try { return localStorage.getItem('ca-cd') === 'on'; } catch (e) { return false; } })()};
 function myInfo(){ ME.name = clean(($('nameIn') && $('nameIn').value) || ME.name || 'Player'); try { localStorage.setItem('ca-name', ME.name); } catch (e) {} return {id:null, name:ME.name, team:ME.team, look:ME.look}; }
 function lobbyMsg(t){ const e = $('lobbyMsg'); if (e) e.textContent = t; }
@@ -9165,9 +9916,9 @@ function showPvPTitle(){
     <div class="rows" style="grid-template-columns:1fr 1fr;align-items:center">
       <label style="grid-column:1/-1;text-align:left;font-size:14px">Your name<br><input id="nameIn" maxlength="14" value="${clean(saved) === 'Player' && !saved ? '' : clean(saved)}" placeholder="Player" style="width:100%;margin-top:4px;padding:10px 12px;border:3px solid var(--edge);border-radius:12px;font:inherit;background:var(--panel);color:var(--text)"></label>
       <button class="btn" id="tBlue" style="background:var(--blue);color:#fff">Blue team</button><button class="btn" id="tRed" style="background:var(--red);color:#fff">Red team</button>
-      <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="btn" id="mEgg" style="background:#FFF3DC;color:#3B2A1A">🥚 Egg mode</button><button class="btn" id="mChaos">🌀 Chaos mode</button><button class="btn" id="mPain" style="background:#2A2236;color:#E6DAFF">🌑 Pain mode</button></div>
+      <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="btn" id="mEgg" style="background:#FFF3DC;color:#3B2A1A">🥚 Egg mode</button><button class="btn" id="mChaos">🌀 Chaos mode</button><button class="btn" id="mPain" style="background:#2A2236;color:#E6DAFF">🌑 Pain mode</button><button class="btn" id="mSwarm" style="background:#3B6B2E;color:#F0FFE0">👾 Swarm mode</button></div>
       <p class="muted" id="modeDesc" style="grid-column:1/-1;margin:0;font-size:14px"></p>
-      <button class="btn" id="cdB" style="grid-column:1/-1"></button>
+      <button class="btn" id="cdB"></button><button class="btn" id="pixB"></button>
     </div>
     <div class="actions">
       <button class="btn primary" id="hostB" ${online ? '' : 'disabled'}>Host a match</button>
@@ -9184,14 +9935,18 @@ function showPvPTitle(){
   $('tBlue').onclick = () => setTeam('blue'); $('tRed').onclick = () => setTeam('red');
   // game mode: the host's choice is used for the match; practice uses yours
   const setMode = m => { ME.mode = m; try { localStorage.setItem('ca-mode2', m); } catch (e) {}
-    for (const [id, k] of [['mEgg','egg'],['mChaos','chaos'],['mPain','pain']]) $(id).style.outline = m === k ? '4px solid var(--yolk)' : 'none';
+    for (const [id, k] of [['mEgg','egg'],['mChaos','chaos'],['mPain','pain'],['mSwarm','swarm']]) $(id).style.outline = m === k ? '4px solid var(--yolk)' : 'none';
+    $('hostB').disabled = m === 'swarm' || !online; $('hostB').title = m === 'swarm' ? 'Swarm mode is single-player: use Practice alone' : '';
     $('modeDesc').textContent = m === 'egg' ? `Egg: one player defends the egg with 19 protection powers and gets ${EGG_BUILD} seconds to build. Everyone else gets ${EGG_ATK} seconds and 31 powers to break it. Everyone takes a turn defending.`
+      : m === 'swarm' ? 'Swarm (single-player): spawn 5 to 100 enemies that chase you, then try every class’s powers on them. Use Practice alone.'
       : m === 'pain' ? 'Pain: gravity powers. Push, pull, Shinra Tensei, Chibaku Tensei and more. The map can’t be destroyed.' : 'Chaos: 31 ridiculous powers. Nukes, black holes, giant cows.';
     if ($('cdB')) setCd(ME.cdOn); };
   function setCd(on){ ME.cdOn = on; try { localStorage.setItem('ca-cd', on ? 'on' : 'off'); } catch (e) {} $('cdB').disabled = false; $('cdB').textContent = on ? '⏱️ Cooldowns: on' : '⏱️ Cooldowns: off (spam everything)'; }
   setMode(ME.mode); setCd(ME.cdOn); $('cdB').onclick = () => setCd(!ME.cdOn);
-  $('mEgg').onclick = () => setMode('egg'); $('mChaos').onclick = () => setMode('chaos'); $('mPain').onclick = () => setMode('pain');
-  $('hostB').onclick = () => { ensureAudio(); hostGame($('codeIn').value); };
+  $('mEgg').onclick = () => setMode('egg'); $('mChaos').onclick = () => setMode('chaos'); $('mPain').onclick = () => setMode('pain'); $('mSwarm').onclick = () => setMode('swarm');
+  $('pixB').textContent = PIXEL.on ? '🟪 Pixel look: on' : '🟪 Pixel look: off'; $('pixB').title = 'Switching reloads the game';
+  $('pixB').onclick = () => { try { localStorage.setItem('ca-pixel', PIXEL.on ? 'off' : 'on'); } catch (e) {} location.reload(); };
+  $('hostB').onclick = () => { if (ME.mode === 'swarm') return; ensureAudio(); hostGame($('codeIn').value); };
   $('joinB').onclick = () => { ensureAudio(); joinGame($('codeIn').value); };
   $('codeIn').onkeydown = e => { if (e.key === 'Enter') { ensureAudio(); joinGame($('codeIn').value); } };
   $('soloB').onclick = () => { ensureAudio(); const me = myInfo(); me.id = 'me'; NET.peer = null; NET.myId = 'me'; if (ME.mode === 'egg') { soloEgg(); return; } startMatch(Math.floor(Math.random()*90000) + 10000, [me], null, ME.mode, ME.cdOn); };
@@ -9267,7 +10022,7 @@ function setWho(c, team, verb, txt){
 function renderPhase(){
   const map = {title:'Egg Defense', intro:`Round ${G.round}`, build:`${teamName(G.defender)} builds`, handoff:'Swap players', attack: G.pvp ? (G.mode === 'pain' ? 'Pain' : 'Chaos Arena') : `${teamName(attacker())} attacks`, end:'Round over'};
   if (eggOn()) { eggHud(true); eggHelp(); $('tAct').textContent = G.phase === 'build' && amDefender() ? 'Place' : 'Shoot'; return; }
-  $('phase').innerHTML = map[G.phase] + (G.phase==='build' ? `<small>Place your protection</small>` : G.phase==='attack' ? (G.pvp ? `<small>First team to ${WIN_SCORE}</small>` : `<small>Break the egg!</small>`) : '');
+  $('phase').innerHTML = map[G.phase] + (G.phase==='build' ? `<small>Place your protection</small>` : G.phase==='attack' ? (G.mode === 'swarm' ? '<small>Swarm mode</small>' : G.pvp ? `<small>First team to ${WIN_SCORE}</small>` : `<small>Break the egg!</small>`) : '');
   const help = $('help');
   if (G.phase === 'build') { help.style.display = 'block'; help.innerHTML = '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run, <b>Shift ×2</b> dash, <b>Space ×2</b> double jump<br><b>Click</b> place, <b>R</b> rotate, <b>1–3</b> or scroll to pick<br><b>E</b> pick up or put down, <b>click</b> while carrying to throw<br>Protection: press its key (see the Protection bar)<br><b>F</b> done building'; }
   else if (G.phase === 'attack' && G.cls === 'bomber') { help.style.display = 'block'; help.innerHTML = bomberHelp(); }
@@ -9340,6 +10095,7 @@ function renderTray(){
     t.innerHTML = `<div class="bar sticker"><div class="tl">${classInfo(G.cls).name}</div><div class="skills" style="--cols:${Math.ceil(shown.length/2)}">${shown.map(([id,sp]) => `<button class="skill" data-sp="${id}" aria-pressed="${G.targeting===id}" title="${sp.name} (${sp.key})" aria-label="${sp.name}"><span class="si">${sp.e}</span><span class="sn">${SHORT[id] || sp.name}</span><kbd>${sp.key}</kbd></button>`).join('')}</div></div>`;
     t.querySelectorAll('[data-sp]').forEach(b => b.onclick = e => { e.stopPropagation(); useSpecial(b.dataset.sp); });
     if (G.pvp) addClassButton(t);
+    comboUI();
     if (!G.pvp) { const gb = document.createElement('button'); gb.className = 'btn'; gb.id = 'giveB'; gb.textContent = '🏳️ Give up'; gb.style.alignSelf = 'center'; t.querySelector('.bar').appendChild(gb);
       gb.onclick = e => { e.stopPropagation(); if (G.phase === 'attack') { toast(`${teamName(attacker())} gave up. The egg survives!`); endRound(G.defender, 'giveup', false); } }; }
     renderSide();
@@ -9496,6 +10252,7 @@ addEventListener('keydown', e => {
   if (e.target && e.target.tagName === 'BUTTON' && (e.key === 'Enter' || e.key === ' ')) return;
   const k = keyName(e); keys[k] = true;
   if (k === 'p' && !e.repeat && !(e.target && e.target.tagName === 'INPUT')) { e.preventDefault(); toggleMic(); return; }   // voice chat
+  if (e.code === 'Backquote' && !e.repeat && !(e.target && e.target.tagName === 'INPUT')) { e.preventDefault(); setRain(!RAIN.on); toast(RAIN.on ? '🌧️ Rain' : '🌤️ The rain stops'); return; }
   if (!inPlay()) return;
   if (k === 'tab') { e.preventDefault(); if (!e.repeat && G.pvp) switchClass(); return; }
   if (k === ' ') { e.preventDefault(); if (!e.repeat) G.jumpQ = .2; }
@@ -9563,7 +10320,7 @@ function cameraBoom(piv, want){
   for (const g of golems) if (!g.done) solid(g.body);
   if (best < L) { const k = Math.max(.7, best - .35); want.copy(piv).addScaledVector(_boomDir, k); want.y += Math.max(0, 2.6 - k)*.45; }   // pushed in close: rise to look over the shoulder
 }
-function resize(){ const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w/h; G.baseFov = w < h ? 68 : 55; camera.fov = G.baseFov; camera.updateProjectionMatrix(); }
+function resize(){ if (PIXEL.on) { const pr = 1/pixelScale(); if (pr !== MAX_PR) { MAX_PR = MIN_PR = pr; renderer.setPixelRatio(pr); } } const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w/h; G.baseFov = w < h ? 68 : 55; camera.fov = G.baseFov; camera.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
 
 const camPos = new THREE.Vector3(0, 30, 40), camLook = new THREE.Vector3(), tmpV = new THREE.Vector3(), tmpL = new THREE.Vector3();
@@ -9597,6 +10354,7 @@ function groundCheck(){
    bottleneck), render fewer pixels; after a run of fast seconds, step back up towards MAX_PR */
 const perf = {pr:MAX_PR, n:0, sum:0, work:0, good:0, need:4};
 function perfTune(workMs, rdt){
+  if (PIXEL.on) return;   // the pixel look already draws few pixels, and steps would make pixel sizes uneven
   const ms = rdt*1000; if (ms >= 100) return;   // hitch or tab coming back from the background
   perf.n++; perf.sum += ms; perf.work += workMs; if (perf.sum < 1000) return;
   const avg = perf.sum/perf.n, work = perf.work/perf.n; perf.n = perf.sum = perf.work = 0;
@@ -9800,7 +10558,7 @@ function frame(now){
   { const hm = (inPlay() && !isTouch && !G.locked && !G.eggCam) ? (G.fallback ? 2 : 1) : 0;
     if (hm !== G.hintMode) { G.hintMode = hm; const h = $('lockHint'); h.style.display = hm ? 'block' : 'none'; h.classList.toggle('fb', hm === 2);
       h.innerHTML = hm === 2 ? `🖱️ Mouse lock is blocked in this tab (${G.lockErr || 'refused'}). The camera follows your mouse; hold it at the screen edge to keep turning.<br><small>Click to retry. If it keeps happening, close this tab and open the game link again.</small>` : 'Click to control your character'; } }
-  updateVisuals(rdt); updateEdge(); pvpFrame(rdt); if (G.pvp && G.phase === 'attack') painFrame(rdt); bomberFrame(rdt * G.fxScale); barrierFrame(rdt * G.fxScale); swordFrame(rdt); voiceFrame(rdt); summonFrame(rdt * G.fxScale); necroFrame(rdt * G.fxScale);
+  updateVisuals(rdt); worldFrame(rdt); updateEdge(); pvpFrame(rdt); if (G.pvp && G.phase === 'attack') painFrame(rdt); bomberFrame(rdt * G.fxScale); barrierFrame(rdt * G.fxScale); swarmFrame(rdt * G.fxScale); comboFrame(rdt); swordFrame(rdt); voiceFrame(rdt); summonFrame(rdt * G.fxScale); necroFrame(rdt * G.fxScale);
   SpaceWarp.render();
   perfTune(performance.now() - t0, rdt);
 }
