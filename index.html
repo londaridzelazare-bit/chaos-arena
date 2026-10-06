@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-06.18';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-06.19';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -909,7 +909,7 @@ function controlPlayer(P, dt, input){
   // Summoner: held by a tongue, tentacle, claw, jaws or web, wherever the holder says, then thrown
   if (P.held) { const h = P.held, q = G.t < h.until ? h.at() : null; if (!q) { P.held = null; b.collisionResponse = true; if (h.rel) h.rel(P); } else { b.position.set(q.x, Math.max(q.y, groundH(q.x, q.z) + .05), q.z); b.velocity.set(0, 0, 0); b.collisionResponse = false; return; } }
   if (G.pvp && P.stun > .9) P.stun = .9;
-  if (P.carpet) { if (!P.remote) flyCarpet(P, dt, input); return; }   // Bomber: riding the flying carpet
+  if (P.carpet) { if (P.lockT > 0) P.lockT -= dt; if (P.stun > 0) { P.stun -= dt; if (P.stun <= 0) P.stars.visible = false; } if (!P.remote) flyCarpet(P, dt, input); return; }   // riding something (carpet, sword, eagle, zero gravity): the casting lock and stun still wear off
   if (P.warp) {   // Pain warp dash: carried along the folded path, then thrown out the far end with some speed
     const w = P.warp; w.t += dt; const k = Math.min(1, w.t/WARP_T), e = 1 - Math.pow(1 - k, 2);
     b.position.set(lerp(w.from.x, w.to.x, e), lerp(w.from.y, w.to.y, e) + Math.sin(k*Math.PI)*.25, lerp(w.from.z, w.to.z, e)); b.velocity.set(0, 0, 0);
@@ -6796,9 +6796,9 @@ function castOK(c, m){
   const span = useTs ? m.ts - lts : now - (last || G.matchT0 || 0);
   // a charged cast can't claim more charge than the time since that player's last cast of it (or the match start)
   if (m.c != null && (typeof m.c !== 'number' || !(m.c >= 0) || m.c > span + .6)) return false;
-  if (m.s === 's_sever' && G.severUsed && G.severUsed[m.id]) return false;
-  if (def && def.ult) { const uk = m.id + '|' + m.s; G.hostUlt = G.hostUlt || {}; if (G.hostUlt[uk] || now - (G.hostUltT0 || G.matchT0 || 0) < ULT_CHARGE - 3) return false; G.hostUlt[uk] = true; }   // ultimates: charged, once per round
-  if (m.s === 'n_circles' && G.circlesUsed && G.circlesUsed[m.id]) return false;   // Nine Circles: once per round   // World Severance: once per round
+  if (G.cdOn && m.s === 's_sever' && G.severUsed && G.severUsed[m.id]) return false;
+  if (def && def.ult && G.cdOn) { const uk = m.id + '|' + m.s; G.hostUlt = G.hostUlt || {}; if (G.hostUlt[uk] || now - (G.hostUltT0 || G.matchT0 || 0) < ULT_CHARGE - 3) return false; G.hostUlt[uk] = true; }   // ultimates: charged, once per round
+  if (G.cdOn && m.s === 'n_circles' && G.circlesUsed && G.circlesUsed[m.id]) return false;   // Nine Circles: once per round   // World Severance: once per round
   if (G.cdOn) { const cd = m.s === 'ki' ? .28 : def && def.cd != null ? def.cd : CD[m.s] || 3;
     if (useTs ? m.ts - lts < cd*.9 - .03 : (last && now - last < cd*.75 - .08)) return false; }   // cooldown
   if (TELEPORTS[m.s]) P.warpUntil = now + TELEPORTS[m.s];
@@ -6868,8 +6868,9 @@ function bomberHelp(){
 
 /* ---------- ultimates: every class's ult:true powers charge for ULT_CHARGE seconds, then work once per round ---------- */
 const ULT_CHARGE = 30;
-function ultLeft(id){ return Math.max(0, ULT_CHARGE - (G.t - (G.ultT0 || 0)) - (G.ultBonus || 0)); }
-function ultReady(id){ if (G.ultUsed && G.ultUsed[id]) { toast(`${skillDef(id).e} ${skillDef(id).name}: already used this round.`); return false; }
+// with cooldowns off, ultimates are ready at once and can be used again and again
+function ultLeft(id){ if (!G.cdOn) return 0; return Math.max(0, ULT_CHARGE - (G.t - (G.ultT0 || 0)) - (G.ultBonus || 0)); }
+function ultReady(id){ if (!G.cdOn) return true; if (G.ultUsed && G.ultUsed[id]) { toast(`${skillDef(id).e} ${skillDef(id).name}: already used this round.`); return false; }
   const l = ultLeft(id); if (l > 0) { cdToast2(`${skillDef(id).e} ${skillDef(id).name} is charging (${Math.ceil(l)} s).`); return false; } return true; }
 function cdToast2(msg){ if (!G.lastCdToast || G.t - G.lastCdToast > 1) { G.lastCdToast = G.t; toast(msg); } }
 function ultReset(){ G.ultT0 = G.t; G.ultUsed = {}; G.ultBonus = 0; G.hostUlt = {}; G.hostUltT0 = performance.now()/1000; }
@@ -9330,7 +9331,7 @@ function necroUse(id){
   if (id === 'n_skull') { fireSkull(); return; }
   if (amDefender()) { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('🛡️ Defenders only get the hellfire skull (click).'); } return; }
   if (id === 'n_steed' && P.carpet && P.carpet.type === 'steed') { localCast('n_steedx', null, {}); return; }
-  if (id === 'n_circles' && G.circlesUsed && G.circlesUsed[G.localKey]) { toast('🌋 Nine Circles: once per round.'); return; }
+  if (G.cdOn && id === 'n_circles' && G.circlesUsed && G.circlesUsed[G.localKey]) { toast('🌋 Nine Circles: once per round.'); return; }
   if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
   if (d.kind === 'aim') { setTargeting(id); return; }
   if (G.spCd > 0) return; G.spCd = .25;
@@ -10045,7 +10046,7 @@ function fortOK(c, m){
   if (!eggOn() || !E || E.over || !isDef(m.id) || !P || P.alive === false || (G.phase !== 'build' && G.phase !== 'attack')) return false;
   const d = GUARD[m.s]; if (!d) return false;
   const now = performance.now()/1000, r = castRate[m.id] = (castRate[m.id] || []).filter(t => now - t < 1); if (r.length >= 14) return false; r.push(now);
-  if (d.ult) { const uk = m.id + '|' + m.s; G.hostUlt = G.hostUlt || {}; if (G.hostUlt[uk]) return false; G.hostUlt[uk] = true; }
+  if (d.ult && G.cdOn) { const uk = m.id + '|' + m.s; G.hostUlt = G.hostUlt || {}; if (G.hostUlt[uk]) return false; G.hostUlt[uk] = true; }
   if (d.lim) { E.left2 = E.left2 || {}; if ((E.left2[m.s] | 0) >= d.lim) return false; }
   if (d.inside && (!Array.isArray(m.p) || Math.hypot(m.p[0], m.p[2]) > AREA_R)) return false;
   return true;
@@ -12188,7 +12189,7 @@ function updateHud(){
 }
 function updateCooldownUI(){
   document.querySelectorAll('#tray .skill[data-sp]').forEach(t => { const id = t.dataset.sp, d = skillDef(id);
-    if (d && d.ult) { const used = G.ultUsed && G.ultUsed[id], l = ultLeft(id); t.classList.toggle('cool', !!used || l > 0); t.classList.toggle('ultready', !used && l <= 0); t.dataset.cdt = used ? 'USED' : Math.ceil(l); return; }
+    if (d && d.ult) { const used = G.cdOn && G.ultUsed && G.ultUsed[id], l = ultLeft(id); t.classList.toggle('cool', !!used || l > 0); t.classList.toggle('ultready', !used && l <= 0); t.dataset.cdt = used ? 'USED' : Math.ceil(l); return; }
     const r = G.cd[id] || 0; if (r > 0) { t.classList.add('cool'); t.dataset.cdt = Math.ceil(r); } else t.classList.remove('cool'); });
 }
 function pvpFrame(rdt){
