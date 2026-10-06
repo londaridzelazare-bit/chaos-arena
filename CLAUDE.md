@@ -142,18 +142,24 @@ swapping never resets them. The host accepts a cast if the id is in the mode kit
 click/aim/throw/target/now, cd, range, r, lim, hide), add its id to `CLASS_IDS` and `classInfo`, route
 its keys in the keydown handler and its click in `actionDown`, dispatch it in `runSkill`.
 
-**Bomber** (module "BOMBER", before "casting, locally and for other players"): 20 powers, `b_*` ids.
-Click = bazooka; keys 1-0, Q R F G T Z X C V (`BOMBER_KEYS`). Cooldowns follow the match setting like
-every other power (`cdFor`, `castOK`); the limits below always apply. Flying bombs are plain objects in `BX.bombs`
-(`addBomb`/`updateBombs`: gravity, drag, bomb magnets, hits on ground/dome/enemies/egg/props via
-`bSolid`), scripted things in `BX.fx` ({update(dt) -> false when done}; effects may start effects),
-plus `BX.mines` and `BX.buttons`. Explosions go through `bBoom`: `blastAt` with `G.blastNoPlayers`
-for terrain/objects/egg, then victim-side, team-aware damage via `victimFor`. Spreads are seeded from
-the cast point (`ci.rng`) so every screen draws the same pattern. Follow-ups decided by one screen are
-hidden casts with cd 0: `b_carpetx` (dismount), `b_boomx` (boomerang catch k:1 / miss k:2; a catch
-clears the host's castLog), `b_press` (anyone pressing a Big Red Button with E). Limits: 6 mines, 1
-mortar, 1 button per player. Egg defenders may use only the bazooka (and press buttons). Laser turrets
-shoot down Bomber bombs. Explosion scorch marks fade after ~12 s (all modes).
+**Bomber** (module "BOMBER", before "casting, locally and for other players"): 10 powers + 2 ultimates, `b_*` ids
+(rebuilt 2026-10-06 to the user's list). Click = bazooka; 1 B2 bomber, 2 ballistic missile, 3 airstrike (8 jets from 8
+directions), 4 cluster bomb, 5 landmines (max 10, fixed 1 s cooldown), 6 guided missile, 7 grenade (ammo `G.nades`, 10 at
+start, max 20, +5 from loot), 8 vacuum warhead, 9 kamikaze clones; ultimates B Sunfall and N Nuclear Strike.
+Flying bombs are plain objects in `BX.bombs` (`addBomb`/`updateBombs`: gravity, drag, `bounce` for grenades, hits on
+ground/dome/enemies/egg/props via `bSolid`, animals and loose things via `wildSegHit`), scripted things in `BX.fx`
+({update(dt) -> false when done}), plus `BX.mines` and `BX.guided`. Explosions go through `bBoom`. Spreads are seeded
+from the cast point (`ci.rng`). **Sky aim** (`kind:'sky'`: ballistic missile, nuke): while targeting, `skyCamera` lifts the
+camera over the target (camera.up = facing) and mouse movement goes to `skyLook` instead of `look`. **Guided missile**:
+the caster's screen steers it toward `aimPoint` and sends its position as `gm` in the 15 Hz `st` message (`guidedState` /
+`guidedNet`); the hit is the hidden cast `b_guidex`. Clicking (bazooka) or pressing 6 again detonates it.
+Old powers (nuke, doom nuke, fire bomb, bettys, boomerang, matryoshka, cloud, reverse, carpet, cracker, mortar, bowling,
+magnet, cargo, big red button) were removed; `flyCarpet` stays (sword surf, eagle, steed, lich use it).
+
+**Ultimates (generic)**: any power with `ult:true` charges for `ULT_CHARGE` (30 s) from the round start (`G.ultT0`, set by
+`ultReset()` in `startMatch`; recharge potions add `G.ultBonus`) and works once per round (`G.ultUsed`). `cdFor` returns 0
+for them; `castOK` enforces charge + once per round on the host (`G.hostUlt`). The Skills bar shows the charge seconds,
+then glows (`.ultready`), then USED. Powers with `fixed:true` keep their cooldown even when cooldowns are off.
 
 **Swordsman** (module "SWORDSMAN", after the Bomber): `s_*` ids in `SWORD`; click = 3-hit combo
 (`swordSwing`, `SW.combo`), 19 powers on 1-0 / Q R F G T Z X C V, ultimate World Severance on B.
@@ -228,13 +234,44 @@ set with cached textures. Test: scratch `swarm.mjs` (100 enemies, every class, c
 
 Module "WORLD". `FOG` near/far (40/235). Rain (`RAIN`, ` key or 🌧️ button, local setting `ca-rain`):
 line streaks around the camera, splash rings, rain noise loop, `rainLight` scales whatever light/fog the
-game last set, `updateVisuals` tints sky/fog/clouds by `RAIN.k`. Pixel look (`PIXEL`, `ca-pixel`, title
-button reloads): renderer without antialias at pixel ratio 1/`pixelScale()` + CSS `image-rendering:
-pixelated`, `pixelGrain` (blocky object-space texel noise via onBeforeCompile, define GRAIN_D) on toon
-materials, voxel particles (`UNIT` boxes), `perfTune` off. Nature: trees are single merged meshes
-(`treeGeo` pine/oak/birch/dead, `NAT_MAT` vertex colours), `moreNature` adds logs, stumps, boulders and
+game last set, `updateVisuals` tints sky/fog/clouds by `RAIN.k`. Pixel look (`PIXEL`, localStorage `ca-pixel2`, on by
+default; title button reloads): renderer without antialias at pixel ratio 1/`pixelScale()` (3-6) + CSS `image-rendering:
+pixelated`, `pixelGrain` (blocky texel noise, GRAIN_D cells per metre, GRAIN_A strength) and a posterized palette
+(14 levels per channel) on toon materials, voxel particles (`UNIT` boxes), `perfTune` off. Nature: trees are single merged
+meshes (`treeGeo` pine/oak/birch/dead, `NAT_MAT` vertex colours), `moreNature` adds logs, stumps, boulders and
 instanced `DECOR` (bushes, branches, pebbles, mushrooms; `decorDamage/Erase`, rustle). Fire
 (`igniteAt` from fire blasts and `groundFire`) burns trees/logs/stumps/plants and spreads (`BURN`).
+
+**Map size**: `ISL` = 140 (280 x 280 m; it was 70). `MAPK` = area factor (4) scales prop, decor, animal and bird counts.
+Terrain grid `TN = ISL + 1`; biome colours in `terrainColor`, wide hills further out in `genTerrain`. Team spawns at
+x = ±0.48·ISL.
+
+## WILD (module "WILD", before "COMBO BUILDER")
+
+- `wildBuild(place)` runs first in `buildRound` (before forests, so there is room): arches, broken towers, villages (huts
+  round a well, fences, crates, loot), stone circles, statues, watchtowers, carts, broken walls. All are props made by
+  `wildBlock` (one static box, mesh group merged by `mergeToon` into one vertex-coloured mesh, `lift` for lintels).
+- Loose physics things (`wildLoose`, kind 'item' so E picks them up): crates (break), hay, red explosive barrels
+  (`xbarrelBoom`, chain reactions; `bBoom` with no owner hurts everyone). Hits arrive through `wildBlastHit` (from
+  `blastAt`, bodies flagged `.wild`), `wildSegHit` (bombs) and velocity jolts.
+- Loot barrels (`WILD.loot`, kind 'loot'): E (`nearLoot`/`openLoot`) or any hit opens one; the potion (hp +50, recharge:
+  all cooldowns 0 + ultimates 10 s sooner, or +5 grenades) is taken by walking into it -> hidden cast `w_loot` {i, g}
+  (castOK accepts it early); barrels return after 45 s (`gen` increments, contents from `lootRoll(seed, i, gen)`).
+- Animals (`ANIMALS`: rabbit, deer, fox; `spawnAnimal` in `wildStart()` at the end of `startMatch`): cannon spheres that
+  skip terrain contacts (snapped to `groundH`), tag 'dummy', records in `PAIN.dummies` + `bodyObj` with `.animal`, so
+  `dummyHit`, `swarmBodyHurt`, `summonsTakeArea` (-> `animalsTakeArea`) and jolts hurt them. `bEnemies` and the pull
+  lock-on skip them. They graze/walk/flee (players, explosions via `wildScare` from `boomVisual`), are hidden and
+  frozen beyond 110 m, die into a flopping corpse, respawn after 30 s.
+- Birds (`BIRDS`, two InstancedMeshes in the scene, not the round): flocks circling 20-42 m up; `birdsTakeArea` from
+  `blastAt` drops them; they come back after 40 s.
+
+## Performance with the big map (2026-10-06)
+
+- `HashBroadphase` replaces SAP: static bodies in an 8 m spatial hash, movers test only their cells (+ huge statics and
+  other movers). `world.addBody/removeBody` mark it dirty. Sparse `ObjectCollisionMatrix` instead of the dense one
+  (that was N²/2 entries cleared every step). Physics went 13.8 -> ~1.4 ms per step.
+- `propCull` (every 8 frames) hides props by distance (100/150/215 m by size). `destroyProp`/`liftProp` unhide.
+- Headless Chrome on the user's machine: ~70 FPS (old 140 m map: ~200).
 
 ## Camera (orbit, third-person RPG style)
 
