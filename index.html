@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-06.12';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-06.13';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -4247,22 +4247,23 @@ for (const [x,z,ry] of [[0,-ISL,0],[0,ISL,0],[-ISL,0,Math.PI/2],[ISL,0,Math.PI/2
    in from behind and kicks you back in. Local only: each screen boots its own player. */
 const BOOT = {cd:0};
 function bootMesh(){
-  const g = new THREE.Group(), leg = new THREE.Group(); g.add(leg);
-  bx(1.5, 5, 1.5, 0x2F4A7A, 0, 4.4, 0, leg); bx(1.62, .5, 1.62, 0x24385E, 0, 2.2, 0, leg);
-  bx(1.9, 1.6, 3.4, 0x6B3F1F, 0, 1.1, .7, leg); bx(2, .35, 3.6, 0x2A1A10, 0, .2, .75, leg); bx(1.9, 1.2, .9, 0x7E4B26, 0, 1, 2.3, leg);
-  for (let i = 0; i < 3; i++) bx(1.92, .08, .5, 0xD9C7A3, 0, 1.5 - i*.32, .1 + i*.3, leg);
+  // the leg hangs from a hip high above, so the swing drives the BOOT forward (it pivoted at the sole before)
+  const HIP = 6.9, g = new THREE.Group(), leg = new THREE.Group(); leg.position.y = HIP; g.add(leg);
+  bx(1.5, 5, 1.5, 0x2F4A7A, 0, 4.4 - HIP, 0, leg); bx(1.62, .5, 1.62, 0x24385E, 0, 2.2 - HIP, 0, leg);
+  bx(1.9, 1.6, 3.4, 0x6B3F1F, 0, 1.1 - HIP, .7, leg); bx(2, .35, 3.6, 0x2A1A10, 0, .2 - HIP, .75, leg); bx(1.9, 1.2, .9, 0x7E4B26, 0, 1 - HIP, 2.3, leg);
+  for (let i = 0; i < 3; i++) bx(1.92, .08, .5, 0xD9C7A3, 0, 1.5 - i*.32 - HIP, .1 + i*.3, leg);
   addOutline(g); g.traverse(o => o.userData.noRay = true); return {g, leg};
 }
 function bootKick(P, nx, nz){
   if (!G.pvp || P !== localP() || P.alive === false || G.t < BOOT.cd) return;
   BOOT.cd = G.t + 1.4;
   const b = P.body, {g, leg} = bootMesh(), yaw = Math.atan2(nx, nz);
-  g.position.set(b.position.x - nx*2.2, b.position.y - .3, b.position.z - nz*2.2); g.rotation.y = yaw; roundGroup.add(g);
+  g.position.set(b.position.x - nx*2.6, b.position.y - .55, b.position.z - nz*2.6); g.rotation.y = yaw; roundGroup.add(g);
   let kicked = false;
   booms.push({t:0, parts:[g], custom(bm, dt){
     const t = bm.t;
-    // wind up, swing through, hold the pose, sink away
-    leg.rotation.x = t < .22 ? -1.1*(t/.22) : t < .36 ? -1.1 + 2*((t - .22)/.14) : .9;
+    // wind up (boot pulled back), swing through (the toe sweeps into the player's backside), follow through, sink away
+    leg.rotation.x = t < .22 ? .75*(t/.22) : t < .38 ? .75 - 1.55*((t - .22)/.16) : -.8;
     if (t > .7) g.position.y -= dt*6;
     if (!kicked && t > .3) { kicked = true; knock(P, nx*30, 13, nz*30, 1.3); P.bootSpin = .9; sfx('bonk'); sfx('boing'); popText(V3(b.position.x, b.position.y + 2.6, b.position.z), '👢 BONK!', '#FFD84D'); shakeAt(b.position, .6, 20); }
     return t > 1.2;
