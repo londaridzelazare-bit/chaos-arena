@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-06.16';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-06.17';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -6131,8 +6131,10 @@ function painLevitateEnd(){ const {key} = casterInfo(), L = PAIN.lev[key]; if (L
 PAIN.links = {};
 function linkPick(){
   const me = localP(); if (!me) return null;
+  // the crosshair is right on a loose thing or a prop: that one
+  { const h = crosshairHit(); if (h && h.object) { let o = h.object; for (let q = o; q; q = q.parent) { const ob = objs.find(x => x.mesh === q && !x.dead && x.kind !== 'egg' && x.body.mass > 0 && !isCarried(x)); if (ob) { const p = ob.body.position; return 'O' + [p.x, p.y, p.z].map(v => +v.toFixed(1)).join(','); } const pi = props.findIndex(pr => !pr.dead && pr.kind !== 'wall' && (pr.mesh === q || pr.cap === q)); if (pi >= 0) return 'R' + pi; } } }
   const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd);
-  const mp = me.body.position; let best = null, bestA = .16;
+  const mp = me.body.position; let best = null, bestA = .26;
   const consider = (tg, p, lift, far) => { const d = Math.hypot(p.x - mp.x, p.z - mp.z); if (d > (far || 60) || d < 1) return; const v = V3(p.x, p.y + (lift || .5), p.z).sub(camera.position).normalize(), a = Math.acos(clamp(v.dot(fwd), -1, 1)); if (a < bestA) { bestA = a; best = tg; } };
   for (const k in BOULD) BOULD[k].rocks.forEach((r, i) => { if (r.phase === 'air' && !r.linked && k === G.localKey) consider('B' + k + '|' + i, r.g.position, 0, 140); });
   PAIN.cores.forEach((c, i) => { if (!c.done) consider('K' + i, c.g.position, 0, 90); });
@@ -12097,7 +12099,7 @@ document.addEventListener('pointerlockchange', () => {
   if (G.locked) { clearTimeout(lockWatch); lockDone = lockReq; lockFails = 0; G.fallback = false; if (!was && typeof holdLook === 'function') holdLook(); } else if (was) lastUnlock = performance.now()/1000;
 });
 document.addEventListener('pointerlockerror', lockFailed);
-const PITCH_MIN = -1.25, PITCH_MAX = .62;   // about 72 degrees down, 35 up: further up only put the camera under the ground
+const PITCH_MIN = -1.25, PITCH_MAX = 1.38;   // about 72 degrees down, 79 up: looking up the camera swings in low behind you (see the camera block)
 function look(dx, dy, s){ G.yaw -= dx*s; G.pitch = clamp(G.pitch - dy*s, PITCH_MIN, PITCH_MAX); }
 // Chrome on Windows sometimes reports one huge bogus jump while locked. Only drop an event that is both huge and
 // far beyond the recent movement: real flicks ramp up over several events, so they always get through.
@@ -12485,18 +12487,22 @@ function frame(now){
     const cp = Math.cos(G.pitch), f3 = tmpA.set(Math.sin(G.yaw)*cp, Math.sin(G.pitch), Math.cos(G.yaw)*cp);
     const right = tmpB.set(-Math.cos(G.yaw), 0, Math.sin(G.yaw));
     const ty = bp.y + 1.75;
-    if (!CAM.ok || Math.hypot(bp.x - CAM.px, ty - CAM.py, bp.z - CAM.pz) > 6) { CAM.px = bp.x; CAM.py = ty; CAM.pz = bp.z; CAM.len = -1; CAM.ok = true; }
+    if (!CAM.ok || Math.hypot(bp.x - CAM.px, ty - CAM.py, bp.z - CAM.pz) > 6) { CAM.px = bp.x; CAM.py = ty; CAM.pz = bp.z; CAM.len = -1; CAM.lift = null; CAM.ok = true; }
     else { CAM.px = bp.x; CAM.pz = bp.z; CAM.py += (ty - CAM.py)*(1 - Math.pow(.0004, rdt)); }
     const piv = tmpL.set(CAM.px, CAM.py, CAM.pz).addScaledVector(right, .75);
-    const up = Math.max(0, G.pitch)/PITCH_MAX;
+    const up = Math.max(0, G.pitch)/PITCH_MAX, upE = up*up*(3 - 2*up);
     G.camZoomK = lerp(G.camZoomK || 1, Math.max(G.t < (G.camZoomUntil || 0) ? 2.7 : 1, G.camZoomTgt || 1), Math.min(1, rdt*3));   // Gate of Babylon: pull back to show the gates
-    const dist = (G.phase === 'attack' ? G.camDist*.85 : G.camDist) * (act.fly ? 2.4 : 1) * (1 - .42*up) * G.camZoomK;
+    const dist = (G.phase === 'attack' ? G.camDist*.85 : G.camDist) * (act.fly ? 2.4 : 1) * (1 - .55*upE) * G.camZoomK;
     tmpV.copy(piv).addScaledVector(f3, -dist);
     const reach = cameraBoom(piv, tmpV);
     if (CAM.len < 0) CAM.len = reach;
-    else CAM.len += (reach - CAM.len)*(1 - Math.pow(reach < CAM.len ? 1e-9 : .06, rdt));
-    camPos.copy(piv).addScaledVector(f3, -CAM.len); camPos.y += Math.max(0, 2.6 - CAM.len)*.45;   // pushed in close: rise to look over the shoulder
-    { const cg = Math.max(groundH(camPos.x, camPos.z), groundH((camPos.x + bp.x)/2, (camPos.z + bp.z)/2)) + .6; if (camPos.y < cg) camPos.y = cg; }
+    // something in the way pulls the camera in quickly but smoothly (it used to snap in one frame); it lets out slowly
+    else CAM.len += (reach - CAM.len)*(1 - Math.pow(reach < CAM.len ? 2e-6 : .06, rdt));
+    camPos.copy(piv).addScaledVector(f3, -CAM.len); camPos.y += Math.max(0, 2.6 - CAM.len)*.45*(1 - upE);   // pushed in close: rise to look over the shoulder (not when looking up)
+    // stay above the ground: the wanted lift eases (hills and bumps no longer kick the camera up a step); it can never sink into the ground itself
+    { const cg = Math.max(groundH(camPos.x, camPos.z), groundH((camPos.x + bp.x)/2, (camPos.z + bp.z)/2)) + .6, lift = Math.max(0, cg - camPos.y);
+      CAM.lift = CAM.lift == null ? lift : CAM.lift + (lift - CAM.lift)*(1 - Math.pow(lift > CAM.lift ? 1e-4 : .02, rdt));
+      camPos.y += CAM.lift; const hard = groundH(camPos.x, camPos.z) + .25; if (camPos.y < hard) camPos.y = hard; }
     camera.position.copy(camPos);
     camLook.copy(camPos).addScaledVector(f3, 20);
     if (!skyCamera(rdt, camPos, camLook)) camera.up.set(0, 1, 0); else camera.position.copy(camPos);
