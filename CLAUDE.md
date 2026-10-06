@@ -100,6 +100,15 @@ Shared systems: GravityForce (`radialPush`, `conePush`, `knock`), gravity fields
 step by `applyPainForces()`), PhysicsObjectAttractor (`liftProp`, `regrowProps`, `makeCore`/`attractorField`/
 `stickToCore`/`collapseCore`), timed effects in `PAIN.fx`, and `SpaceWarp` (screen-space lens; `warpPulse`).
 - Damage/knockback stay victim-side (`victimFor`, `painHurt`, no friendly fire). `castOK()` (host) validates casts.
+Pain changes 2026-10-06 (second pass, user's list): Telekinesis = RIGHT-click grabs/drops (`tkGrabToggle`), hold
+LEFT-click charges the throw (`tkDown`/`tkUp`, meter in `tkThrownFrame`). Gravity from below/above: the key only selects
+the ring; hold Click charges (`chargeStart(id,'mouse')` from `actionDown`), release casts; the ring stays selected.
+Earth Titan renamed Bansho Ten’in; its impact leaves real rubble (`rubbleRock`/`rubbleBurst`, objs kind 'rubble', newest
+90 kept) that every power moves. Levitation (F) and the new Gravity Shield (X, max 5 s, `painShield`: bounces bombs,
+shots, rods, thrown things in random directions) are `kind:'holdkey'`: key down casts, key up casts `<id>x`
+(`PAIN.holdKeys`). Shinra Tensei (R) carries the camera direction (`x.d`, `aimDir3`) and pushes in 3D. Planetary Orbit
+was folded into the Gravity Vortex (V): rocks torn from the ground + everything around orbit you (`PAIN.vortex`, up to
+20 s), V again or Click hurls it all at the crosshair. Every class's Skills bar puts ultimates last.
 
 ## Networking (peer-to-peer, no server)
 
