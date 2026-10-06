@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-06.14';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-06.15';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -5088,7 +5088,7 @@ function attractorField(core, o){
     if (core.t < .3 || core.falling || core.done) return;
     const c = core.g.position, stick = [];
     for (const b of world.bodies) {
-      if (b.mass === 0 || b.player || b._frozen) continue;
+      if (b.mass === 0 || b.player || b._frozen || gravityProof(b)) continue;
       const dx = c.x - b.position.x, dy = c.y - b.position.y, dz = c.z - b.position.z, d = Math.hypot(dx, dy, dz) || .01;
       if (d > o.objR) continue;
       if (b.sleepState === CANNON.Body.SLEEPING) b.wakeUp();
@@ -5940,7 +5940,7 @@ function tkPick(){
 }
 function tkBodyAt(s){
   const q = s.split(',').map(Number), at = V3(q[0], q[1], q[2]); let best = null, bd = 3.5;
-  for (const b of world.bodies) { if (b.mass === 0 || b.player || b._tk) continue; const d = Math.hypot(b.position.x - at.x, b.position.y - at.y, b.position.z - at.z); if (d < bd) { bd = d; best = b; } }
+  for (const b of world.bodies) { if (b.mass === 0 || b.player || b._tk || gravityProof(b)) continue; const d = Math.hypot(b.position.x - at.x, b.position.y - at.y, b.position.z - at.z); if (d < bd) { bd = d; best = b; } }
   return best;
 }
 // right-click: pick something up, or let go of what you hold
@@ -6022,7 +6022,7 @@ function tkThrownFrame(dt){
     if (t.me) { if (b._onGround || sp < 3) { t.done = true; if (t.t > .2) { const P = b.player; if (P) painHurt(P, t.dmg*.6, t.owner); } } continue; }
     if (sp < 4 && t.t > .3) { t.done = true; continue; }
     const P = victimFor(t.owner, t.team);
-    if (P && !t.hitMe && P.body.position.distanceTo(b.position) < t.R + .6) { t.hitMe = true; const d = b.velocity.clone().normalize(); painHurt(P, t.dmg*Math.min(1.5, sp/30), t.owner); knock(P, d.x*Math.min(30, sp*.5), 6, d.z*Math.min(30, sp*.5), .7); sfx('bonk'); }
+    if (P && !t.hitMe && P.body.position.distanceTo(b.position) < t.R + .6) { t.hitMe = true; const d = V3(b.velocity.x, b.velocity.y, b.velocity.z).normalize(); /* not Vec3.normalize(): that returns a length */ painHurt(P, t.dmg*Math.min(1.5, sp/30), t.owner); knock(P, d.x*Math.min(30, sp*.5), 6, d.z*Math.min(30, sp*.5), .7); sfx('bonk'); }
     PAIN.dummies.forEach(dm => { if (!dm.dead && dm.body !== b && dm.body.position.distanceTo(b.position) < t.R + .8 && !(t.hit || (t.hit = new Set())).has(dm)) { t.hit.add(dm); dummyHit(dm.body, t.dmg*Math.min(1.5, sp/30)); } });
     if (b.position.y - groundH(b.position.x, b.position.z) < t.R && b.velocity.y < -6 && !t.landed) { t.landed = true; if (t.c > 1.5) { radialPush(V3(b.position.x, b.position.y, b.position.z), 3 + t.c, 8 + t.c*2, 4, t.dmg*.4); dustRing(V3(b.position.x, 0, b.position.z), 2 + t.c*.5, 8); shakeAt(b.position, .5, 30); sfx('thud'); } }
   }
@@ -6046,7 +6046,7 @@ function painLevitate(x){
   const grabAll = () => {
     const c = centre(); if (!c) return;
     for (const pr of propsNear(c, L.R*.9).slice(0, 14)) { if (propN >= 150) break; const o = liftProp(pr, V3(0, 3 + rr(0, 2), 0)); if (o) { lifted.set(o.body, rr(3, 8)); propN++; } }
-    world.bodies.forEach(b => { if (b.mass === 0 || b.player || b._frozen || b._tk || lifted.has(b) || vortexed(b) || hdist(b.position, c) > L.R) return; lifted.set(b, rr(2.5, 7)); if (b.wakeUp) b.wakeUp(); });
+    world.bodies.forEach(b => { if (b.mass === 0 || b.player || b._frozen || b._tk || gravityProof(b) || lifted.has(b) || vortexed(b) || hdist(b.position, c) > L.R) return; lifted.set(b, rr(2.5, 7)); if (b.wakeUp) b.wakeUp(); });
     kickCores(cp => hdist(cp, c) < L.R + 6 ? V3(0, 6, 0) : null);
   };
   grabAll();
@@ -6054,7 +6054,7 @@ function painLevitate(x){
   PAIN.fields.push({apply(g){
     if (L.end) { this.done = true; return; }
     const c = centre(); if (!c) return;
-    for (const [b, h] of lifted) { if (!b.world || G.t - (b._vxT || -9) < .3) { lifted.delete(b); continue; }   // the vortex takes over
+    for (const [b, h] of lifted) { if (!b.world || G.t - (b._vxT || -9) < .3 || gravityProof(b)) { lifted.delete(b); continue; }   // the vortex takes over
       b._levT = G.t; const want = groundH(b.position.x, b.position.z) + h;
       b.force.y += g*b.mass; b.velocity.y = lerp(b.velocity.y, (want - b.position.y)*1.4 + Math.sin(L.t*2 + h)*.5, .08); b.velocity.x *= .985; b.velocity.z *= .985; b.angularVelocity.y = lerp(b.angularVelocity.y, .8, .02); }
     const A = bodyFor(key, team); if (A && A.harm && A.P.alive !== false && hdist(A.P.body.position, c) < L.R && !(G.t - (A.P._vxT || -9) < .3)) { const b = A.P.body, want = groundH(b.position.x, b.position.z) + 5; b.force.y += g*b.mass; b.velocity.y = lerp(b.velocity.y, (want - b.position.y)*1.5, .1); b.velocity.x *= .9; b.velocity.z *= .9; b._onGround = false; A.P.pinT = .2; }
@@ -6130,7 +6130,7 @@ function painVortex(p, x){
       V.done = true; this.done = true; return;
     }
     for (const b of world.bodies) {
-      if (b.mass === 0 || b.player || b._frozen || b._tk) continue;
+      if (b.mass === 0 || b.player || b._frozen || b._tk || gravityProof(b)) continue;
       const dx = b.position.x - c.x, dz = b.position.z - c.z, d = Math.hypot(dx, dz) || .01; if (d > R && !caught.has(b) && !(G.t - (b._levT || -9) < .3)) continue;   // levitating things are pulled in from anywhere
       if (b.sleepState === CANNON.Body.SLEEPING) b.wakeUp(); caught.add(b); b._vxT = G.t;
       const ring = 5 + (b.id % 7), h = c.y + 2 + (b.id % 5)*1.3, tx = -dz/d, tz = dx/d, sp = 16 + Math.max(0, R - d)*.6, rad = clamp((ring - d)*1.6, -45, 45);
@@ -7549,9 +7549,11 @@ function sBabylon({key, C, team, pos, yaw, rng}, p, x){
 /* ✴️ the secret ultimate (Gate of Babylon held past the 4D swords): golden gates open all around the target, a whole hemisphere of
    them (around the egg's dome in Alpha Mode), and every one of them fires until nothing is left standing */
 function babylonSecret({key, C, team, pos, rng}, p){
-  const onEgg = eggOn() && egg && egg.alive, c = onEgg ? V3(egg.body.position.x, groundH(egg.body.position.x, egg.body.position.z), egg.body.position.z) : V3(p ? p.x : pos.x, 0, p ? p.z : pos.z);
+  const T = teleUp(), back = !!(T && eggOn() && egg && egg.alive), onEgg = eggOn() && egg && egg.alive && !back;
+  const cp = C ? C.body.position : pos, c = back ? V3(cp.x, 0, cp.z) : onEgg ? V3(egg.body.position.x, groundH(egg.body.position.x, egg.body.position.z), egg.body.position.z) : V3(p ? p.x : pos.x, 0, p ? p.z : pos.z);
   if (!onEgg) c.y = groundH(c.x, c.z);
-  const Rin = onEgg ? Math.max(8, G.dome && G.dome.hp > 0 ? G.dome.R : 10) : 12, HR = Rin + 11, NP = 240, gates = [];
+  if (back) { teleSwallowFX(c); teleBackOn(key, 8); if (key === G.localKey) toast('🌀 The teleport portal turned every gate around. On you.'); }
+  const Rin = back ? 9 : onEgg ? Math.max(8, G.dome && G.dome.hp > 0 ? G.dome.R : 10) : 12, HR = Rin + 11, NP = 240, gates = [];
   for (let i = 0; i < NP; i++) {
     // a Fibonacci hemisphere: every angle, every side, all the way up
     const yk = .06 + .94*(i + .5)/NP, r = Math.sqrt(1 - yk*yk), a = i*2.39996, q = V3(c.x + Math.cos(a)*r*HR, c.y + yk*HR, c.z + Math.sin(a)*r*HR);
@@ -8001,7 +8003,7 @@ function severWorld(c, n){
    The sword gathers light into a pillar, then one golden slash rolls 130 m forward: a wall of light that bends space
    around it, burns through props and cuts down everything in its path. */
 function sExcal({key, C, team, pos, yaw}){
-  const f = V3(Math.sin(yaw), 0, Math.cos(yaw)), side = V3(f.z, 0, -f.x), O = V3(pos.x, pos.y, pos.z), CH = 1.7, W = 7, L = excalLen(O, f);
+  const f = V3(Math.sin(yaw), 0, Math.cos(yaw)), side = V3(f.z, 0, -f.x), O = V3(pos.x, pos.y, pos.z), CH = 1.7, W = 7, L = excalLen(O, f), toDef = L < excalLen(O, f, true) - .5;
   if (key === G.localKey) { C.lockT = CH + .6; }
   C.castPose = CH + .3;
   const pillar = new THREE.Mesh(new THREE.CylinderGeometry(.6, 1.4, 90, 16, 1, true), addBlend(0xFFE9A8)); pillar.position.set(O.x, O.y + 45, O.z); pillar.userData.noRay = true; pillar.scale.set(.01, 1, .01); roundGroup.add(pillar);
@@ -8031,7 +8033,8 @@ function sExcal({key, C, team, pos, yaw}){
     shakeAt(q, 1, 60);
     if (front >= L) { roundGroup.remove(wave); wave = null;
       // it hits the defense (or the end of the world) and bursts into gold
-      const at = O.clone().addScaledVector(f, L + 2); at.y = groundH(at.x, at.z) + 2;
+      let at = O.clone().addScaledVector(f, L + 2); at.y = groundH(at.x, at.z) + 2;
+      if (toDef && teleUp()) { const cp = C.body.position; at = V3(cp.x, groundH(cp.x, cp.z) + 2, cp.z); teleSwallowFX(at); teleBackOn(key, 4); }   // swallowed by the portal: it bursts on you
       bBoom(at, 16, 120, 32, key, team, {size:2.6, up:14, killR:9, pal:{ball:0xFFD84D, core:0xFFFFFF, ring:0xFFE9A8}});
       swordArea(key, team, at, 14, 60, 24, 10, {egg:true, props:1500});
       if (eggOn() && egg && egg.alive && eggAuth() && egg.body.position.distanceTo(at) < 18) eggHit(80, 'sword');
@@ -8041,10 +8044,10 @@ function sExcal({key, C, team, pos, yaw}){
   if (key === G.localKey) toast('✨ EXCALIBUR!');
 }
 // how far Excalibur's slash runs: into the protected area's edge (Alpha Mode), or to the edge of the map
-function excalLen(O, f){
+function excalLen(O, f, edgeOnly){
   let L = 400;
   for (const [d, o] of [[f.x, O.x], [f.z, O.z]]) { if (Math.abs(d) < 1e-3) continue; const s0 = ((d > 0 ? ISL : -ISL) - o)/d; if (s0 > 0) L = Math.min(L, s0); }
-  if (eggOn()) {   // the defense: a circle around the egg (the dome if it's bigger)
+  if (eggOn() && !edgeOnly) {   // the defense: a circle around the egg (the dome if it's bigger)
     const c = V3(0, 0, 0), Rr = Math.max(AREA_R, G.dome && G.dome.hp > 0 ? G.dome.R : 0), ox = O.x - c.x, oz = O.z - c.z, b = ox*f.x + oz*f.z, cc = ox*ox + oz*oz - Rr*Rr, disc = b*b - cc;
     if (cc > 0 && disc > 0) { const s0 = -b - Math.sqrt(disc); if (s0 > 0) L = Math.min(L, s0); }
   }
@@ -9741,6 +9744,9 @@ function fortBlocksPain(id, p, casterKey){
   return false;
 }
 const fortShielded = pos => !!(FORT.spirits.sorc && eggOn() && Math.hypot(pos.x, pos.z) < AREA_R);
+// while the angel, the devil or the sorceress is alive, gravity powers can't move the egg at all
+const eggGuarded = () => !!(eggOn() && FORT.spirits && (FORT.spirits.angel || FORT.spirits.devil || FORT.spirits.sorc));
+const gravityProof = b => !!(egg && b === egg.body && eggGuarded());
 /* 6. Drones: a squadron circling the area, shooting down incoming things and shooting attackers who come close */
 function fortDrones(){
   const base = FORT.drones.length;
@@ -9913,7 +9919,7 @@ function fortReflect(b, a, n){
     T.pulse = 1; FORT.store++; sparkle(n, 0xB48CFF); sfx('hole');
     // the other end opens over whoever sent it, and it drops straight back on them (now it's the defender's)
     const O = chars[b.owner]; if (!O || O.alive === false) { b.dead = true; roundGroup.remove(b.m); return true; }
-    const op = O.body.position, out = V3(op.x, op.y + 12, op.z); telePortalFX(out);
+    const op = O.body.position, out = V3(op.x + rr(-.8, .8), op.y + 12, op.z + rr(-.8, .8)); telePortalFX(out);
     b.p.copy(out); b.m.position.copy(out); b.v.set(0, -Math.max(14, Math.min(40, b.v.length())), 0); b.owner = def || 'fort'; b.team = def && chars[def] ? chars[def].team : null;   // practice (nobody defending): it's the fort's, so it hits you b.age = 0; b.arm = .05; b.fuse = b.fuse != null ? b.age + Math.max(1.2, b.fuse) : b.fuse; b.home = null; b.splitAt = null;
     return true; }
   return false;
@@ -9921,14 +9927,18 @@ function fortReflect(b, a, n){
 /* 13-14. Roofs over the area: reflective (bounces things back up) and teleport (swallows them for the gun) */
 // aimed powers that land in the teleport portal over the egg are re-aimed at the attacker who cast them. The caster's
 // screen decides (localCast) and sends the new point, so every screen plays the same thing; x.tp marks it for the FX.
+const TELE_PHYSICAL = new Set(['ki', 'b_bazooka', 's_slash', 'p_throw', 'p_grab', 'b_nade', 'b_guide', 'b_guidex', 'p_gdash', 'p_gjump', 'w_loot', 'u_cmd', 'u_kill', 'g_break', 's_bdash']);
+const teleUp = () => { const T = FORT.roofs && FORT.roofs.tele; return T && T.hp > 0 && eggOn() && G.phase === 'attack' ? T : null; };
 function teleRetarget(id, p){
   const T = FORT.roofs && FORT.roofs.tele;
   if (!T || T.hp <= 0 || !p || !eggOn() || G.phase !== 'attack' || amDefender() || GUARD[id] || id === 'd_use' || id === 'd_place') return null;
-  if (G.targeting !== id && id !== 'p_boulderx') return null;   // aimed things only (a marker or a ring); shots and thrown things go through the portal physically
+  if (TELE_PHYSICAL.has(id)) return null;   // shots, swings and thrown things go through the portal physically (or not at all)
   if (hdist(p, T) > Math.max(TELE_R + 1.5, (TARGET_R[id] || 0)*.35)) return null;
   const P = localP(); if (!P) return null; const b = P.body.position;
   return V3(b.x, groundH(b.x, b.z), b.z);
 }
+// the caster's screen: your own power is coming back at you, so for a while it can hurt you (see victimFor)
+function teleBackOn(key, secs){ if (key === G.localKey) G.teleBackUntil = Math.max(G.teleBackUntil || 0, G.t + secs); }
 function teleSwallowFX(at){
   const T = FORT.roofs && FORT.roofs.tele; if (T) { T.pulse = 1; FORT.store++; sparkle(V3(T.x, T.y, T.z), 0xB48CFF); }
   telePortalFX(V3(at.x, at.y + 14, at.z)); sfx('hole');
@@ -9968,9 +9978,11 @@ function roofsFrame(dt){
     if (R.swirl) R.swirl.rotation.z += dt*2.5;
     const inRoof = q => k === 'tele' ? Math.hypot(q.x - R.x, q.z - R.z) < TELE_R : Math.hypot(q.x, q.z) < AREA_R - .5;
     // thrown things (chaos shots, rods) are swallowed or bounced too
-    if (G.phase === 'attack') for (const o of objs) { if (o.dead || o.kind !== 'proj' || isCarried(o)) continue; const b = o.body; if (Math.abs(b.position.y - R.y) < .6 && b.velocity.y < 0 && inRoof(b.position)) {
-      if (k === 'tele') { FORT.store++; R.pulse = 1; sfx('hole'); const O = chars[o.ownerKey]; if (!O || o.ownerKey === (G.egg && G.egg.def)) { removeObj(o); continue; }
-        const op = O.body.position, out = V3(op.x, op.y + 12, op.z); telePortalFX(out); b.position.set(out.x, out.y, out.z); b.velocity.set(0, -Math.max(12, Math.abs(b.velocity.y)), 0); o.ownerKey = G.egg.def || 'fort'; }
+    if (G.phase === 'attack') for (const o of objs) { if (o.dead || isCarried(o) || o.kind === 'egg' || (k !== 'tele' && o.kind !== 'proj') || !(o.body.mass > 0)) continue; const b = o.body; if (Math.abs(b.position.y - R.y) < .6 && b.velocity.y < 0 && inRoof(b.position)) {
+      if (k === 'tele') { const tk = typeof TK !== 'undefined' && TK.thrown.find(q => q.b === b && !q.done), own = (tk && tk.owner) || o.ownerKey; if (o.kind !== 'proj' && !own) continue;
+        FORT.store++; R.pulse = 1; sfx('hole'); const O = chars[own]; if (!O || own === (G.egg && G.egg.def)) { removeObj(o); continue; }
+        if (tk) { tk.owner = G.egg.def || 'fort'; tk.team = null; teleBackOn(own, 3); }
+        const op = O.body.position, out = V3(op.x + rr(-.8, .8), op.y + 12, op.z + rr(-.8, .8)); telePortalFX(out); b.position.set(out.x, out.y, out.z); b.velocity.set(0, -Math.max(12, Math.abs(b.velocity.y)), 0); o.ownerKey = G.egg.def || 'fort'; }
       else { b.velocity.y = Math.abs(b.velocity.y); o.reflectPending = true; R.hp -= 4; } } }
     // an attacker who drops onto the portal is thrown out of the area (their own screen moves them)
     if (k === 'tele' && G.phase === 'attack' && !amDefender()) { const me = localP(); if (me && me.alive !== false) { const bp = me.body.position;
