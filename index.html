@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-06.10';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-06.11';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -11750,17 +11750,22 @@ buildRound(12345); G.phase = 'title';
 G.map = null; renderScore(); renderPhase(); showPvPTitle();
 $('micB').addEventListener('click', e => { e.stopPropagation(); toggleMic(); }); $('micB').addEventListener('pointerdown', e => e.stopPropagation());
 /* GitHub Pages lets browsers keep a copy of the page for 10 minutes, so after an update players kept getting the
-   old game. On the title screen, ask the server for the current version and reload into it if ours is stale. */
-(async () => {
+   old game. Ask the server for the current version at start, every minute and whenever the tab comes back: on the
+   title screen a newer version reloads straight away; in a match a banner offers the update (never a forced reload). */
+async function checkUpdate(){
   try {
     const r = await fetch(location.pathname + '?v=' + Date.now(), {cache:'no-store'}); if (!r.ok) return;
     const m = (await r.text()).match(/const GAME_VERSION = '([^']+)'/); if (!m || m[1] === GAME_VERSION) return;
+    const go = () => location.replace(location.pathname + '?v=' + encodeURIComponent(m[1]));
     let tried = ''; try { tried = sessionStorage.getItem('ca-upd') || ''; } catch (e) {}
-    if (tried === m[1] || G.phase !== 'title' || NET.peer) return;   // never twice for the same version, never mid-match
-    try { sessionStorage.setItem('ca-upd', m[1]); } catch (e) {}
-    location.replace(location.pathname + '?v=' + encodeURIComponent(m[1]));
+    if (G.phase === 'title' && !NET.peer && tried !== m[1]) { try { sessionStorage.setItem('ca-upd', m[1]); } catch (e) {} go(); return; }
+    let el = document.getElementById('updB');
+    if (!el) { el = document.createElement('button'); el.id = 'updB'; el.className = 'btn primary'; el.style.cssText = 'position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 74px);transform:translateX(-50%);z-index:30'; document.body.appendChild(el); }
+    el.textContent = `⬆️ New version ${m[1]} is out. Click to update`; el.onclick = e => { e.stopPropagation(); go(); };
   } catch (e) {}
-})();
+}
+checkUpdate(); setInterval(checkUpdate, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 })();
 </script>
 </body>
