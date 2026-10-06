@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-06.9';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-06.10';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -4590,20 +4590,28 @@ function eggBuild(left){
   if (amDefender()) { const P = localP(); if (P) aimAtEggFrom(P, -.35); toast(`🛡️ You defend the egg! ${left} seconds to set up with your 20 defense powers (they keep working in the fight). Click fires your rocket launcher. F when you're done.`); }
   else toast(`🛡️ ${eggName(E.def)} is building defenses. You attack in ${Math.ceil(left)} seconds.`);
 }
+// practice only: Y switches you between defending your fort and attacking it, any time (online, nobody switches)
+function practiceStandOutside(){
+  const E = G.egg;
+  // stand where nothing blocks the view of the egg
+  let x = 0, z = 44, best = -1;
+  for (let i = 0; i < 16; i++) { const an = i/16*Math.PI*2, cx = Math.cos(an)*44, cz = Math.sin(an)*44; let clear = 99; for (const pr of props) { if (pr.dead) continue; const t = clamp((pr.x*cx + pr.z*cz)/(44*44), 0, 1); clear = Math.min(clear, Math.hypot(pr.x - cx*t, pr.z - cz*t)); } if (clear > best) { best = clear; x = cx; z = cz; } }
+  E.def = null; const P = localP(), b = P.body; b.position.set(x, groundH(x, z) + .4, z); b.velocity.set(0,0,0); aimAtEggFrom(P, .15);
+}
+function practiceSwitch(){
+  const E = G.egg, P = localP(); if (!eggOn() || NET.peer || !P || E.over) return;
+  if (G.phase === 'build') { if (amDefender()) { G.practiceAttack = true; eggDone(); } return; }
+  if (amDefender()) { G.targeting = null; marker.visible = false; practiceStandOutside(); toast('⚔️ You switched to attacking your own fort. Your defenses will fight you. Y to defend again.'); }
+  else { E.def = G.localKey; const b = P.body; b.position.set(0, groundH(0, 6.5) + .4, 6.5); b.velocity.set(0, 0, 0); aimAtEggFrom(P, -.2); toast('🛡️ Back to defending. Y to attack again.'); }
+  G.targeting = null; renderTray(); renderPhase(); sfx('grab');
+}
 function eggAttack(left){
   const E = G.egg;
   if (G.phase === 'build') { const P = localP(); if (P && P.carry) dropCarry(P, false); }
   setGhost(null); G.defPlace = null;
   G.phase = 'attack'; E.ph = 'attack'; E.endT = G.t + left;
   G.specials = {}; Object.keys(modeTable()).forEach(k => G.specials[k] = Infinity); G.targeting = null; G.atkTime = Infinity; G.cd = {};
-  if (!NET.peer && E.def === G.localKey && !G.practiceAttack) { E.raid = true; FORT.waveT = 3; }   // practice: you keep defending, raiders come in waves
-  else if (!NET.peer && E.def === G.localKey) {
-    // practice (Y): you built it, now try to break it from outside the ring
-    // stand where nothing blocks the view of the egg
-    let x = 0, z = 44, best = -1;
-    for (let i = 0; i < 16; i++) { const an = i/16*Math.PI*2, cx = Math.cos(an)*44, cz = Math.sin(an)*44; let clear = 99; for (const pr of props) { if (pr.dead) continue; const t = clamp((pr.x*cx + pr.z*cz)/(44*44), 0, 1); clear = Math.min(clear, Math.hypot(pr.x - cx*t, pr.z - cz*t)); } if (clear > best) { best = clear; x = cx; z = cz; } }
-    E.def = null; const P = localP(), b = P.body; b.position.set(x, groundH(x, z) + .4, z); b.velocity.set(0,0,0); aimAtEggFrom(P, .15);
-  }
+  if (!NET.peer && E.def === G.localKey && G.practiceAttack) practiceStandOutside();   // practice: Y while building = you attack your own fort
   G.spawnShield = 2; renderTray();
   toast(amDefender() ? '🥚 Here they come! Click: rocket launcher. Every defense power still works; B and N are your ultimates.' : `🥚 Break the egg! ${Math.round(left)} seconds.${G.cdOn ? ' Every power has a cooldown.' : ''}`);
 }
@@ -4868,7 +4876,7 @@ function forEachObject(fn){
 }
 function spin(b, s){ if (!b.fixedRotation) { b.angularVelocity.x += rr(-s, s); b.angularVelocity.y += rr(-s, s); b.angularVelocity.z += rr(-s, s); } }
 function dummyHit(b, amount){
-  { const so = bodyObj.get(b); if (so && so.swarm) { swarmHurt(so.swarm, amount, 'h'); return; } if (so && so.animal) { animalHurt(so.animal, amount); return; } if (so && so.raider) { raiderHurt(so, amount); return; } }   // Swarm enemies, animals
+  { const so = bodyObj.get(b); if (so && so.swarm) { swarmHurt(so.swarm, amount, 'h'); return; } if (so && so.animal) { animalHurt(so.animal, amount); return; } }   // Swarm enemies, animals
   dummyDamage(b, amount);
   const o = bodyObj.get(b); if (!o || G.t - (o.hitT || -9) < .2) return; o.hitT = G.t;
   popText(V3(b.position.x, b.position.y + 2.5, b.position.z), '-' + Math.max(1, Math.round(amount)));
@@ -5712,7 +5720,7 @@ function spawnDummies(){
 }
 function updateDummies(dt){
   PAIN.dummies.forEach((o, i) => {
-    if (o.swarm || o.animal || o.raider) return;
+    if (o.swarm || o.animal) return;
     const lost = o.dead || o.body.position.y < -6 || Math.abs(o.body.position.x) > ISL + 4 || Math.abs(o.body.position.z) > ISL + 4;
     if (!lost) { o.lostT = 0; return; }
     o.lostT = (o.lostT || 0) + dt;
@@ -7669,7 +7677,7 @@ function summonHurt(e, dmg){
 }
 // damage to every enemy summon in a ball / a cone (key/team = whoever did it; unknown = everyone's summons)
 function summonsTakeArea(at, R, dmg, key, team){
-  barriersTakeArea(at, R, dmg, key, team); swarmTakeArea(at, R, dmg); animalsTakeArea(at, R, dmg); devicesTakeArea(at, R, dmg, key); golemsTakeArea(at, R, dmg, key); raidersTakeArea(at, R, dmg, key); minionsTakeArea(at, R, dmg, key, team);
+  barriersTakeArea(at, R, dmg, key, team); swarmTakeArea(at, R, dmg); animalsTakeArea(at, R, dmg); devicesTakeArea(at, R, dmg, key); golemsTakeArea(at, R, dmg, key); minionsTakeArea(at, R, dmg, key, team);
   if (!SUM.list.length || !(dmg > 0)) return;
   for (const e of SUM.list) { if (e.done || (key && e.owner === key) || (team && e.team === team)) continue;
     const c = V3(e.p.x, e.p.y + 1.2*e.S, e.p.z), d = c.distanceTo(at); if (d < R + .8*e.S) summonHurt(e, dmg*(d < R ? 1 - .5*d/R : .5)); }
@@ -9040,7 +9048,7 @@ const GUARD_KEYS = {}; for (const id in GUARD) { const k = GUARD[id].key; if (k 
 for (const id in GUARD) if (GUARD[id].r) TARGET_R[id] = GUARD[id].r;
 BAR_TYPES.brick = {name:'Brick', e:'🧱', col:0xB5523B, hp:160};
 BAR_TYPES.mirror = {name:'Reflective', e:'🪞', col:0xDCEBFF, hp:150};
-const FORT = {rings:[], layers:[], roofs:{}, store:0, stars:[], lines:[], devices:[], golems:[], drones:[], minions:[], spirits:{}, lava:null, river:null, charge:null, wait:0, raiders:[]};
+const FORT = {rings:[], layers:[], roofs:{}, store:0, stars:[], lines:[], devices:[], golems:[], drones:[], minions:[], spirits:{}, lava:null, river:null, charge:null, wait:0};
 const guardActive = () => eggOn() && amDefender() && (G.phase === 'attack' || G.phase === 'build') && !G.egg.over;
 const arenaOn = () => G.pvp && G.mode === 'egg';
 const fortCenter = () => V3(0, groundH(0, 0), 0);
@@ -9049,7 +9057,7 @@ const inArea = p => Math.hypot(p.x, p.z) < AREA_R;
 const fortFoe = () => { const P = eggFoe(); return P && P.alive !== false && G.phase === 'attack' ? P : null; };
 function fortReset(){
   for (const k in FORT.spirits) { const s = FORT.spirits[k]; if (s && s.g && s.g.parent) s.g.parent.remove(s.g); }
-  Object.assign(FORT, {rings:[], layers:[], roofs:{}, store:0, stars:[], lines:[], devices:[], golems:[], drones:[], minions:[], spirits:{}, lava:null, river:null, charge:null, wait:0, raiders:[], wave:0, waveT:null, kills:0});
+  Object.assign(FORT, {rings:[], layers:[], roofs:{}, store:0, stars:[], lines:[], devices:[], golems:[], drones:[], minions:[], spirits:{}, lava:null, river:null, charge:null, wait:0});
   G.practiceAttack = false;
   G.eggHP = 100; G.eggHPMax = 100; G.domeLayers = [];
   zoneRing.geometry.dispose(); zoneRing.geometry = new THREE.RingGeometry(AREA_R - .35, AREA_R, 128);
@@ -9058,7 +9066,7 @@ function fortReset(){
 function guardHelp(){
   return '<b>Defender</b> (build AND fight) · <b>Click</b> rocket launcher · <b>1</b> dome layer · <b>2</b> laser · <b>3</b> missiles · <b>4</b> tesla · <b>5</b> lava ring · <b>6</b> drones · <b>7</b> angel · <b>8</b> devil<br>' +
     '<b>9</b> brick · <b>0</b> steel · <b>Q</b> energy · <b>R</b> reflective ring (same again = taller) · <b>T</b> reflective roof · <b>G</b> teleport roof (' + FORT.store + ' stored) · <b>Z</b> teleport-out gun<br>' +
-    '<b>X</b> cosmic stars · <b>C</b> chained golem · <b>V</b> dragon · <b>H</b> sorceress · <b>M</b> repair · hold <b>B</b> ULT swarm · <b>N</b> ULT God\'s hand' + (G.phase === 'build' ? ' · <b>F</b> done building' + (NET.peer ? '' : ' (practice: raiders attack your fort) · <b>Y</b> attack it yourself instead') : '');
+    '<b>X</b> cosmic stars · <b>C</b> chained golem · <b>V</b> dragon · <b>H</b> sorceress · <b>M</b> repair · hold <b>B</b> ULT swarm · <b>N</b> ULT God\'s hand' + (G.phase === 'build' ? ' · <b>F</b> done building' + (NET.peer ? '' : ' · <b>Y</b> switch to attacking it') : '');
 }
 function guardUse(id){
   const d = GUARD[id], P = localP(); if (!d || d.hide || !guardActive() || !P || P.alive === false || P.stun > 0) return;
@@ -9103,7 +9111,7 @@ function runGuard(id, p, x){
   const ci = casterInfo(); if (!ci.C) return;
   const {key, C, team} = ci, d = GUARD[id];
   if (id === 'g_break') { if (x && typeof x.b === 'string') breakBarrier(x.b); return; }
-  if (d && d.lim) { G.egg.left2 = G.egg.left2 || {}; G.egg.left2[id] = (G.egg.left2[id] | 0) + 1; }
+  if (d && d.lim) { G.egg.left2 = G.egg.left2 || {}; G.egg.left2[id] = (G.egg.left2[id] | 0) + 1; if (amDefender()) renderTray(); }   // the bar shows used/limit
   if (d && d.ult && key === G.localKey) { G.ultUsed = G.ultUsed || {}; G.ultUsed[id] = true; renderTray(); }
   if (id !== 'f_rocket') C.castPose = .5;
   switch (id) {
@@ -9505,65 +9513,15 @@ function fortGod({key, team}){
     return true;
   }});
 }
-/* ---------- who the defenses go after on this screen: the local attacker, and (practice) the raiders ---------- */
+/* ---------- who the defenses go after on this screen: the local attacker (in practice: you, once you switch to attacking) ---------- */
 function fortEnemies(){
   const out = [], F = fortFoe(), def = G.egg && G.egg.def;
   if (F) out.push({pos:F.body.position, hit:(dmg, k) => { painHurt(F, dmg, def); if (k) knock(F, k.x, k.y, k.z, k.s || .4); }});
-  for (const r of FORT.raiders) if (!r.dead) out.push({pos:r.body.position, hit:(dmg, k) => { raiderHurt(r, dmg); if (k) { r.body.velocity.x += k.x; r.body.velocity.y += k.y; r.body.velocity.z += k.z; r.stunT = .8; } }});
   return out;
 }
 function fortNearestEnemy(at, R){ let best = null, bd = R; for (const e of fortEnemies()) { const d = hdist(e.pos, at); if (d < bd) { bd = d; best = e; } } return best; }
 
-/* ---------- practice: raiders come at your fort in waves (you stay the defender through the whole fight) ---------- */
-function raiderMesh(kind){
-  const g = new THREE.Group(), C = kind === 'rocket' ? 0x8E2219 : 0xC8232C;
-  bx(.6, .7, .4, C, 0, 1.05, 0, g); bx(.62, .1, .42, 0x2A2A2A, 0, .72, 0, g); for (const s of [-1, 1]) { bx(.22, .7, .24, 0x4A2A22, s*.15, .35, 0, g); bx(.18, .6, .2, C, s*.42, 1.1, 0, g); }
-  sp(.27, 0xE8B48F, 0, 1.65, 0, g, 1); bx(.6, .16, .6, 0x3A3F48, 0, 1.84, 0, g); bx(.4, .06, .05, 0x111111, 0, 1.68, .26, g);
-  if (kind === 'rocket') { const t = new THREE.Mesh(new THREE.CylinderGeometry(.12, .14, 1.2, 8), M3(0x5E7D3C)); t.rotation.x = Math.PI/2; t.position.set(.42, 1.45, .2); g.add(t); }
-  else sp(.2, 0x22252B, -.45, 1, .2, g, 1);
-  mergeToon(g); addOutline(g); g.traverse(o => o.userData.noRay = true); return g;
-}
-function spawnRaider(){
-  const a = Math.random()*Math.PI*2, r = rr(46, 62), x = Math.cos(a)*r, z = Math.sin(a)*r, kind = Math.random() < .4 ? 'rocket' : 'bomb';
-  const g = raiderMesh(kind); g.position.set(x, groundH(x, z), z); roundGroup.add(g);
-  const b = new CANNON.Body({mass:80, material:PM.def, fixedRotation:true}); b.addShape(new CANNON.Sphere(.45), new CANNON.Vec3(0, .45, 0)); b.addShape(new CANNON.Sphere(.4), new CANNON.Vec3(0, 1.3, 0));
-  b.position.set(x, groundH(x, z) + .05, z); b.tag = 'dummy'; b.collisionFilterGroup = 16; b.collisionFilterMask = -1 ^ 8; b.keepMask = true; b.linearDamping = .1; world.addBody(b);
-  const R = {body:b, mesh:g, dead:false, raider:true, kind:'raider', type:kind, hp:60, maxHp:60, cd:rr(1.5, 3.5), stand:rr(39, 44), ang:a, stunT:0, home:{x, z}};
-  bodyObj.set(b, R); PAIN.dummies.push(R); FORT.raiders.push(R);
-}
-function raiderHurt(R, dmg){
-  if (!R || R.dead || !(dmg > 0)) return;
-  R.hp -= dmg; R.flash = .15; popText(V3(R.body.position.x, R.body.position.y + 2.4, R.body.position.z), '-' + Math.round(dmg), '#FFD84D');
-  if (R.hp > 0) return;
-  R.dead = true; bodyObj.delete(R.body); if (R.body.world) world.removeBody(R.body); FORT.kills = (FORT.kills || 0) + 1;
-  const m = R.mesh, p = V3(R.body.position.x, R.body.position.y, R.body.position.z); debris(V3(p.x, p.y + 1, p.z), 6, [0xC8232C, 0x3A3F48]); sfx('splat');
-  booms.push({t:0, parts:[m], custom(bm, dt){ m.rotation.x = Math.min(Math.PI/2, bm.t*5); m.position.y = groundH(m.position.x, m.position.z); return bm.t > 3; }});
-}
-function raidersTakeArea(at, R, dmg, key){ if (!FORT.raiders.length || !(dmg > 0) || key === 'raider') return; for (const r of FORT.raiders) { if (r.dead) continue; const d = r.body.position.distanceTo(at); if (d < R + .8) raiderHurt(r, dmg*(1 - .5*Math.min(1, d/R))); } }
-function raidersFrame(dt){
-  if (!eggOn() || G.phase !== 'attack' || G.egg.over || NET.peer || !G.egg.raid) return;
-  FORT.waveT = (FORT.waveT == null ? 1 : FORT.waveT) - dt;
-  if (FORT.waveT <= 0) { FORT.wave = (FORT.wave || 0) + 1; FORT.waveT = 18; const alive = FORT.raiders.filter(r => !r.dead).length, n = Math.min(14 - alive, 3 + FORT.wave*2); for (let i = 0; i < n; i++) spawnRaider(); if (n > 0) toast(`⚔️ Wave ${FORT.wave}: ${n} raiders!`); }
-  const eg = egg && egg.alive ? egg.body.position : V3(0, 1, 0);
-  for (const R of FORT.raiders) {
-    if (R.dead) continue;
-    const b = R.body, p = b.position, gy = groundH(p.x, p.z), r = Math.hypot(p.x, p.z);
-    if (p.y < gy) { p.y = gy; if (b.velocity.y < 0) b.velocity.y = 0; }
-    // the river and the lava are as deadly for them as for anyone
-    if ((r > RIVER[0] && r < RIVER[1] && p.y < -.3) || (FORT.lava && r > LAVA[0] && r < LAVA[1] && p.y < gy + .6) || p.y < -6) { raiderHurt(R, 999); splashAt(p); continue; }
-    R.stunT -= dt;
-    if (R.stunT <= 0 && p.y - gy < .3) { const want = r > R.stand ? 4.5 : 0; b.velocity.x = -p.x/(r || 1)*want; b.velocity.z = -p.z/(r || 1)*want; }
-    R.mesh.position.set(p.x, p.y, p.z); R.mesh.rotation.y = Math.atan2(-p.x, -p.z); R.mesh.visible = !(R.flash > 0 && Math.sin(G.t*60) > 0); R.flash = Math.max(0, (R.flash || 0) - dt);
-    R.cd -= dt; if (R.cd > 0 || r > R.stand + 6) continue;
-    R.cd = R.type === 'rocket' ? rr(3, 4.5) : rr(2.5, 4);
-    const from = V3(p.x, p.y + 1.6, p.z), to = V3(eg.x + rr(-1, 1), eg.y, eg.z + rr(-1, 1));
-    if (R.type === 'rocket') addBomb({p:from, v:to.clone().sub(from).normalize().multiplyScalar(40), g:.05, m:rocketMesh(1), owner:'raider', team:'red', r:.3, R:3.5, dmg:14, kb:10, trail:0xD9D2C5, trailS:.2, arm:.05});
-    else addBomb({p:from, v:lobVel(from, to, 2.2), m:bombMesh(.8), owner:'raider', team:'red', r:.35, R:3.5, dmg:14, kb:8, arm:.1});
-    sfx('fire');
-  }
-  if ((G.fc || 0) % 90 === 0) { FORT.raiders = FORT.raiders.filter(r => !r.dead); PAIN.dummies = PAIN.dummies.filter(d => !(d.raider && d.dead)); }
-}
-/* lasers also shoot down Pain shots and thrown things; tesla coils zap attackers and raiders */
+/* lasers also shoot down Pain shots and thrown things; tesla coils zap attackers */
 function fortDevicesExtra(dt){
   if (G.phase !== 'attack') return;
   const def = G.egg && G.egg.def;
@@ -9631,7 +9589,7 @@ function fortFrame(dt){
     else if (FORT.lava && r > LAVA[0] && r < LAVA[1] && b.position.y < gy + .6) { toast('🌋 Burned up in the lava.'); hurt(me, 9999); if (G.phase !== 'attack') { const s = teamSpawn(me.team); b.position.set(s.x, s.y + 1, s.z); b.velocity.set(0, 0, 0); } }
     if (amDefender() && r > AREA_R - .6) { b.position.x *= (AREA_R - .7)/r; b.position.z *= (AREA_R - .7)/r; bootKick(me, -b.position.x/r, -b.position.z/r); }
   }
-  domesFrame(dt); dronesFrame(dt); spiritsFrame(dt); roofsFrame(dt); starsFrame(dt); golemsFrame(dt); minionsFrame(dt); fortSams(dt); eggBarFrame(); raidersFrame(dt); fortDevicesExtra(dt); ringIndicator();
+  domesFrame(dt); dronesFrame(dt); spiritsFrame(dt); roofsFrame(dt); starsFrame(dt); golemsFrame(dt); minionsFrame(dt); fortSams(dt); eggBarFrame(); fortDevicesExtra(dt); ringIndicator();
   if (FORT.charge && typeof chargeUI !== 'undefined') { const s = performance.now()/1000 - FORT.charge.t0, n = Math.round(clamp(5 + s*19, 5, 100)); chargeUI.style.display = 'block'; chargeUI.querySelector('i').style.width = n + '%'; chargeUI.querySelector('i').style.background = 'linear-gradient(90deg,#7A2E8A,#FF6A8A)'; chargeUI.querySelector('span').textContent = `👹 ${n} creatures${n >= 100 ? ' (max). Release!' : '. Keep holding, don’t get hit'}`; }
 }
 function splashAt(p){ for (let i = 0; i < 10; i++) { const m = pmesh('oct', rr(.1, .25), bmat(0xBFE9FF, .9)); m.position.set(p.x, -.4, p.z); m.userData.noRay = true; roundGroup.add(m); fx.push({mesh:m, v:V3(rr(-3, 3), rr(3, 7), rr(-3, 3)), r:V3(3, 3, 0), life:1}); } sfx('splash'); }
@@ -10461,7 +10419,7 @@ function swarmHurt(e, dmg, ch){
   if (e.hp <= 0) swarmKill(e);
 }
 // powers that hurt whoever their forces touch (tornadoes, slams, punches) hurt Swarm enemies the same way
-function swarmBodyHurt(b, dmg){ if (b.tag !== 'dummy') return; const o = bodyObj.get(b); if (o && o.swarm) swarmHurt(o.swarm, dmg*1.4, 'h'); else if (o && o.animal) animalHurt(o.animal, dmg); else if (o && o.raider) raiderHurt(o, dmg); }
+function swarmBodyHurt(b, dmg){ if (b.tag !== 'dummy') return; const o = bodyObj.get(b); if (o && o.swarm) swarmHurt(o.swarm, dmg*1.4, 'h'); else if (o && o.animal) animalHurt(o.animal, dmg); }
 function swarmTakeArea(at, R, dmg){
   if (!SWARM.list.length || !(dmg > 0)) return;
   for (const e of SWARM.list) { if (!e.alive) continue; const p = e.body.position, d = Math.hypot(p.x - at.x, p.y + .4*e.T.S - at.y, p.z - at.z); if (d < R + e.T.r) swarmHurt(e, dmg*(d < R ? 1 - .5*d/R : .5), 'a'); }
@@ -11271,10 +11229,11 @@ function renderTray(){
   } else if (G.phase === 'attack' || guardActive()) {
     const keyRank = k => { k = String(k || ''); if (k === '-') return 200; if (k.length !== 1 || !/[0-9A-Za-z]/.test(k)) return -1; if (k === '0') return 10; if (/[1-9]/.test(k)) return +k; return 20 + k.toUpperCase().charCodeAt(0); };
     const shown = Object.entries(skillTable()).filter(([, sp]) => !sp.hide).sort((a, b) => (a[1].ult ? 1000 : 0) + keyRank(a[1].key) - (b[1].ult ? 1000 : 0) - keyRank(b[1].key));   // ultimates last
-    t.innerHTML = `<div class="bar sticker"><div class="tl">${guardActive() ? 'Defender' : classInfo(G.cls).name}</div><div class="skills" style="--cols:${Math.ceil(shown.length/2)}">${shown.map(([id,sp]) => `<button class="skill" data-sp="${id}" aria-pressed="${G.targeting===id}" title="${sp.name} (${sp.key})" aria-label="${sp.name}"><span class="si">${sp.e}</span><span class="sn">${SHORT[id] || sp.name}</span>${sp.ammo ? `<sup>×${G.nades | 0}</sup>` : sp.ult ? '<sup>ULT</sup>' : ''}<kbd>${sp.key}</kbd></button>`).join('')}</div></div>`;
+    t.innerHTML = `<div class="bar sticker"><div class="tl">${guardActive() ? 'Defender' : classInfo(G.cls).name}</div><div class="skills" style="--cols:${Math.ceil(shown.length/2)}">${shown.map(([id,sp]) => `<button class="skill" data-sp="${id}" aria-pressed="${G.targeting===id}"${GUARD[id] && sp.lim && ((G.egg && G.egg.left2 && G.egg.left2[id]) | 0) >= sp.lim ? ' style="opacity:.4"' : ''} title="${sp.name} (${sp.key})" aria-label="${sp.name}"><span class="si">${sp.e}</span><span class="sn">${SHORT[id] || sp.name}</span>${GUARD[id] && sp.lim ? `<sup>${(G.egg && G.egg.left2 && G.egg.left2[id]) | 0}/${sp.lim}</sup>` : sp.ammo ? `<sup>×${G.nades | 0}</sup>` : sp.ult ? '<sup>ULT</sup>' : ''}<kbd>${sp.key}</kbd></button>`).join('')}</div></div>`;
     t.querySelectorAll('[data-sp]').forEach(b => b.onclick = e => { e.stopPropagation(); useSpecial(b.dataset.sp); });
     if (G.pvp && !guardActive()) addClassButton(t);
-    if (guardActive() && G.phase === 'build') { const db = document.createElement('button'); db.className = 'btn primary'; db.textContent = NET.peer ? 'Done (F)' : 'Defend (F)'; db.style.alignSelf = 'center'; db.onclick = e => { e.stopPropagation(); eggDone(); }; t.querySelector('.bar').appendChild(db);
+    if (eggOn() && !NET.peer && G.phase === 'attack' && !G.egg.over) { const sb = document.createElement('button'); sb.className = 'btn'; sb.textContent = amDefender() ? '⚔️ Attack (Y)' : '🛡️ Defend (Y)'; sb.style.alignSelf = 'center'; sb.onclick = e => { e.stopPropagation(); practiceSwitch(); }; t.querySelector('.bar').appendChild(sb); }
+    if (guardActive() && G.phase === 'build') { const db = document.createElement('button'); db.className = 'btn primary'; db.textContent = NET.peer ? 'Done (F)' : 'Start fight (F)'; db.style.alignSelf = 'center'; db.onclick = e => { e.stopPropagation(); eggDone(); }; t.querySelector('.bar').appendChild(db);
       if (!NET.peer) { const ab = document.createElement('button'); ab.className = 'btn'; ab.textContent = 'Attack it (Y)'; ab.style.alignSelf = 'center'; ab.onclick = e => { e.stopPropagation(); G.practiceAttack = true; eggDone(); }; t.querySelector('.bar').appendChild(ab); } }
     comboUI();
     if (!G.pvp) { const gb = document.createElement('button'); gb.className = 'btn'; gb.id = 'giveB'; gb.textContent = '🏳️ Give up'; gb.style.alignSelf = 'center'; t.querySelector('.bar').appendChild(gb);
@@ -11446,7 +11405,8 @@ addEventListener('keydown', e => {
   if (k === 'shift' && !e.repeat) { if (G.t - (G.lastShift || -9) < .3) { dash(); G.lastShift = -9; } else G.lastShift = G.t; }
   if (['arrowup','arrowdown','arrowleft','arrowright'].includes(k)) e.preventDefault();
   if (k === 'e' && !e.repeat) { const P = activeChar(); if (P && P.stun <= 0) { const lb = typeof nearLoot === 'function' ? nearLoot(P) : null; if (lb) openLoot(lb, true); else grabNearest(P); } }
-  if ((G.phase === 'attack' || G.phase === 'build') && guardActive()) { if (e.repeat) return; if (guardKeyDown(k)) return; if (G.phase === 'build' && (k === 'f' || k === 'enter')) finishBuild(); else if (G.phase === 'build' && k === 'y' && !NET.peer) { G.practiceAttack = true; eggDone(); } return; }
+  if (k === 'y' && !e.repeat && eggOn() && !NET.peer && (G.phase === 'attack' || G.phase === 'build')) { practiceSwitch(); return; }   // practice: switch sides
+  if ((G.phase === 'attack' || G.phase === 'build') && guardActive()) { if (e.repeat) return; if (guardKeyDown(k)) return; if (G.phase === 'build' && (k === 'f' || k === 'enter')) finishBuild(); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'bomber') { bomberKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'sword') { swordKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'summon') { summonKeyDown(k); return; }

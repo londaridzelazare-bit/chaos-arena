@@ -328,10 +328,10 @@ One dome cast raises all four layers one after another (`fortDome`/`domeLayer`, 
 (`ringAimHit` reads the floor through your own walls, `ringTarget`, `ringIndicator` gold = combine / white = new ring
 further out / red = not allowed). Aimed placements are one per press, then the click is the rocket launcher again.
 While the defender kit is active, unmapped keys never reach a class kit. Repair is an 8 s process.
-**Practice in Alpha Mode**: after building you STAY the defender and raiders attack in waves (`FORT.raiders`,
-`raidersFrame`; records in PAIN.dummies with `.raider`, `raiderHurt`); `fortEnemies()`/`fortNearestEnemy()` is what
-drones, devil, dragon and tesla coils shoot (the local attacker plus raiders). Y (or the "Attack it" button) instead
-switches to attacking your own fort, the old practice. Test the defender with real key presses and clicks (scratch
+**Practice in Alpha Mode**: nobody attacks you (the user did not want bots: attacks only come from real players online).
+After building you stay the defender; Y (or the bar button) switches sides at any time in practice (`practiceSwitch`:
+attack your own fort from 44 m out, `practiceStandOutside`, or go back to defending). Limited defender powers show
+used/limit on the Skills bar (`G.egg.left2`). Test the defender with real key presses and clicks (scratch
 `t13.mjs`, `t15.mjs`, `t17.mjs`): direct `localCast` calls hid the build-phase timer bug.
 
 ## Network checks (castOK)
