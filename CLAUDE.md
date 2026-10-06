@@ -134,6 +134,16 @@ item point to point, x1.25 speed per point; open circuits throw them off the las
 (`Z.bodies`, no gravity, so thrown things keep flying; rescanned each second);  the caster gets P.carpet type 'zerog' = free 3D flight (WASD along the view, Space
 up), everyone else (not defenders) gets type 'float'; dummies float; objects and the defense are untouched; star field
 `zeroGStars`). Click priority in `tkDown`: wring release, circuit run/break, link hurl, Bansho drop, telekinesis.
+Pain update 2026-10-07: Falling Circuit rebuilt: the whole path is live (`circuitCapture` every frame: any body within
+CIRC_GRAB of any segment or anchor joins at that spot, props on it are lifted in, the local victim too); riders move along
+the path by distance (`it.seg`, `it.s`, several segments per physics step if needed), accelerate forever (CIRC_ACC + 6%
+of speed per s, no cap), their physics velocity is held at 0 so they never drift off corners; Click (or G on a closed
+loop) breaks it (`circuitLaunch`, launch speed clamped to 160 for physics, damage uses the full speed). H Spiraling
+Stone Pillars (`painPillars`, `pillarGeo` merged, phases: extraction with cracks, triple-helix ascent to 46 m, apex turn,
+Bezier plunge, `pillarImpact` = bBoom + radialPush + rubble). M ULT Earth Shockwave (`painQuake`/`quakeFrame`/`QUAKE`):
+real terrain waves in QUAKE_R 60 m (terrH + mesh + heightfield, physics refreshed every 2nd frame after widening
+hfShape min/max once; crests lighter, troughs darker via vertex colours), 4 pulses at QUAKE_V 21 m/s, props ride the
+swell, bodies/victims are thrown as each crest passes, caster held still; `quakeStop` restores heights, colours and props.
 Camera (2026-10-06): PITCH_MAX 1.38 (look almost straight up; the boom shortens as you look up), obstacle pull-in eases
 (2e-6/s instead of a one-frame snap), the ground lift eases (`CAM.lift`) with a hard floor at ground + .25.
 Performance (2026-10-06): all `fx` particles draw through shared InstancedMeshes (`fxInstAdd`, one per geometry +

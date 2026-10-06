@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-07.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-07.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -4909,11 +4909,13 @@ const PAIN_SKILLS = {
   p_pull:      {name:'Pull Everything', e:'🧲', key:'Q', kind:'charge', cd:6},
   p_link:      {name:'Gravity Link', e:'⛓️', key:'X', kind:'link', cd:.5},
   p_circ:      {name:'Falling Circuit', e:'➰', key:'G', kind:'circ', cd:.25},
+  p_pillars:   {name:'Spiraling Stone Pillars', e:'🗿', key:'H', kind:'aim', cd:12, range:90, r:8},
   p_boulder:   {name:'Bansho Ten\'in', e:'🪨', key:'C', kind:'hold', cd:1},
   p_vortex:    {name:'Gravity Vortex', e:'🌀', key:'V', kind:'now', cd:18},   // with Planetary Orbit folded in: rocks torn from the ground join the storm
   p_almighty:  {name:'Almighty Push', e:'💥', key:'B', kind:'now', ult:true, cd:0},
   p_cata:      {name:'Catastrophic Chibaku', e:'🌕', key:'N', kind:'aim', ult:true, cd:0, range:60, r:9},
   p_zerog:     {name:'Zero Gravity', e:'🌌', key:'Z', kind:'now', ult:true, cd:0},
+  p_quake:     {name:'Earth Shockwave', e:'🌋', key:'M', kind:'now', ult:true, cd:0},
   p_gdash:     {name:'Gravity Dash', e:'💨', key:'⇧⇧', kind:'move', cd:1, hide:true},     // Shift x2
   p_gjump:     {name:'Gravity Jump', e:'⤴️', key:'␣␣', kind:'move', cd:2.2, hide:true},   // Space x2 in the air
   p_throw:     {name:'Throw', e:'🫳', hide:true, cd:0},
@@ -4948,7 +4950,7 @@ function skillDef(id){ return PAIN_SKILLS[id] || SPECIALS[id] || BOMBER[id] || S
 function cdFor(id){ { const d = skillDef(id); if (d && d.fixed) return d.cd; if (d && d.ult) return 0; } if (!G.cdOn) return 0;   // the match's cooldown setting covers every class (World Severance stays once per round)
   if (BOMBER[id]) return BOMBER[id].cd; if (SWORD[id]) return SWORD[id].cd; if (SUMMON[id]) return SUMMON[id].cd; if (NECRO_SK[id]) return NECRO_SK[id].cd; if (GUARD[id]) return GUARD[id].cd; return (PAIN_SKILLS[id] && PAIN_SKILLS[id].cd) || CD[id] || 3; }
 function painReset(){
-  PAIN.lev = {}; PAIN.vortex = {}; PAIN.shield = {}; PAIN.holdKeys = {}; PAIN.links = {}; PAIN.circ = {}; PAIN.wring = {}; PAIN.zeroG = null; zeroGStars(false);
+  PAIN.lev = {}; PAIN.vortex = {}; PAIN.shield = {}; PAIN.holdKeys = {}; PAIN.links = {}; PAIN.circ = {}; PAIN.wring = {}; PAIN.zeroG = null; zeroGStars(false); quakeStop(true);
   if (typeof TK !== 'undefined') { TK.holds = {}; TK.mine = null; TK.thrown = []; for (const k in BOULD) delete BOULD[k]; }
   PAIN.fx = []; PAIN.fields = []; PAIN.rods = []; PAIN.stuckRods = []; PAIN.regrow = []; PAIN.dummies = [];
   PAIN.cores = []; PAIN.orbits = {}; PAIN.shots = []; PAIN.charge = null; PAIN.aim = null; G.camZoomTgt = 1; if (PAIN.gRing) PAIN.gRing.visible = false;
@@ -6041,7 +6043,7 @@ function tkGrabToggle(){
 function tkDown(){
   const me = localP(); if (!me || me.alive === false || me.stun > 0) return;
   if (PAIN.wring[G.localKey] && !PAIN.wring[G.localKey].released) { localCast('p_wringx', null, {}); return; }
-  { const Ci = PAIN.circ[G.localKey]; if (Ci && !Ci.done && (Ci.running || Ci.pts.length >= 2)) { localCast(Ci.running ? 'p_circx' : 'p_circgo', null, {}); return; } }
+  { const Ci = PAIN.circ[G.localKey]; if (Ci && !Ci.done && Ci.pts.length >= 2) { localCast('p_circx', null, {}); return; } }
   if (PAIN.links && PAIN.links[G.localKey] && !PAIN.links[G.localKey].hurled) { linkKey(); return; }
   if (boulderAir(G.localKey)) { localCast('p_boulderx', boulderAim(), {drop:1}); return; }
   if (TK.holds[G.localKey]) { TK.chargeT0 = performance.now()/1000; return; }
@@ -6278,99 +6280,121 @@ function linkEnd(L){
   if (PAIN.links[L.key] === L) delete PAIN.links[L.key];
 }
 
-/* ---------- NEW. Falling Circuit (G): mark up to 8 points in the air. Whatever is near the first point when the circuit
-   starts "falls" from point to point, faster with every step. Mark a point back on the first one to close the circuit: it
-   starts on its own and keeps them going round and round; G (or Click) breaks it and flings everything off at full speed.
-   An open circuit (Click to run it) throws them off the last point. ---------- */
+/* ---------- NEW. Falling Circuit (G): mark up to 8 points in the air. The whole path is live: anything movable that
+   touches any of its lines (or sits on a point) joins it right there and follows it, speeding up for as long as it rides,
+   with no cap, keeping its speed through every point and every lap. Mark back on the first point to close it into a loop.
+   Click (or G on a closed loop) breaks it: everything flies off the way it was going. Riders move along the path itself
+   (distance along a segment, several segments per step if they must), so even absurd speeds never skip or escape. ---------- */
 PAIN.circ = {};
-const CIRC_MAX = 8, CIRC_CATCH = 7;
+const CIRC_MAX = 8, CIRC_GRAB = 1.9, CIRC_ACC = 14;
 function circuitAim(){ const h = crosshairHit(); if (h && h.point && h.point.distanceTo(camera.position) < 55) return h.point.clone().add(V3(0, 1.6, 0)); const v = new THREE.Vector3(); camera.getWorldDirection(v); return camera.position.clone().addScaledVector(v, 25); }
 function circuitKey(){
   const P = localP(); if (!P || P.alive === false || P.stun > 0) return;
   const C = PAIN.circ[G.localKey];
-  if (C && !C.done && C.running) { localCast('p_circx', null, {}); return; }
-  if (C && !C.done && C.pts.length >= CIRC_MAX) { cdToast2(`➰ ${CIRC_MAX} points is the most. Click to run it, or mark the first point again to close it.`); return; }
+  if (C && !C.done && C.closed) { localCast('p_circx', null, {}); return; }
+  if (C && !C.done && C.pts.length >= CIRC_MAX) { cdToast2(`➰ ${CIRC_MAX} points is the most. Mark the first point again to close it, or Click to break it.`); return; }
   if ((G.cd.p_circ || 0) > 0) return;
-  // the crosshair passes close to the first point: that closes the circuit (exactly on it)
-  if (C && !C.done && C.pts.length >= 3) { const v = new THREE.Vector3(); camera.getWorldDirection(v); const w = C.pts[0].clone().sub(camera.position), along = w.dot(v); if (along > 0 && w.addScaledVector(v, -along).length() < Math.max(3, along*.08)) { localCast('p_circ', C.pts[0].clone(), {}); return; } }
+  // closing: your aim lands on the first point, or the crosshair is right over it (and not on something nearer)
+  if (C && !C.done && C.pts.length >= 3) { const aim = circuitAim(), v = new THREE.Vector3(); camera.getWorldDirection(v); const w = C.pts[0].clone().sub(camera.position), along = w.dot(v), off = w.addScaledVector(v, -along).length();
+    if (aim.distanceTo(C.pts[0]) < 3.5 || (along > 0 && off < Math.max(2, along*.035) && aim.distanceTo(camera.position) > along - 3)) { localCast('p_circ', C.pts[0].clone(), {}); return; } }
   localCast('p_circ', circuitAim(), {});
+}
+// the path as segments [a, b, length, unit direction]
+function circuitSegs(C){
+  const out = [], n = C.pts.length, m = C.closed ? n : n - 1;
+  for (let i = 0; i < m; i++) { const a = C.pts[i], b = C.pts[(i + 1) % n], d = b.clone().sub(a), L = Math.max(.01, d.length()); out.push({a, b, L, d:d.divideScalar(L)}); }
+  return out;
 }
 function painCircuitPoint(p){
   const {key, team} = casterInfo();
-  let C = PAIN.circ[key]; if (!C || C.done || C.running) { if (C && !C.done) circuitEnd(C); C = PAIN.circ[key] = {key, team, pts:[], nodes:[], lines:[], items:[], closed:false, running:false, t:0, idle:0}; circuitFrameStart(C); }
-  // back on the first point: the circuit closes and starts
-  if (C.pts.length >= 3 && p.distanceTo(C.pts[0]) < 4.5) { C.closed = true; circuitLine(C, C.pts[C.pts.length - 1], C.pts[0]); sfx('holy'); if (key === G.localKey) toast('➰ Circuit closed: round and round they go. G (or Click) breaks it.'); circuitStart(key); return; }
-  const q = V3(p.x, Math.max(p.y, groundH(p.x, p.z) + .8), p.z); C.pts.push(q); C.idle = 0;
+  let C = PAIN.circ[key]; if (!C || C.done || C.closed) { if (C && !C.done) circuitBreak(key); C = PAIN.circ[key] = {key, team, pts:[], nodes:[], lines:[], items:[], closed:false, t:0, segs:[]}; circuitFrameStart(C); }
+  if (C.pts.length >= 3 && p.distanceTo(C.pts[0]) < 4.5) { C.closed = true; circuitLine(C, C.pts[C.pts.length - 1], C.pts[0]); C.segs = circuitSegs(C); sfx('holy'); if (key === G.localKey) toast('➰ Loop closed: it never ends. Click (or G) breaks it.'); return; }
+  const q = V3(p.x, Math.max(p.y, groundH(p.x, p.z) + .8), p.z); C.pts.push(q); C.segs = circuitSegs(C);
   const node = new THREE.Group(); node.position.copy(q);
   node.add(new THREE.Mesh(new THREE.IcosahedronGeometry(.32, 1), addBlend(0xFFFFFF)));
   const ring = new THREE.Mesh(new THREE.TorusGeometry(.75, .06, 6, 24), addBlend(0x9D6BFF)); node.add(ring); node.userData.ring = ring;
-  if (C.pts.length === 1) { const cr = new THREE.Mesh(new THREE.TorusGeometry(CIRC_CATCH, .08, 6, 48), addBlend(0xC9B8FF)); cr.material.opacity = .35; cr.rotation.x = Math.PI/2; node.add(cr); node.userData.catch = cr; }
   node.traverse(o => o.userData.noRay = true); roundGroup.add(node); C.nodes.push(node);
   if (C.pts.length > 1) circuitLine(C, C.pts[C.pts.length - 2], q);
   sfx('click'); sfx('grav'); warpPulse(q, 3, .3, .03);
-  if (key === G.localKey) toast(C.pts.length === 1 ? '➰ First point: whatever is in the ring falls along the circuit. Mark more points with G.' : `➰ Point ${C.pts.length}. Click to run it, or mark the first point again to close the loop.`);
+  if (key === G.localKey) toast(C.pts.length === 1 ? '➰ First point. Mark more with G: anything touching the path will ride it.' : `➰ Point ${C.pts.length}. Anything touching the path rides it. Mark the first point again to close the loop.`);
 }
 function circuitLine(C, a, b){
-  const d = b.clone().sub(a), m = new THREE.Mesh(new THREE.BoxGeometry(.1, .1, 1), addBlend(0xC9B8FF)); m.material.opacity = .7;
+  const d = b.clone().sub(a), m = new THREE.Mesh(new THREE.BoxGeometry(.12, .12, 1), addBlend(0xC9B8FF)); m.material.opacity = .7;
   m.position.copy(a).addScaledVector(d, .5); m.scale.z = d.length(); m.lookAt(b); m.userData.noRay = true; roundGroup.add(m); C.lines.push(m);
 }
-// catch everything near the first point and set it falling
-function circuitStart(key){
-  const C = PAIN.circ[key]; if (!C || C.done || C.running || C.pts.length < 2) return;
-  C.running = true; C.t = 0; const c0 = C.pts[0], team = C.team;
-  for (const pr of propsNear(c0, CIRC_CATCH*.8).slice(0, 8)) { const o = liftProp(pr, V3(0, 4, 0)); if (o) C.items.push({body:o.body, seg:0, speed:18}); }
-  for (const b of world.bodies) { if (b.mass === 0 || b.player || b._frozen || b._tk || gravityProof(b) || b.mass > 8000 || C.items.some(it => it.body === b)) continue; if (b.position.distanceTo(c0) < CIRC_CATCH || hdist(b.position, c0) < CIRC_CATCH*.7) C.items.push({body:b, seg:0, speed:18}); }
-  const P = victimFor(key, team); if (P && hdist(P.body.position, c0) < CIRC_CATCH && Math.abs(P.body.position.y - c0.y) < CIRC_CATCH + 2) C.items.push({player:P, seg:0, speed:18});
-  if (C.nodes[0] && C.nodes[0].userData.catch) C.nodes[0].userData.catch.visible = false;
-  sfx('pain'); sfx('grav');
-  if (key === G.localKey) toast(C.items.length ? `➰ ${C.items.length} caught in the circuit!` : '➰ Nothing was in the first ring.');
-  if (!C.items.length && !C.closed) circuitEnd(C);
+// where on the path is this point closest, if it touches it at all
+function circuitTouch(C, q, r){
+  let best = null, bd = r;
+  C.segs.forEach((sg, i) => { const w = V3(q.x - sg.a.x, q.y - sg.a.y, q.z - sg.a.z), t = clamp(w.dot(sg.d), 0, sg.L), dx = sg.a.x + sg.d.x*t - q.x, dy = sg.a.y + sg.d.y*t - q.y, dz = sg.a.z + sg.d.z*t - q.z, dist = Math.hypot(dx, dy, dz); if (dist < bd) { bd = dist; best = {seg:i, s:t}; } });
+  return best;
 }
-function circuitPos(it){ return it.player ? it.player.body.position : it.body.position; }
+function circuitCapture(C){
+  if (C.segs.length < 1) return;
+  for (const b of world.bodies) {
+    if (b.mass === 0 || b.player || b._frozen || b._tk || b._link || b._circ || gravityProof(b)) continue;
+    const at = circuitTouch(C, b.position, CIRC_GRAB + .4); if (!at) continue;
+    const sg = C.segs[at.seg], vAlong = b.velocity.x*sg.d.x + b.velocity.y*sg.d.y + b.velocity.z*sg.d.z;
+    b._circ = C.key; b.collisionResponse = false; if (b.wakeUp) b.wakeUp();
+    C.items.push({body:b, seg:at.seg, s:at.s, speed:Math.max(16, vAlong), hitT:0}); sparkle(V3(b.position.x, b.position.y, b.position.z), 0xD9CCFF); sfx('grav');
+  }
+  // trees, rocks, ruins standing on the path are torn up and join it too
+  if ((C.propsTaken || 0) < 40) for (const pr of props) { if (pr.dead || pr.kind === 'wall') continue; const at = circuitTouch(C, V3(pr.x, pr.y + 1, pr.z), CIRC_GRAB + (pr.kind === 'tree' ? 1 : pr.r || 1)); if (!at) continue; const o = liftProp(pr, V3(0, 1, 0)); if (o) { C.propsTaken = (C.propsTaken || 0) + 1; } }
+  const P = victimFor(C.key, C.team);
+  if (P && !C.items.some(it => it.player)) { const at = circuitTouch(C, V3(P.body.position.x, P.body.position.y + .9, P.body.position.z), CIRC_GRAB); if (at) { C.items.push({player:P, seg:at.seg, s:at.s, speed:16, hitT:0}); sfx('pain'); } }
+}
 function circuitBreak(key){
   const C = PAIN.circ[key]; if (!C || C.done) return;
-  if (C.running) for (const it of C.items) circuitLaunch(C, it);
+  for (const it of C.items) circuitLaunch(C, it);
   sfx('shinra'); sfx('dash'); if (C.pts.length) warpPulse(C.pts[0], 10, .5, .06);
   circuitEnd(C);
 }
 function circuitLaunch(C, it){
   if (it.gone) return; it.gone = true;
-  const n = C.pts.length, to = C.pts[C.closed ? (it.seg + 1) % n : Math.min(n - 1, it.seg + 1)], from = C.pts[Math.min(n - 1, it.seg)], d = to.clone().sub(from).normalize(), sp = it.speed;
-  if (it.player) { const P = it.player; painHurt(P, 10 + sp*.3, C.key); knock(P, d.x*sp*.7, 8 + Math.max(0, d.y)*sp*.4, d.z*sp*.7, 1.1); return; }
-  const b = it.body; if (!b.world) return; if (b.wakeUp) b.wakeUp(); b.velocity.set(d.x*sp*1.1, d.y*sp*1.1 + 6, d.z*sp*1.1); spin(b, 6);
-  TK.thrown.push({b, owner:C.key, team:C.team, t:0, dmg:10 + sp*.4, R:1.5});
+  const sg = C.segs[it.seg] || C.segs[C.segs.length - 1], d = sg ? sg.d : V3(0, 1, 0), sp = it.speed, out = Math.min(sp, 160);   // physics can't take more than this; the hit still counts the full speed
+  if (it.player) { const P = it.player; painHurt(P, Math.min(150, 10 + sp*.3), C.key); knock(P, d.x*Math.min(60, out*.6), 8 + Math.max(0, d.y)*Math.min(40, out*.4), d.z*Math.min(60, out*.6), 1.1); return; }
+  const b = it.body; delete b._circ; b.collisionResponse = true; if (!b.world) return; if (b.wakeUp) b.wakeUp(); b.velocity.set(d.x*out, d.y*out + 4, d.z*out); spin(b, 6);
+  TK.thrown.push({b, owner:C.key, team:C.team, t:0, dmg:Math.min(160, 10 + sp*.4), R:1.6});
 }
 function circuitEnd(C){
   if (C.done) return; C.done = true;
+  for (const it of C.items) if (!it.gone && it.body) { delete it.body._circ; it.body.collisionResponse = true; }
   for (const m of C.nodes.concat(C.lines)) if (m.parent) m.parent.remove(m);
   if (PAIN.circ[C.key] === C) delete PAIN.circ[C.key];
 }
 function circuitFrameStart(C){
-  // the pull along the circuit, every physics step: aim at the next point, faster at every point passed
+  // every physics step: each rider moves along the path by its speed, then speeds up; several segments at once if it must
   PAIN.fields.push({apply(g){
     if (C.done) { this.done = true; return; }
-    if (!C.running) return;
-    const n = C.pts.length;
+    const dt = FIXED, n = C.segs.length; if (!n) return;
     for (const it of C.items) {
       if (it.gone) continue;
-      const nextI = C.closed ? (it.seg + 1) % n : it.seg + 1;
-      if (nextI >= n) { circuitLaunch(C, it); continue; }   // an open circuit throws them off the last point
       const b = it.player ? it.player.body : it.body; if (!b.world) { it.gone = true; continue; }
-      const to = C.pts[nextI], dx = to.x - b.position.x, dy = to.y - b.position.y, dz = to.z - b.position.z, dist = Math.hypot(dx, dy, dz) || .01;
-      if (dist < 1.3) { it.seg = nextI; it.speed = Math.min(85, it.speed*1.25 + 2); if (it.player) { painHurt(it.player, 2, C.key); it.player.stun = Math.max(it.player.stun, .4); } continue; }
-      b.force.y += g*b.mass; const k = it.player ? .35 : .25;
-      b.velocity.x = lerp(b.velocity.x, dx/dist*it.speed, k); b.velocity.y = lerp(b.velocity.y, dy/dist*it.speed, k); b.velocity.z = lerp(b.velocity.z, dz/dist*it.speed, k);
-      if (it.player) { b._onGround = false; it.player.pinT = .15; }
+      it.speed += (CIRC_ACC + it.speed*.06)*dt; it.s += it.speed*dt;
+      let guard = 0;
+      while (it.s > C.segs[it.seg].L && guard++ < 64) { it.s -= C.segs[it.seg].L; it.seg++; if (it.seg >= n) { if (C.closed) it.seg = 0; else { it.seg = n - 1; it.s = C.segs[it.seg].L; circuitLaunch(C, it); break; } } }
+      if (it.gone) continue;
+      const sg = C.segs[it.seg]; b.position.set(sg.a.x + sg.d.x*it.s, sg.a.y + sg.d.y*it.s, sg.a.z + sg.d.z*it.s);
+      b.velocity.set(0, 0, 0); b.angularVelocity.set(0, 0, 0); b.force.y += g*b.mass;   // the path moves it, not the physics step (no drift off corners at any speed)
+      if (it.player) { b._onGround = false; it.player.pinT = .15; it.player.stun = Math.max(it.player.stun, .3); }
     }
-    if (!C.closed && C.items.every(it => it.gone)) { C.running = false; circuitEnd(C); }
+    C.items = C.items.filter(it => !it.gone);
   }});
   PAIN.fx.push({owner:C.key, cancel(){ circuitEnd(C); }, update(dt){
     if (C.done) return false;
-    C.t += dt; C.idle += dt;
-    C.nodes.forEach((nd, i) => { nd.userData.ring.rotation.x += dt*(2 + i); nd.userData.ring.rotation.y += dt*1.5; nd.scale.setScalar(1 + Math.sin(C.t*6 + i)*.1); });
-    C.lines.forEach(m => { m.material.opacity = C.running ? .55 + Math.sin(C.t*12)*.3 : .6; });
-    if (C.running) for (const it of C.items) if (!it.gone && Math.random() < .5) puff(circuitPos(it), 0xC9B8FF, .3);
-    if (C.key === G.localKey && !C.sent && ((C.running && C.closed && C.t > 15) || (!C.running && C.idle > 30))) { C.sent = true; localCast(C.running ? 'p_circx' : 'p_circgo', null, {}); if (!C.running) circuitEnd(C); }
+    C.t += dt; circuitCapture(C);
+    const top = C.items.reduce((m, it) => Math.max(m, it.speed), 0);
+    C.nodes.forEach((nd, i) => { nd.userData.ring.rotation.x += dt*(2 + i + top*.05); nd.userData.ring.rotation.y += dt*1.5; nd.scale.setScalar(1 + Math.sin(C.t*6 + i)*.1); });
+    C.lines.forEach(m => { m.material.opacity = C.items.length ? .55 + Math.sin(C.t*(8 + top*.1))*.3 : .55; m.scale.x = m.scale.y = 1 + Math.min(3, top/60); });
+    // riders hit what they pass: you (on your screen) and the training dummies
+    const P = victimFor(C.key, C.team);
+    for (const it of C.items) { it.hitT -= dt; const q = it.player ? it.player.body.position : it.body.position;
+      if (Math.random() < .6) puff(V3(q.x, q.y, q.z), it.speed > 80 ? 0xFFFFFF : 0xC9B8FF, .3 + Math.min(.5, it.speed/300));
+      if (it.player || it.hitT > 0) continue;
+      const sg = C.segs[it.seg]; if (!sg) continue;
+      if (P && P.body.position.distanceTo(q) < 1.8) { it.hitT = .5; painHurt(P, Math.min(120, 8 + it.speed*.25), C.key); knock(P, sg.d.x*Math.min(40, it.speed*.3), 6, sg.d.z*Math.min(40, it.speed*.3), .7); sfx('bonk'); }
+      PAIN.dummies.forEach(dm => { if (!dm.dead && dm.body !== it.body && dm.body.position.distanceTo(q) < 2) { it.hitT = .5; dummyHit(dm.body, Math.min(120, 8 + it.speed*.25)); } });
+    }
+    if (C.key === G.localKey && !C.sent && C.t > 90) { C.sent = true; localCast('p_circx', null, {}); }
     return true;
   }});
 }
@@ -6524,6 +6548,162 @@ function zeroGStars(on){
     ZG_STARS = new THREE.Points(geo, new THREE.PointsMaterial({color:0xEDE6FF, size:.35, transparent:true, opacity:.85, depthWrite:false})); ZG_STARS.frustumCulled = false; ZG_STARS.userData.noRay = true; scene.add(ZG_STARS);
     ZG_STARS.onBeforeRender = () => { ZG_STARS.position.copy(camera.position); ZG_STARS.rotation.y += .0007; }; }
   ZG_STARS.visible = true;
+}
+
+/* ---------- NEW. Spiraling Stone Pillars (H): three monumental pillars of rock are torn out of the ground in front of you,
+   climb into the sky twisting round one another in a triple helix, hang at the top for a moment, then arc over and come
+   down on the marked spot one after another. Phases: cracking and extraction, spiraling ascent, apex, the plunge. ---------- */
+let PILLAR_GEO_ = null;
+function pillarGeo(){
+  if (PILLAR_GEO_) return PILLAR_GEO_;
+  const rng = mulberry32(0x5711), parts = [[natAt(new THREE.CylinderGeometry(1.45, 1.9, 16, 7), 0, 8, 0), 0x6E6672], [natAt(new THREE.ConeGeometry(1.45, 3.2, 7), 0, 17.6, 0), 0x5B5560], [natAt(new THREE.ConeGeometry(1.9, 2.6, 7), 0, -1.2, 0, Math.PI), 0x5E3F24]];
+  for (let i = 0; i < 14; i++) { const a = rng()*Math.PI*2, y = 1 + rng()*14, sc = .45 + rng()*.55; parts.push([natAt(new THREE.DodecahedronGeometry(sc, 0), Math.cos(a)*1.55, y, Math.sin(a)*1.55), [0x5B5560, 0x4A4550, 0x7A6E62, 0x8A7E70][i % 4]]); }
+  for (let i = 0; i < 5; i++) parts.push([natAt(new THREE.BoxGeometry(3.4, .18, 3.4), 0, 2 + i*3.1, 0, 0, i*.6), 0x4A4550]);
+  return (PILLAR_GEO_ = natGeo(parts));
+}
+function painPillars(p){
+  const {key, C, team, pos, yaw} = casterInfo(), rng = mulberry32(seedOf(p) ^ 0x9111);
+  const f = V3(Math.sin(yaw), 0, Math.cos(yaw)), base = V3(pos.x + f.x*8, 0, pos.z + f.z*8); base.y = groundH(base.x, base.z);
+  const tgt = V3(p.x, groundH(p.x, p.z), p.z), APEX = 46, T_UP = .9, T_RISE = 2.4, T_HOLD = .45;
+  const pillars = [0, 1, 2].map(i => { const g = new THREE.Group(), m = new THREE.Mesh(pillarGeo(), NAT_MAT); m.position.y = -8; g.add(m); addOutline(g); g.traverse(o => o.userData.noRay = true); g.position.set(base.x, base.y - 9, base.z); roundGroup.add(g);
+    return {g, a0:i*Math.PI*2/3, spin:(rng() - .5)*2, land:V3(tgt.x + Math.cos(i*2.1 + .5)*3.2, 0, tgt.z + Math.sin(i*2.1 + .5)*3.2), delay:i*.14, done:false}; });
+  pillars.forEach(pl => pl.land.y = groundH(pl.land.x, pl.land.z));
+  // cracks in the ground where they come out
+  const cracks = new THREE.Group(); cracks.position.set(base.x, base.y + .06, base.z); cracks.userData.noRay = true; roundGroup.add(cracks);
+  for (let i = 0; i < 16; i++) { const l = new THREE.Mesh(new THREE.PlaneGeometry(.22, rr(5, 12)), bmat(0x140C08, .9)); l.rotation.x = -Math.PI/2; l.rotation.z = i/16*Math.PI*2 + rr(-.15, .15); l.translateY(rr(3, 6)); l.userData.noRay = true; cracks.add(l); }
+  const ring = warnRing(tgt, 8, 0xFF8A3A);
+  let t = 0, plunge = false; sfx('rumble'); sfx('drill'); if (C) C.castPose = 1.2;
+  if (key === G.localKey) toast('🗿 Spiraling Stone Pillars!');
+  BX.fx.push({update(dt){
+    t += dt; ring.material.opacity = .35 + Math.sin(t*10)*.3;
+    for (const pl of pillars) {
+      if (pl.done) continue;
+      const g = pl.g;
+      if (t < T_UP) {
+        // 1. the ground splits and the rock is dragged up out of it, shaking
+        const k = t/T_UP; g.position.set(base.x + Math.cos(pl.a0)*2.8 + rr(-.15, .15), base.y - 9 + 9*k*k + rr(-.1, .1), base.z + Math.sin(pl.a0)*2.8);
+        cracks.scale.setScalar(.3 + k*.7); shakeAt(base, .5 + k, 80);
+        if (Math.random() < .6) { const a = Math.random()*Math.PI*2, q = V3(base.x + Math.cos(a)*rr(2, 6), base.y + .3, base.z + Math.sin(a)*rr(2, 6)); puff(q, pick([0x7E5433, 0x9A8A70, 0x5E3F24]), .8); }
+        if (Math.random() < .25) debris(V3(base.x, base.y + .5, base.z), 3, [0x7E5433, 0x5E3F24, 0x6B5A4E]);
+      } else if (t < T_UP + T_RISE) {
+        // 2. the triple helix: they climb, winding round each other
+        const k = (t - T_UP)/T_RISE, e = k*k*(3 - 2*k), a = pl.a0 + e*Math.PI*3.2, r = 2.8 - e*.6;
+        g.position.set(base.x + Math.cos(a)*r, base.y + e*APEX, base.z + Math.sin(a)*r); g.rotation.set(Math.sin(a)*.14, a*.6 + pl.spin*e, Math.cos(a)*.14);
+        if (Math.random() < .55) { const q = V3(g.position.x + rr(-1.5, 1.5), g.position.y + rr(-2, 2), g.position.z + rr(-1.5, 1.5)); const m = pmesh('dod', rr(.2, .55), M3(pick([0x5B5560, 0x6E6672, 0x7E5433]))); m.position.copy(q); m.userData.noRay = true; roundGroup.add(m); fx.push({mesh:m, v:V3(rr(-2, 2), rr(-2, 0), rr(-2, 2)), r:V3(4, 4, 0), life:2}); }
+        if (Math.random() < .4) puff(V3(base.x + rr(-4, 4), base.y + .5, base.z + rr(-4, 4)), 0x9A8A70, 1);
+        shakeAt(base, .4, 80);
+      } else if (t < T_UP + T_RISE + T_HOLD + pl.delay) {
+        // 3. the apex: they hang there, turning to face the target
+        const top = V3(g.position.x, g.position.y, g.position.z); if (!pl.top) { pl.top = top.clone(); pl.q0 = g.quaternion.clone(); }
+        const k = Math.min(1, (t - T_UP - T_RISE)/T_HOLD), look = new THREE.Object3D(); look.position.copy(pl.top); look.lookAt(pl.land); look.rotateX(Math.PI/2);
+        g.quaternion.copy(pl.q0).slerp(look.quaternion, k*k); g.position.y = pl.top.y + Math.sin(k*Math.PI)*1.2;
+      } else {
+        // 4. the plunge: an arc over and down, faster and faster, tip first
+        if (!pl.from) { pl.from = g.position.clone(); pl.t0 = t; pl.ctrl = pl.from.clone().lerp(pl.land, .35).add(V3(0, 10, 0)); pl.T = .75 + pl.from.distanceTo(pl.land)/140; if (!plunge) { plunge = true; sfx('whistle'); sfx('shinra'); } }
+        const u = Math.min(1, (t - pl.t0)/pl.T), e = u*u*u, q = new THREE.Vector3(), a0 = pl.from, c0 = pl.ctrl, b0 = pl.land;
+        q.set((1 - e)*(1 - e)*a0.x + 2*(1 - e)*e*c0.x + e*e*b0.x, (1 - e)*(1 - e)*a0.y + 2*(1 - e)*e*c0.y + e*e*b0.y, (1 - e)*(1 - e)*a0.z + 2*(1 - e)*e*c0.z + e*e*b0.z);
+        const dir = q.clone().sub(g.position); if (dir.lengthSq() > 1e-4) { const look = new THREE.Object3D(); look.position.copy(q); look.lookAt(q.clone().add(dir)); look.rotateX(Math.PI/2); g.quaternion.slerp(look.quaternion, .35); }
+        g.position.copy(q);
+        for (let i = 0; i < 2; i++) puff(V3(q.x + rr(-1, 1), q.y + rr(0, 4), q.z + rr(-1, 1)), pick([0x9A8A70, 0x6E6672]), 1.1);
+        if (u >= 1) { pl.done = true; pillarImpact(pl, key, team); }
+      }
+    }
+    if (t > T_UP + T_RISE && cracks.parent) { cracks.children.forEach(l => l.material.opacity *= .97); if (t > T_UP + T_RISE + 3) roundGroup.remove(cracks); }
+    if (pillars.every(pl => pl.done)) { roundGroup.remove(ring); if (cracks.parent) roundGroup.remove(cracks); return false; }
+    return true;
+  }});
+}
+function pillarImpact(pl, key, team){
+  const at = pl.land.clone(), g = pl.g;
+  // it drives into the ground, everything near it is thrown away, then the pillar crumbles into real rubble
+  bBoom(V3(at.x, at.y + 1, at.z), 9, 75, 34, key, team, {size:1.6, up:14, killR:3.5, pal:{ball:0x7E5433, core:0xFFD9A0, ring:0xC9B8A0}, snd:'boom'});
+  radialPush(V3(at.x, at.y + .5, at.z), 14, 30, 14, 0); damageProps(V3(at.x, at.y + 1, at.z), 10, 900); summonsTakeArea(V3(at.x, at.y + 1, at.z), 10, 60, key, team);
+  kickCores(cp => hdist(cp, at) < 16 ? cp.clone().sub(at).setY(0).normalize().multiplyScalar(20).setY(10) : null);
+  for (let i = 0; i < 5; i++) { const a = i/5*Math.PI*2 + rr(-.3, .3), o = rubbleRock(at.x + Math.cos(a)*2, at.y + 3 + i, at.z + Math.sin(a)*2, rr(.7, 1.4)); o.body.velocity.set(Math.cos(a)*rr(8, 16), rr(8, 14), Math.sin(a)*rr(8, 16)); }
+  const rub = objs.filter(o => o.kind === 'rubble' && !o.dead); for (let i = 0; i < rub.length - 90; i++) removeObj(rub[i]);
+  debris(V3(at.x, at.y + 1, at.z), 26, [0x5B5560, 0x6E6672, 0x7E5433, 0x4A4550]); dustRing(at, 6, 14); dustRing(at, 11, 18); shockRing(at, 22, .7, 0xC9B8A0);
+  flash(.25, .3); shakeAt(at, 2.2, 140); sfx('thud'); sfx('rumble');
+  let t = 0; g.position.y = at.y + 1;
+  booms.push({t:0, parts:[g], custom(b, dt){ t = b.t; if (t > 1) { g.position.y -= dt*6; if (Math.random() < .5) puff(V3(at.x + rr(-1.5, 1.5), at.y + .5, at.z + rr(-1.5, 1.5)), 0x9A8A70, .9); } return t > 2.6; }});
+}
+
+/* ---------- ULTIMATE 4. Earth Shockwave (M): the ground itself ripples out from you like water: several pulses roll out in
+   rings of real crests and troughs (the terrain mesh AND its physics move), everything they pass is thrown off balance in
+   time with them (people stagger and fall, things bounce and tumble, trees and rocks ride the swell), and afterwards the
+   land settles smoothly back to its old shape. You stand still and steady at the centre. ---------- */
+const QUAKE = {on:false};
+const QUAKE_R = 60, QUAKE_V = 21, QUAKE_PULSES = [[0, 1.6], [.85, 2.2], [1.7, 2.8], [2.55, 3.4]], QUAKE_SETTLE = 1;
+function quakeOffset(r, t, kill){
+  if (r < 3) return 0;
+  let h = 0; const calm = smooth(3, 9, r), fade = Math.max(0, 1 - r/QUAKE_R);
+  for (const [t0, A] of QUAKE_PULSES) { if (t < t0) continue; const front = (t - t0)*QUAKE_V, d = r - front; if (d > 8 || d < -22) continue; h += A*Math.exp(-(d*d)/70)*Math.cos(d*.5)*Math.sqrt(fade); }
+  return h*calm*(kill == null ? 1 : kill);
+}
+function painQuake(){
+  const {key, C, team, pos} = casterInfo();
+  if (QUAKE.on) quakeStop(false);
+  const c = V3(pos.x, 0, pos.z), i0 = Math.max(1, Math.floor((c.x - QUAKE_R + ISL)/TES)), i1 = Math.min(TN - 2, Math.ceil((c.x + QUAKE_R + ISL)/TES)), j0 = Math.max(1, Math.floor((c.z - QUAKE_R + ISL)/TES)), j1 = Math.min(TN - 2, Math.ceil((c.z + QUAKE_R + ISL)/TES));
+  const base = new Float32Array((i1 - i0 + 1)*(j1 - j0 + 1)), baseCol = new Float32Array(base.length*3), col = terrGeo.attributes.color;
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = (i - i0) + (j - j0)*(i1 - i0 + 1), v = i + j*TN; base[k] = terrH[v]; baseCol[k*3] = col.getX(v); baseCol[k*3 + 1] = col.getY(v); baseCol[k*3 + 2] = col.getZ(v); }
+  // the physics ground gets room for the waves once, so the frames in between only refresh the cells that move
+  hfShape.minValue -= 4; hfShape.maxValue += 4; hfShape.update();
+  Object.assign(QUAKE, {on:true, key, team, c, i0, i1, j0, j1, base, baseCol, t:0, dur:QUAKE_PULSES[QUAKE_PULSES.length - 1][0] + QUAKE_R/QUAKE_V + .4, frame:0, hit:new Map(),
+    props:props.filter(pr => !pr.dead && hdist(pr, c) < QUAKE_R).map(pr => ({pr, y0:pr.mesh.position.y, by:pr.body.position.y, cy:pr.cap ? pr.cap.position.y : 0, rz:pr.mesh.rotation.z, rx:pr.mesh.rotation.x}))});
+  sfx('rumble'); sfx('thunder'); setTimeout(() => sfx('rumble'), 800); setTimeout(() => sfx('rumble'), 1600);
+  if (C) C.castPose = 1.2; flash(.2, .3);
+  if (key === G.localKey) toast('🌋 EARTH SHOCKWAVE'); else toast(`🌋 ${C && C.name || 'Someone'} is shaking the earth!`);
+}
+function quakeTerrain(kill, phys){
+  const Q = QUAKE, W = Q.i1 - Q.i0 + 1, pos = terrGeo.attributes.position, col = terrGeo.attributes.color;
+  for (let j = Q.j0; j <= Q.j1; j++) for (let i = Q.i0; i <= Q.i1; i++) {
+    const v = i + j*TN, x = -ISL + i*TES, z = -ISL + j*TES, r = Math.hypot(x - Q.c.x, z - Q.c.z), k = (i - Q.i0) + (j - Q.j0)*W;
+    const off = r < QUAKE_R ? quakeOffset(r, Q.t, kill) : 0, h = Q.base[k] + off, lt = 1 + clamp(off*.13, -.4, .35);
+    terrH[v] = h; pos.setY(v, h); col.setXYZ(v, Q.baseCol[k*3]*lt, Q.baseCol[k*3 + 1]*lt, Q.baseCol[k*3 + 2]*lt); if (phys) { hfShape.data[i][TN - 1 - j] = h; if (h > hfShape.maxValue) hfShape.maxValue = h + 1; if (h < hfShape.minValue) hfShape.minValue = h - 1; }
+  }
+  pos.needsUpdate = true; col.needsUpdate = true;
+  if (phys) { const x0 = Math.max(0, Q.i0 - 1), x1 = Math.min(TN - 2, Q.i1), y0 = Math.max(0, TN - 2 - Q.j1), y1 = Math.min(TN - 2, TN - 1 - Q.j0);
+    for (let xi = x0; xi <= x1; xi++) for (let yi = y0; yi <= y1; yi++) { hfShape.clearCachedConvexTrianglePillar(xi, yi, true); hfShape.clearCachedConvexTrianglePillar(xi, yi, false); }
+    hfBody.aabbNeedsUpdate = true; }
+}
+function quakeStop(silent){
+  const Q = QUAKE; if (!Q.on) return; Q.on = false;
+  // the land settles exactly back to how it was
+  const W = Q.i1 - Q.i0 + 1;
+  for (let j = Q.j0; j <= Q.j1; j++) for (let i = Q.i0; i <= Q.i1; i++) terrH[i + j*TN] = Q.base[(i - Q.i0) + (j - Q.j0)*W];
+  syncTerrain(Q.i0, Q.i1, Q.j0, Q.j1); hfShape.updateMinValue(); hfShape.updateMaxValue(); hfShape.update();
+  for (const P0 of Q.props) { const pr = P0.pr; if (pr.dead) continue; pr.mesh.position.y = P0.y0; pr.body.position.y = P0.by; if (pr.cap) pr.cap.position.y = P0.cy; pr.mesh.rotation.z = P0.rz; pr.mesh.rotation.x = P0.rx; }
+  if (!silent) sfx('thud');
+}
+function quakeFrame(dt){
+  const Q = QUAKE; if (!Q.on) return;
+  Q.t += dt; Q.frame++;
+  const settling = Q.t > Q.dur, kill = settling ? Math.max(0, 1 - (Q.t - Q.dur)/QUAKE_SETTLE) : 1;
+  if (settling && kill <= 0) { quakeStop(false); return; }
+  quakeTerrain(kill, Q.frame % 2 === 0);
+  // trees, rocks and ruins ride the swell, rocking with the slope
+  for (const P0 of Q.props) { const pr = P0.pr; if (pr.dead) continue; const r = hdist(pr, Q.c), h = quakeOffset(r, Q.t, kill), sl = quakeOffset(r + 1, Q.t, kill) - h;
+    pr.mesh.position.y = P0.y0 + h; pr.body.position.y = P0.by + h; if (pr.cap) pr.cap.position.y = P0.cy + h; const ax = Math.atan2(pr.z - Q.c.z, pr.x - Q.c.x); pr.mesh.rotation.z = P0.rz - Math.cos(ax)*sl*.35; pr.mesh.rotation.x = P0.rx + Math.sin(ax)*sl*.35; }
+  // each crest throws what it passes: in time with the wave, harder for the bigger pulses
+  const passing = r => { let s = 0; for (const [t0, A] of QUAKE_PULSES) { const front = (Q.t - t0)*QUAKE_V; if (front > r - 1.5 && front - dt*QUAKE_V <= r - 1.5) s = Math.max(s, A*Math.sqrt(Math.max(0, 1 - r/QUAKE_R))); } return s*kill; };
+  for (const b of world.bodies) {
+    if (b.mass === 0 || b.player || b._frozen || gravityProof(b)) continue;
+    const r = hdist(b.position, Q.c); if (r > QUAKE_R || r < 5) continue;
+    const st = passing(r); if (!st) continue;
+    if (b.wakeUp) b.wakeUp(); const ox = (b.position.x - Q.c.x)/r, oz = (b.position.z - Q.c.z)/r;
+    b.velocity.y += 4 + st*rr(3, 6); b.velocity.x += ox*st*2.5 + rr(-1, 1); b.velocity.z += oz*st*2.5 + rr(-1, 1);
+    b.angularVelocity.x += rr(-4, 4)*st; b.angularVelocity.z += rr(-4, 4)*st;
+    if (b.tag === 'dummy') dummyHit(b, 6*st);
+  }
+  const P = victimFor(Q.key, Q.team);
+  if (P) { const r = hdist(P.body.position, Q.c), st = r < QUAKE_R && r > 4 ? passing(r) : 0;
+    if (st) { const ox = (P.body.position.x - Q.c.x)/r, oz = (P.body.position.z - Q.c.z)/r; knock(P, ox*st*3 + rr(-2, 2), 4 + st*3.5, oz*st*3 + rr(-2, 2), .25 + st*.35); P.stars.visible = true; painHurt(P, 3 + 5*st, Q.key); P.squashT = .25; } }
+  // the caster stands firm at the centre
+  const me = localP(); if (me && G.localKey === Q.key) { me.body.velocity.x *= .6; me.body.velocity.z *= .6; }
+  // dust and grit kicked up along every wavefront, the ground rumbling under the camera
+  for (const [t0, A] of QUAKE_PULSES) { const front = (Q.t - t0)*QUAKE_V; if (front < 4 || front > QUAKE_R) continue;
+    for (let k = 0; k < 3; k++) { const a = Math.random()*Math.PI*2, x = Q.c.x + Math.cos(a)*front, z = Q.c.z + Math.sin(a)*front; if (Math.abs(x) > ISL - 2 || Math.abs(z) > ISL - 2) continue; puff(V3(x, groundH(x, z) + .3, z), pick([0x9A8A70, 0x7E5433, 0xB0A080]), .3 + A*.1); }
+    if (Math.random() < .3) { const a = Math.random()*Math.PI*2; debris(V3(Q.c.x + Math.cos(a)*front, groundH(Q.c.x + Math.cos(a)*front, Q.c.z + Math.sin(a)*front) + .3, Q.c.z + Math.sin(a)*front), 3, [0x7E5433, 0x5E3F24, 0x6B5A4E]); } }
+  if (!settling) shakeAt(Q.c, .55, QUAKE_R + 30);
 }
 
 /* ---------- NEW. Gravity Shield: hold X (up to 5 s); a sphere of folded space around you throws everything that comes at
@@ -6751,7 +6931,7 @@ function runPain(id, p, x){
   if (id === 'p_levitatex') { painLevitateEnd(); return; }
   if (id === 'p_shieldx') { const S = PAIN.shield[casterInfo().key]; if (S) S.end = true; return; }
   if (id === 'p_linkx') { painLinkHurl(p); return; }
-  if (id === 'p_circgo') { circuitStart(casterInfo().key); return; }
+  if (id === 'p_circgo') return;
   if (id === 'p_circx') { circuitBreak(casterInfo().key); return; }
   if (id === 'p_wringx') { wringRelease(casterInfo().key); return; }
   if (!fire) painCastFX(C);
@@ -6768,6 +6948,8 @@ function runPain(id, p, x){
   else if (id === 'p_circ' && p) painCircuitPoint(p);
   else if (id === 'p_wring' && p) painWring(p);
   else if (id === 'p_zerog') painZeroG();
+  else if (id === 'p_pillars' && p) painPillars(p);
+  else if (id === 'p_quake') painQuake();
   else if (id === 'p_linkx') painLinkHurl(p);
   else if (id === 'p_vortex') painVortex(p, x);
   else if (id === 'p_levitatex') painLevitateEnd();
@@ -6795,7 +6977,7 @@ function painFrame(dt){
   for (const f of PAIN.fields) { if (f.done || f.dur == null) continue; f.t += dt; if (f.t > f.dur) f.done = true; }
   PAIN.fields = PAIN.fields.filter(f => !f.done);
   PAIN.fx = PAIN.fx.filter(e => e.update(dt) !== false);
-  updateRods(dt); updateOrbits(dt); updateShots(dt); regrowProps(); updateDummies(dt); updateChargeUI(); tkThrownFrame(dt); boulderFrame(dt); coresMerge();
+  quakeFrame(dt); updateRods(dt); updateOrbits(dt); updateShots(dt); regrowProps(); updateDummies(dt); updateChargeUI(); tkThrownFrame(dt); boulderFrame(dt); coresMerge();
   if (G.targeting === 'p_orbit' && !(PAIN.orbits[G.localKey] && !PAIN.orbits[G.localKey].fired)) { G.targeting = null; marker.visible = false; renderTray(); }
   if (G.targeting === 'p_vortex' && !(PAIN.vortex[G.localKey] && !PAIN.vortex[G.localKey].fired)) { G.targeting = null; marker.visible = false; renderTray(); }
 }
@@ -6808,7 +6990,7 @@ function painOwnerDied(id){
 function painHelp(){
   return '<b>Right-click</b> telekinesis: pick up anything, hold <b>Click</b> to charge the throw (no limit) · <b>Shift ×2</b> warp dash · <b>Space ×2</b> gravity jump<br>' +
     '<b>1</b>/<b>2</b> gravity from below/above (shows the ring; hold Click to charge, release) · hold <b>R</b> Shinra Tensei where you look · hold <b>T</b> Shinra Tensei all around · hold <b>F</b> levitation · hold <b>Q</b> pull everything<br>' +
-    '<b>X</b> gravity link: lock onto a rock, a tree, a crate, a Chibaku core or a Bansho Ten’in rock, aim, X (or Click) hurls it along the link · <b>C</b> Bansho Ten’in: every press sends another rock into the sky (hold for bigger), Click rains them all on the ring · <b>V</b> gravity vortex: rocks and everything around you orbit you (V again or Click to hurl it all) · <b>G</b> falling circuit: mark points in the air (back on the first one closes the loop), Click runs it, G breaks it · <b>B</b> ULT Almighty Push · <b>N</b> ULT Catastrophic Chibaku · <b>Z</b> ULT Zero Gravity (30 s: everything floats, you fly: WASD where you look, Space up; X throws things)';
+    '<b>X</b> gravity link: lock onto a rock, a tree, a crate, a Chibaku core or a Bansho Ten’in rock, aim, X (or Click) hurls it along the link · <b>C</b> Bansho Ten’in: every press sends another rock into the sky (hold for bigger), Click rains them all on the ring · <b>V</b> gravity vortex: rocks and everything around you orbit you (V again or Click to hurl it all) · <b>G</b> falling circuit: mark points in the air (back on the first one closes the loop); anything touching it rides it and keeps speeding up; Click breaks it · <b>B</b> ULT Almighty Push · <b>N</b> ULT Catastrophic Chibaku · <b>H</b> spiraling stone pillars · <b>M</b> ULT Earth Shockwave · <b>Z</b> ULT Zero Gravity (30 s: everything floats, you fly: WASD where you look, Space up; X throws things)';
 }
 
 /* ---------- host-side cast validation (both modes) ----------
