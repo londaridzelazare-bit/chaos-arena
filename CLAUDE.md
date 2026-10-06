@@ -68,8 +68,9 @@ the egg ring in Alpha Mode, gets kicked back 30 m by a boot that swings in from 
 **Egg mode** (module "EGG MODE (online)", right before the Pain module): the old hotseat Egg Defense,
 online. Each round the host picks the next defender (`NET.eggOrder`, everyone defends once, late
 joiners are appended). The defender is team blue and spawns by the egg; everyone else is red.
-`G.phase` is really `'build'` (EGG_BUILD = 60 s, defender gets all 19 `DEFENSES`, F ends early via
-`edone`) then `'attack'` (EGG_ATK = 120 s, attackers get `SPECIALS` with cooldowns forced on; the
+`G.phase` is really `'build'` (NO time limit since 2026-10-06: `E.endT` stays Infinity; the defender presses
+Ready (F / button) -> `edone`) then `'attack'` (no time limit either: it ends when the egg breaks or every attacker
+presses Give up -> `egu` -> host `eggGaveUp` -> `eggRoundOver('def','gaveup')`; attackers get the classes; the
 defender can only shoot ki and grab). Attackers can't enter the 12.4 m ring. State lives in `G.egg`
 (`def, round, total, pts, ph, endT, over, left`). Protection powers are casts `d_use` / `d_place`
 (`runDefense`, `placeDefense`), validated on the host by `eggDefOK` against `G.egg.left`. The egg
@@ -79,7 +80,9 @@ copies follow (`eggNetState`/`eggFrame`). Messages: `eph` (to attack), `eover` (
 `w` = 'atk' | 'def' | 'none'), `eend` (final standings), `edone`. Points: egg broken = every attacker +1,
 egg held = defender + number of attackers. Field defenses that hit players (tesla, mortar, fans,
 mirror) use `eggFoe()`: the local player only if they're attacking (victim-side, like all damage).
-Practice alone in Egg mode: build for 60 s, then you attack your own defense.
+Practice alone in Egg mode: build, Ready; Y switches between defending and attacking; Give up restarts the round.
+The egg breaking plays `eggBreakFX` (shake + light through cracks, burst, top half flies, yolk puddle, a chick runs off)
+with the slow-motion egg camera (`G.eggCam`, `G.slowmo`).
 
 **Pain class** (module "PAIN MODE" in index.html, right before `runSkill`; rebuilt 2026-10-06 to the user's list):
 ids `p_*`, dispatched by `runPain()`. Click (hold) = **Telekinesis** (`TK`: `tkDown`/`tkUp`/`tkRight`; hidden casts
@@ -109,6 +112,13 @@ shots, rods, thrown things in random directions) are `kind:'holdkey'`: key down 
 (`PAIN.holdKeys`). Shinra Tensei (R) carries the camera direction (`x.d`, `aimDir3`) and pushes in 3D. Planetary Orbit
 was folded into the Gravity Vortex (V): rocks torn from the ground + everything around orbit you (`PAIN.vortex`, up to
 20 s), V again or Click hurls it all at the crosshair. Every class's Skills bar puts ultimates last.
+Pain third pass (2026-10-06): Gravity Jump 8.5 m/s (was 17); Gravity From Below never launches its caster. Gravity ring
+charges show a terrain-hugging ring (`groundRing`, drawn through hills) with no size limit and the camera backs off
+(`G.camZoomTgt`). Bansho Ten’in (C) is repeatable: every press tears a rock up (hold = bigger) and parks it in the sky
+(`BOULD[key].rocks`, max `BOULD_MAX` 40); a ground ring at the crosshair shows the landing area; Click rains every rock
+in the sky down over it (sunflower spread, `boulderSlot`). Levitation's area follows you and grows while F is held
+(`L.R`, visible ring + faint wall); levitating bodies are tagged `_levT` and the Gravity Vortex pulls them in from any
+distance (`_vxT` marks the vortex's bodies so Levitation lets go). The vortex no longer makes dust.
 
 ## Networking (peer-to-peer, no server)
 
@@ -143,7 +153,14 @@ its keys in the keydown handler and its click in `actionDown`, dispatch it in `r
 **Bomber** (module "BOMBER", before "casting, locally and for other players"): 10 powers + 2 ultimates, `b_*` ids
 (rebuilt 2026-10-06 to the user's list). Click = bazooka; 1 B2 bomber, 2 ballistic missile, 3 airstrike (8 jets from 8
 directions), 4 cluster bomb, 5 landmines (max 10, fixed 1 s cooldown), 6 guided missile, 7 grenade (ammo `G.nades`, 10 at
-start, max 20, +5 from loot), 8 vacuum warhead, 9 kamikaze clones; ultimates B Sunfall and N Nuclear Strike.
+start, max 20, +5 from loot), 8 tank drop (`bTank`, `tankMesh`: lands on parachutes between you and the target, a static
+box body while it fights, fires 3 shells at whoever is nearest the target, then sinks), 9 rocket squad (`bSquad`,
+`soldierMesh`: 5 soldiers for 10 s, each shoots the nearest enemy or the target, advances if far); ultimates B Carpet
+Bombing (`bCarpet`: 20 heavy bombers in a row, 6 bombs each over a 60 m band; `heavyBomberMesh` is a cached, merged
+template) and N Nuclear Strike (a Fat Man `nukeMesh` dropped from a heavy bomber crossing over the mark).
+Ballistic missile: `ICBM_SHOTS` = 5 shots per trip into the sky view, then targeting ends (`castAt`, `SKY.shots`).
+Grenade: hold 7 (`nadeStart`/`bomberKeyUp`), speed grows with the hold up to `NADE_VMAX`; dots along the arc, a ring
+and the distance where it lands (`nadeAimFrame`, `nadePath`); the velocity travels with the cast (`x.v`).
 Flying bombs are plain objects in `BX.bombs` (`addBomb`/`updateBombs`: gravity, drag, `bounce` for grenades, hits on
 ground/dome/enemies/egg/props via `bSolid`, animals and loose things via `wildSegHit`), scripted things in `BX.fx`
 ({update(dt) -> false when done}), plus `BX.mines` and `BX.guided`. Explosions go through `bBoom`. Spreads are seeded
@@ -311,7 +328,10 @@ next), 2 lasers / 3 missile batteries / 4 tesla coils (`fortDevice`: static DEFE
 `spiritsFrame`; the sorceress makes `fortShielded()` true inside the area: forEachObject, liftProp, knock and kickCores
 skip it), 9-12 rings (`fortRing`: brick, steel, energy, reflective; a new type goes one ring further out, the same type
 again merges into every segment = taller and stronger; segments are BARS records), 13 reflective roof / 14 teleport
-roof (`FORT.roofs`, `fortReflect` in `updateBombs`: bounce or swallow into `FORT.store`), 15 teleport-out gun (burst
+roof (`FORT.roofs`, `fortReflect` in `updateBombs`: the mirror roof covers the area and bounces; the teleport roof is now
+a portal `TELE_R` wide just `TELE_UP` over the egg: bombs/thrown things that fall in come out of `telePortalFX` 12 m over
+their owner and drop on them as the defender's (practice: owner 'fort'); an attacker who lands on it is thrown out of
+the area; each still adds to `FORT.store`), 15 teleport-out gun (burst
 scales with the stored count), 16 cosmic stars (`fortDurability()` divides damage to egg, walls, devices), 17 chained
 golems (outside the lava, 12 m chain), 20 repair. Ultimates: B swarm (hold to charge 5-100, `FORT.minions`; getting hit
 while charging loses it and waits 10 s, `fortHurtHook`), N God's hand (`fortGod`: sweeps once around, throws people to
