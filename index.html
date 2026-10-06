@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-06.19';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-06.20';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -4879,7 +4879,6 @@ const PAIN_SKILLS = {
   p_vortex:    {name:'Gravity Vortex', e:'🌀', key:'V', kind:'now', cd:18},   // with Planetary Orbit folded in: rocks torn from the ground join the storm
   p_almighty:  {name:'Almighty Push', e:'💥', key:'B', kind:'now', ult:true, cd:0},
   p_cata:      {name:'Catastrophic Chibaku', e:'🌕', key:'N', kind:'aim', ult:true, cd:0, range:60, r:9},
-  p_wring:     {name:'World Wring', e:'🌪️', key:'M', kind:'aim', ult:true, cd:0, range:90, r:30},
   p_zerog:     {name:'Zero Gravity', e:'🌌', key:'Z', kind:'now', ult:true, cd:0},
   p_gdash:     {name:'Gravity Dash', e:'💨', key:'⇧⇧', kind:'move', cd:1, hide:true},     // Shift x2
   p_gjump:     {name:'Gravity Jump', e:'⤴️', key:'␣␣', kind:'move', cd:2.2, hide:true},   // Space x2 in the air
@@ -4890,7 +4889,8 @@ const PAIN_SKILLS = {
   p_linkx:     {name:'Gravity Link hurl', e:'⛓️', hide:true, cd:0},
   p_circgo:    {name:'Falling Circuit run', e:'➰', hide:true, cd:0},
   p_circx:     {name:'Falling Circuit break', e:'➰', hide:true, cd:0},
-  p_wringx:    {name:'World Wring release', e:'🌪️', hide:true, cd:0}
+  p_wringx:    {name:'World Wring release', e:'🌪️', hide:true, cd:0},
+  p_wring:     {name:'World Wring', e:'🌪️', hide:true, cd:0}
 };
 const PAIN_KEYS = {}; for (const id in PAIN_SKILLS) { const k = PAIN_SKILLS[id].key; if (k && k.length === 1 && /[0-9A-Z]/.test(k)) PAIN_KEYS[k.toLowerCase()] = id; }
 const PAIN_CFG = {
@@ -5870,7 +5870,6 @@ function chargeRelease(key){
 function painKeyDown(id, k){
   const d = PAIN_SKILLS[id], P = localP(); if (!d || !P || P.alive === false || P.stun > 0 || P.lockT > 0) return;
   if (amDefender()) { cdToast2('🛡️ You defend: use your protection powers.'); return; }
-  if (id === 'p_wring' && PAIN.wring[G.localKey] && !PAIN.wring[G.localKey].released) { localCast('p_wringx', null, {}); return; }
   if (d.kind === 'circ') { circuitKey(); return; }
   if (d.ult && !ultReady(id)) return;
   if (id === 'p_orbit' && PAIN.orbits[G.localKey] && !PAIN.orbits[G.localKey].fired) { localCast('p_orbit', G.targetPoint ? G.targetPoint.clone() : aimPoint(60), {fire:1}); G.targeting = null; marker.visible = false; renderTray(); return; }
@@ -6420,15 +6419,33 @@ function wringRelease(key){
 /* ---------- ULTIMATE 4. Zero Gravity (Z): for 15 seconds there is no gravity for people. Everyone else floats up off the
    ground and drifts helplessly (they can barely paddle); the caster flies freely through it: WASD where you look, Space up. Things, items and everything of the defense stay as they are, and so do the defenders. Each screen moves its
    own player (P.carpet type 'zerog' / 'float'). ---------- */
-const ZEROG_T = 15;
+const ZEROG_T = 30, ZEROG_PROPS = 100;
 function painZeroG(){
   const {key, C} = casterInfo(), until = G.t + ZEROG_T;
   PAIN.zeroG = {key, until};
   const me = localP();
   if (me && me.alive !== false) {
-    if (G.localKey === key) { me.carpet = {type:'zerog', t:0, dur:ZEROG_T}; me.body.velocity.y = Math.max(me.body.velocity.y, 5); toast('🌌 ZERO GRAVITY. Fly: WASD where you look (look down to go down), Space up.'); }
+    if (G.localKey === key) { me.carpet = {type:'zerog', t:0, dur:ZEROG_T}; me.body.velocity.y = Math.max(me.body.velocity.y, 5); toast('🌌 ZERO GRAVITY for 30 s. Fly: WASD where you look, Space up. X grabs floating things and throws them.'); }
     else if (!(eggOn() && isDef(G.localKey))) { me.carpet = {type:'float', t:0, dur:ZEROG_T, spin:rr(-1, 1)}; me.body.velocity.y = 2.2; toast('🌌 Zero gravity! You are floating.'); }
   }
+  // everything loose outside the defense floats up, and the land nearest you is torn free to float with it
+  const Z = PAIN.zeroG, cp = C ? C.body.position : V3(0, 0, 0), outside = q => !(eggOn() && hdist(q, V3(0, 0, 0)) < LAVA[1] + 2);
+  Z.bodies = new Set(); Z.scan = 0;
+  const grab = () => { for (const b of world.bodies) { if (b.mass === 0 || b.player || b._frozen || b.tag === 'dummy' || Z.bodies.has(b) || (egg && b === egg.body) || !outside(b.position)) continue; Z.bodies.add(b); b._zgH = rr(2.5, 9); if (b.wakeUp) b.wakeUp(); b.velocity.y += rr(1.5, 3.5); } };
+  for (const pr of propsNear(V3(cp.x, 0, cp.z), 90).filter(pr => outside(V3(pr.x, 0, pr.z))).sort((a, b) => hdist(a, cp) - hdist(b, cp)).slice(0, ZEROG_PROPS)) { const o = liftProp(pr, V3(rr(-.5, .5), rr(1.5, 3.5), rr(-.5, .5))); if (o) { Z.bodies.add(o.body); o.body._zgH = rr(2.5, 12); } }
+  grab();
+  PAIN.fields.push({apply(g){
+    if (PAIN.zeroG !== Z || G.t >= Z.until) { this.done = true; return; }
+    for (const b of Z.bodies) {
+      if (!b.world) { Z.bodies.delete(b); continue; }
+      if (b._link || b._tk || G.t - (b._vxT || -9) < .3 || G.t - (b._levT || -9) < .3) continue;   // another power is holding it
+      b.force.y += g*b.mass;   // no gravity: thrown things keep flying straight
+      const sp = Math.hypot(b.velocity.x, b.velocity.y, b.velocity.z);
+      if (sp < 6) { if (b.position.y - groundH(b.position.x, b.position.z) < b._zgH) b.velocity.y = lerp(b.velocity.y, 1.6, .03); else b.velocity.y *= .985; b.velocity.x *= .99; b.velocity.z *= .99; b.angularVelocity.x = lerp(b.angularVelocity.x, .3, .01); }
+      if (b.position.y > 95) b.velocity.y = Math.min(0, b.velocity.y);
+    }
+  }});
+  PAIN.fx.push({owner:key, update(dt){ if (PAIN.zeroG !== Z) return false; Z.scan -= dt; if (Z.scan <= 0) { Z.scan = 1; grab(); } return true; }});   // new things (rubble, wreckage) float too
   zeroGStars(true); tintSky(0x15122A, ZEROG_T); sfx('holy'); sfx('grav'); warpPulse(C ? V3(C.body.position.x, C.body.position.y, C.body.position.z) : V3(0, 0, 0), 60, 1.2, .06); flash(.3, .5);
   PAIN.fx.push({owner:key, cancel(){ zeroGEnd(); }, update(){
     if (!PAIN.zeroG || G.t >= PAIN.zeroG.until) { zeroGEnd(); return false; }
@@ -6757,7 +6774,7 @@ function painOwnerDied(id){
 function painHelp(){
   return '<b>Right-click</b> telekinesis: pick up anything, hold <b>Click</b> to charge the throw (no limit) · <b>Shift ×2</b> warp dash · <b>Space ×2</b> gravity jump<br>' +
     '<b>1</b>/<b>2</b> gravity from below/above (shows the ring; hold Click to charge, release) · hold <b>R</b> Shinra Tensei where you look · hold <b>T</b> Shinra Tensei all around · hold <b>F</b> levitation · hold <b>Q</b> pull everything<br>' +
-    '<b>X</b> gravity link: lock onto a rock, a tree, a crate, a Chibaku core or a Bansho Ten’in rock, aim, X (or Click) hurls it along the link · <b>C</b> Bansho Ten’in: every press sends another rock into the sky (hold for bigger), Click rains them all on the ring · <b>V</b> gravity vortex: rocks and everything around you orbit you (V again or Click to hurl it all) · <b>G</b> falling circuit: mark points in the air (back on the first one closes the loop), Click runs it, G breaks it · <b>B</b> ULT Almighty Push · <b>N</b> ULT Catastrophic Chibaku · <b>M</b> ULT World Wring (M again releases) · <b>Z</b> ULT Zero Gravity (everyone floats, you fly: WASD where you look, Space up)';
+    '<b>X</b> gravity link: lock onto a rock, a tree, a crate, a Chibaku core or a Bansho Ten’in rock, aim, X (or Click) hurls it along the link · <b>C</b> Bansho Ten’in: every press sends another rock into the sky (hold for bigger), Click rains them all on the ring · <b>V</b> gravity vortex: rocks and everything around you orbit you (V again or Click to hurl it all) · <b>G</b> falling circuit: mark points in the air (back on the first one closes the loop), Click runs it, G breaks it · <b>B</b> ULT Almighty Push · <b>N</b> ULT Catastrophic Chibaku · <b>Z</b> ULT Zero Gravity (30 s: everything floats, you fly: WASD where you look, Space up; X throws things)';
 }
 
 /* ---------- host-side cast validation (both modes) ----------

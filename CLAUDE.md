@@ -129,9 +129,9 @@ G Falling Circuit (`p_circ`, follow-ups `p_circgo` run / `p_circx` break; `PAIN.
 everything within `CIRC_CATCH` of the first point (bodies, props via liftProp, the local victim) and a field drives each
 item point to point, x1.25 speed per point; open circuits throw them off the last point, G/Click breaks a closed loop
 (`circuitLaunch`, damage via TK.thrown / painHurt). Ultimates are now four: B Almighty Push, N Catastrophic Chibaku,
-M World Wring (`painWring`/`wringRelease`, `PAIN.wring`: a WRING_R 30 m cylinder winds every body and uprooted prop
-around its axis for up to WRING_T 9 s, crushing and splintering, M/Click releases a corkscrew blast) and Z Zero Gravity
-(`painZeroG`, `PAIN.zeroG`, 15 s: the caster gets P.carpet type 'zerog' = free 3D flight (WASD along the view, Space
+(World Wring, `painWring`, was removed from the bar at the user's request; its code is unused) and Z Zero Gravity
+(`painZeroG`, `PAIN.zeroG`, ZEROG_T 30 s; every loose body outside the defense plus the ZEROG_PROPS 100 nearest props float
+(`Z.bodies`, no gravity, so thrown things keep flying; rescanned each second);  the caster gets P.carpet type 'zerog' = free 3D flight (WASD along the view, Space
 up), everyone else (not defenders) gets type 'float'; dummies float; objects and the defense are untouched; star field
 `zeroGStars`). Click priority in `tkDown`: wring release, circuit run/break, link hurl, Bansho drop, telekinesis.
 Camera (2026-10-06): PITCH_MAX 1.38 (look almost straight up; the boom shortens as you look up), obstacle pull-in eases
