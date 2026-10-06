@@ -313,6 +313,17 @@ animals are kept out of the arena. The egg has health (`G.eggHP`, host-authorita
 bar over the egg); in Alpha Mode `breakEgg` becomes a 40 damage hit unless `G.eggForce`, blasts in kill range call
 `eggHit`, and the egg is firm (blasts and pushes skip its body). The old Protection barrier types (`BAR_TYPES`, BARS,
 `barrierFrame`) are reused by the rings; BAR_TYPES gained `brick` and `mirror`.
+Fixes 2026-10-06 (user: "some powers are not working"): `G.spCd` (the anti-double-click timer) now also counts down in
+the build phase; before, the first power used while building blocked every later one. Ultimates work in both phases.
+One dome cast raises all four layers one after another (`fortDome`/`domeLayer`, recast recharges). Rings are aimed
+(`ringAimHit` reads the floor through your own walls, `ringTarget`, `ringIndicator` gold = combine / white = new ring
+further out / red = not allowed). Aimed placements are one per press, then the click is the rocket launcher again.
+While the defender kit is active, unmapped keys never reach a class kit. Repair is an 8 s process.
+**Practice in Alpha Mode**: after building you STAY the defender and raiders attack in waves (`FORT.raiders`,
+`raidersFrame`; records in PAIN.dummies with `.raider`, `raiderHurt`); `fortEnemies()`/`fortNearestEnemy()` is what
+drones, devil, dragon and tesla coils shoot (the local attacker plus raiders). Y (or the "Attack it" button) instead
+switches to attacking your own fort, the old practice. Test the defender with real key presses and clicks (scratch
+`t13.mjs`, `t15.mjs`, `t17.mjs`): direct `localCast` calls hid the build-phase timer bug.
 
 ## Network checks (castOK)
 
