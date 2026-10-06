@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-06.13';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-06.14';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -2184,7 +2184,7 @@ function setTargeting(id){
   const s = skillDef(id);
   sfx(G.targeting ? 'grab' : 'place');
   if (G.targeting && GUARD[id]) toast(RING_IDS[id] ? `${s.e} ${s.name}: aim at the ground. On a ring (gold) = combine, further out (white) = a new ring. Click.` : `${s.e} ${s.name}: aim and click to place it. Press ${s.key} to put it away.`);
-  else if (G.targeting) toast(id === 'shinra' ? `${s.e} Aim the marker, face the way you want to push, then click. Press ${s.key} to put it away.` : `${s.e} ${s.name}: aim the red marker and click. Keep clicking to spam. Press ${s.key} to put it away.`);
+  else if (G.targeting && id !== 's_cut' && id !== 's_sever') toast(id === 'shinra' ? `${s.e} Aim the marker, face the way you want to push, then click. Press ${s.key} to put it away.` : `${s.e} ${s.name}: aim the red marker and click. Keep clicking to spam. Press ${s.key} to put it away.`);
   renderTray();
 }
 function updateTargeting(){
@@ -4906,6 +4906,7 @@ function casterInfo(){ const key = attacker(), C = chars[key]; return {key, C, t
 function victimFor(ownerKey, ownerTeam){
   const me = localP();
   if (!me || !G.pvp || me.alive === false || G.phase !== 'attack' || G.matchOver || me.body._frozen) return null;
+  if (G.localKey === ownerKey && G.teleBackUntil > G.t) return me;   // the teleport portal sent your own attack back at you
   if (G.localKey === ownerKey || (ownerTeam && me.team === ownerTeam)) return null;
   return me;
 }
@@ -6350,7 +6351,7 @@ function painHelp(){
    The host's browser is the hub: it only replays and relays casts that are plausible. */
 const castLog = {}, castRate = {}, castTs = {};
 // powers that move their caster a long way before the next position update reaches the host (seconds of slack)
-const TELEPORTS = {u_eagle:2, p_gdash:.9, s_chain:2.6, s_mihawk:2.6};
+const TELEPORTS = {u_eagle:2, p_gdash:.9, s_chain:2.6, s_bdash:1.6};
 function castOK(c, m){
   if (!m || m.id !== c.peer) return false;                                  // nobody can cast as someone else
   if (m.s === 'd_use' || m.s === 'd_place') return eggDefOK(c, m);       // Egg mode protection powers
@@ -6399,7 +6400,7 @@ function castOK(c, m){
    any class, so players can swap freely without telling anyone. */
 const CLASS_IDS = ['native', 'pain', 'bomber', 'sword', 'summon', 'necro'];
 // in Pain mode the default kit already is Pain, so the class is skipped there
-const classCycle = () => CLASS_IDS.filter(c => !(c === 'pain' && isPain()) && !(G.mode === 'egg' && (c === 'native' || c === 'summon')));   // Alpha Mode: no Chaos or Summoner for now
+const classCycle = () => CLASS_IDS.filter(c => !(c === 'pain' && isPain()) && !(G.mode === 'egg' && (c === 'native' || c === 'summon' || c === 'necro')));   // Alpha Mode: no Chaos, Summoner or Necromancer for now
 function classInfo(c){ return c === 'pain' ? {name:'Pain', e:'🌑'} : c === 'bomber' ? {name:'Bomber', e:'💣'} : c === 'sword' ? {name:'Swordsman', e:'⚔️'} : c === 'summon' ? {name:'Summoner', e:'🐾'} : c === 'necro' ? {name:'Necromancer', e:'💀'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
 function modeTable(){ return isPain() ? PAIN_SKILLS : SPECIALS; }
 G.cls = (() => { try { const c = localStorage.getItem('ca-cls'); return c === 'pain' || c === 'bomber' || c === 'sword' || c === 'summon' || c === 'necro' ? c : 'native'; } catch (e) { return 'native'; } })();
@@ -6449,7 +6450,7 @@ function bomberReset(){ for (const k in BX.guided) { const g = BX.guided[k]; if 
 function bomberHelp(){
   return '<b>Click</b> bazooka · <b>1</b> B2 bomber · <b>2</b> ballistic missile (aim from above) · <b>3</b> airstrike (8 jets) · <b>4</b> cluster bomb<br>' +
     '<b>5</b> landmines (up to 10) · <b>6</b> guided missile (steer with the mouse, click to detonate) · hold <b>7</b> grenade (longer = farther, ' + (G.nades | 0) + ' left, barrels have more)<br>' +
-    '<b>8</b> tank drop (shoots 3 times) · <b>9</b> rocket squad (5 soldiers, 10 s) · <b>B</b> ULTIMATE carpet bombing (20 bombers) · <b>N</b> ULTIMATE nuclear strike · <b>Tab</b> switch class';
+    '<b>8</b> tank drop (shoots 3 times) · <b>9</b> rocket squad (5 paratroopers, 10 s) · <b>B</b> ULTIMATE carpet bombing (20 bombers) · <b>N</b> ULTIMATE nuclear strike · <b>Tab</b> switch class';
 }
 
 /* ---------- ultimates: every class's ult:true powers charge for ULT_CHARGE seconds, then work once per round ---------- */
@@ -6589,6 +6590,7 @@ function updateBombs(dt){
     if (!hit && b.age > (b.arm || .06)) {
       for (const e of bEnemies(b.owner, b.team)) { if (segDist(a, n, V3(e.pos.x, e.pos.y + (e.sum ? 1.2*e.sum.S : 1), e.pos.z)) < b.r + (e.sum ? .8*e.sum.S : .55)) { hit = n.clone(); break; } }
       if (!hit && egg && egg.alive && segDist(a, n, V3(egg.body.position.x, egg.body.position.y, egg.body.position.z)) < b.r + .45) hit = n.clone();
+      if (!hit && eggOn() && b.owner !== (G.egg && G.egg.def)) for (const u of fortUnits()) if (segDist(a, n, u.pos) < b.r + u.r) { hit = n.clone(); break; }   // the explosion (bBoom -> summonsTakeArea) does the damage
       if (!hit && typeof wildSegHit === 'function' && wildSegHit(a, n, b.r)) { if (b.bounce) { b.v.x *= -.4; b.v.z *= -.4; } else hit = n.clone(); }   // animals, crates, barrels
       if (!hit && bSolid(n, b.r)) { if (b.bounce) { b.v.x *= -.45; b.v.z *= -.45; n.copy(a); } else hit = a.clone(); }
     }
@@ -6610,7 +6612,7 @@ const SKY = {on:false, x:0, z:0, h:0, k:0};
 function skyAimOn(id){
   const me = localP(); if (!me) return;
   const h = crosshairHit(), f = V3(Math.sin(G.yaw), 0, Math.cos(G.yaw));
-  const p = h && h.point ? h.point : me.body.position.clone().addScaledVector(f, 25);
+  const p = h && h.point ? h.point : V3(me.body.position.x, me.body.position.y, me.body.position.z).addScaledVector(f, 25);
   SKY.on = true; SKY.id = id; SKY.shots = 0; SKY.x = clamp(p.x, -ISL + 2, ISL - 2); SKY.z = clamp(p.z, -ISL + 2, ISL - 2); SKY.h = BOMBER[id] && BOMBER[id].ult ? 120 : 75; SKY.k = 0;
 }
 function skyAimOff(){ SKY.on = false; SKY.id = null; }
@@ -7026,35 +7028,56 @@ function soldierMesh(){
   return {g, upper, legs, rpg, tip, back};
 }
 function bSquad({key, team, pos, yaw}, p){
-  const to = V3(p.x - pos.x, 0, p.z - pos.z); if (to.lengthSq() < .01) to.set(Math.sin(yaw), 0, Math.cos(yaw)); to.normalize();
-  const side = V3(to.z, 0, -to.x), LIFE = 10;
-  toast('🪖 Rocket squad, open fire!'); sfx('poof');
-  for (let i = 0; i < 5; i++) {
-    const off = (i - 2)*1.7, q = V3(pos.x + to.x*2.5 + side.x*off, 0, pos.z + to.z*2.5 + side.z*off); q.y = groundH(q.x, q.z);
-    const S = soldierMesh(); S.g.position.copy(q); S.g.rotation.y = Math.atan2(to.x, to.z); roundGroup.add(S.g);
-    smokePuffs(V3(q.x, q.y + .6, q.z), .9, 3); sparkle(V3(q.x, q.y + 1.2, q.z), 0xB8C77A);
-    const so = {p:q, face:S.g.rotation.y, t:0, fireT:.7 + i*.33, kneel:0, walk:0};
-    fxAdd({update(dt){
-      so.t += dt;
-      if (so.t > LIFE) { smokePuffs(V3(so.p.x, so.p.y + .8, so.p.z), 1, 4); sparkle(V3(so.p.x, so.p.y + 1, so.p.z), 0xB8C77A); roundGroup.remove(S.g); return false; }
-      const a = bTargetNear(key, team, so.p, 70) || V3(p.x, groundH(p.x, p.z) + .6, p.z), d = hdist(a, so.p);
-      so.face = turnTo(so.face, Math.atan2(a.x - so.p.x, a.z - so.p.z), dt*6);
-      // too far to hit well: advance a little (not while kneeling to fire)
-      if (d > 34 && so.kneel < .1) { const nx = so.p.x + Math.sin(so.face)*3.2*dt, nz = so.p.z + Math.cos(so.face)*3.2*dt, ny = groundH(nx, nz); if (!bSolid(V3(nx, ny + 1, nz), .3) && ny - so.p.y < .7 && Math.abs(nx) < ISL - 2 && Math.abs(nz) < ISL - 2) { so.p.set(nx, ny, nz); so.walk += dt*9; } }
-      so.fireT -= dt; if (so.fireT < .45) so.kneel = Math.min(1, so.kneel + dt*5); else so.kneel = Math.max(0, so.kneel - dt*3);
-      if (so.fireT <= 0) {
-        so.fireT = 1.8 + (i % 2)*.25;
-        S.g.updateMatrixWorld(true); const tw = new THREE.Vector3(), bw = new THREE.Vector3(); S.tip.getWorldPosition(tw); S.back.getWorldPosition(bw);
-        const dir = a.clone().sub(tw); dir.y += d*.012; dir.normalize();
-        addBomb({p:tw, v:dir.multiplyScalar(52), g:.06, m:rocketMesh(.85), owner:key, team, r:.26, R:3.6, dmg:16, kb:12, trail:0xE6E0D4, trailS:.17, arm:.04, fx:{size:.35, snd:'bboom'}});
-        for (let k = 0; k < 4; k++) puff(bw, 0xEDE6D8, .35); sfx('rocket');
-      }
-      S.g.position.set(so.p.x, so.p.y - so.kneel*.3, so.p.z); S.g.rotation.y = so.face;
-      const sw = Math.sin(so.walk)*.6; S.legs[0].rotation.x = sw - so.kneel*1.2; S.legs[1].rotation.x = -sw + so.kneel*.5; S.upper.rotation.x = -so.kneel*.08;
-      S.rpg.rotation.x = -clamp(Math.atan2(a.y - so.p.y - 1.4, Math.max(1, d)), -.3, .5);
+  const f = V3(Math.sin(yaw), 0, Math.cos(yaw)), side = V3(f.z, 0, -f.x), drop = V3(p.x, groundH(p.x, p.z), p.z), H = drop.y + 36, SPD = 52;
+  const plane = heavyBomberMesh(); plane.rotation.y = yaw; plane.visible = false; roundGroup.add(plane);
+  const ring = warnRing(drop, 6, 0xB8C77A); let t = 0, jumped = 0;
+  sfx('jet'); toast('🪖 Paratroopers inbound!');
+  fxAdd({update(dt){
+    t += dt; const along = -170 + SPD*t; plane.visible = true; plane.position.copy(drop).addScaledVector(f, along).setY(H); plane.userData.props.forEach(pr => pr.rotation.z += dt*40);
+    if (ring.parent) ring.material.opacity = .35 + Math.sin(t*10)*.3;
+    // five jump out over the drop zone, one after another
+    while (jumped < 5 && along >= -14 + jumped*5) { const i = jumped++, land = drop.clone().addScaledVector(side, (i - 2)*2.8).addScaledVector(f, (i - 2)*.9); land.y = groundH(land.x, land.z);
+      paratrooper(key, team, p, i, plane.position.clone().setY(H - 1.5), land, f); if (i === 4 && ring.parent) roundGroup.remove(ring); }
+    if (along > 220) { roundGroup.remove(plane); return false; }
+    return true;
+  }});
+}
+function paratrooper(key, team, p, i, from, land, f){
+  const S = soldierMesh(), chute = chuteMesh(i % 2 ? 0xB8C77A : 0xE8E2D0); chute.scale.setScalar(.55); chute.position.y = 3.6; chute.visible = false; S.g.add(chute);
+  S.g.position.copy(from); S.g.rotation.y = Math.atan2(f.x, f.z); roundGroup.add(S.g);
+  const LIFE = 10, so = {p:land.clone(), face:S.g.rotation.y, t:0, fireT:.6 + i*.3, kneel:0, walk:0}; let ft = 0, y = from.y, vy = 0, landed = false;
+  sfx('whoosh');
+  fxAdd({update(dt){
+    if (!landed) {
+      // a second of free fall, then the chute opens and they float down onto the drop zone, swaying
+      ft += dt; if (ft < .8) vy = Math.max(-16, vy - 14*dt); else { if (!chute.visible) { chute.visible = true; sfx('pop'); } vy = lerp(vy, -7, Math.min(1, dt*4)); }
+      y += vy*dt; const k = clamp((from.y - y)/Math.max(1, from.y - land.y), 0, 1);
+      S.g.position.set(lerp(from.x, land.x, k), y, lerp(from.z, land.z, k)); S.g.rotation.z = chute.visible ? Math.sin(ft*2.2 + i)*.12 : Math.sin(ft*9)*.3;
+      S.legs[0].rotation.x = Math.sin(ft*5)*.3; S.legs[1].rotation.x = -Math.sin(ft*5)*.3;
+      if (y <= land.y) { landed = true; S.g.rotation.z = 0; S.g.remove(chute); chute.position.copy(land).add(V3(0, 1.8, 0)); roundGroup.add(chute); let ct = 0; fxAdd({update(d2){ ct += d2; chute.position.y -= d2*1.5; chute.position.x += d2*1.4; chute.scale.set(.55, Math.max(.03, .55*(1 - ct*.7)), .55); if (ct > 1.4) { roundGroup.remove(chute); return false; } return true; }}); dustRing(land, 1, 5); sfx('thud'); }
       return true;
-    }});
-  }
+    }
+    so.t += dt;
+    if (so.t > LIFE) { smokePuffs(V3(so.p.x, so.p.y + .8, so.p.z), 1, 4); sparkle(V3(so.p.x, so.p.y + 1, so.p.z), 0xB8C77A); roundGroup.remove(S.g); return false; }
+    // Alpha Mode: only the egg and what the defender summoned; elsewhere: whoever is nearest, or the drop point
+    const a = eggOn() ? fortTargetNear(so.p, 120) : (bTargetNear(key, team, so.p, 70) || V3(p.x, groundH(p.x, p.z) + .6, p.z));
+    if (!a) { S.g.position.copy(so.p); return true; }
+    const d = hdist(a, so.p);
+    so.face = turnTo(so.face, Math.atan2(a.x - so.p.x, a.z - so.p.z), dt*6);
+    if (d > 34 && so.kneel < .1) { const nx = so.p.x + Math.sin(so.face)*3.2*dt, nz = so.p.z + Math.cos(so.face)*3.2*dt, ny = groundH(nx, nz); if (!bSolid(V3(nx, ny + 1, nz), .3) && ny - so.p.y < .7 && Math.abs(nx) < ISL - 2 && Math.abs(nz) < ISL - 2) { so.p.set(nx, ny, nz); so.walk += dt*9; } }
+    so.fireT -= dt; if (so.fireT < .45) so.kneel = Math.min(1, so.kneel + dt*5); else so.kneel = Math.max(0, so.kneel - dt*3);
+    if (so.fireT <= 0) {
+      so.fireT = 1.8 + (i % 2)*.25;
+      S.g.updateMatrixWorld(true); const tw = new THREE.Vector3(), bw = new THREE.Vector3(); S.tip.getWorldPosition(tw); S.back.getWorldPosition(bw);
+      const dir = a.clone().sub(tw); dir.y += d*.012; dir.normalize();
+      addBomb({p:tw, v:dir.multiplyScalar(52), g:.06, m:rocketMesh(.85), owner:key, team, r:.26, R:3.6, dmg:16, kb:12, trail:0xE6E0D4, trailS:.17, arm:.04, fx:{size:.35, snd:'bboom'}});
+      for (let k = 0; k < 4; k++) puff(bw, 0xEDE6D8, .35); sfx('rocket');
+    }
+    S.g.position.set(so.p.x, so.p.y - so.kneel*.3, so.p.z); S.g.rotation.y = so.face;
+    const sw = Math.sin(so.walk)*.6; S.legs[0].rotation.x = sw - so.kneel*1.2; S.legs[1].rotation.x = -sw + so.kneel*.5; S.upper.rotation.x = -so.kneel*.08;
+    S.rpg.rotation.x = -clamp(Math.atan2(a.y - so.p.y - 1.4, Math.max(1, d)), -.3, .9);
+    return true;
+  }});
 }
 
 /* ULTIMATE 1. Carpet Bombing: twenty heavy bombers in one long row sweep over the target along the way you face, every one
@@ -7207,13 +7230,13 @@ const SWORD = {
   s_heaven: {name:"Heaven's Blade", e:'⚔️', key:'1', kind:'aim', cd:30, range:70, r:7},
   s_rain:   {name:'Rain of Swords', e:'🌧️', key:'2', kind:'aim', cd:22, range:70, r:9},
   s_babylon:{name:'Gate of Babylon', e:'🌟', key:'3', kind:'charge', cd:16},
-  s_titan:  {name:'Titan Slash', e:'🗿', key:'4', kind:'now', cd:18},
+  s_titan:  {name:'Radial Slash', e:'🌀', key:'4', kind:'now', cd:18},
   s_chain:  {name:'Chain Cut', e:'💯', key:'5', kind:'charge', cd:20},
   s_cut:    {name:'Splitter', e:'📐', key:'6', kind:'cut', cd:14, range:60, r:1},
-  s_mihawk: {name:"Mihawk's Plunge", e:'🗡', key:'7', kind:'aim', cd:20, range:35, r:9},
+  s_bdash:  {name:'Blade Dash', e:'🌀', key:'7', kind:'now', cd:14},
   s_astral: {name:'Astral Sword', e:'🔷', key:'8', kind:'now', cd:30},
   s_trap:   {name:'Sword Trap', e:'⛓️', key:'9', kind:'aim', cd:18, range:50, r:7},
-  s_sever:  {name:'World Severance', e:'🌌', key:'B', kind:'now', ult:true, cd:0},
+  s_sever:  {name:'World Severance', e:'🔥', key:'B', kind:'aim', ult:true, cd:0, range:90, r:5},
   s_excal:  {name:'Excalibur', e:'✨', key:'N', kind:'now', ult:true, cd:0}
 };
 const SWORD_KEYS = {}; for (const id in SWORD) { const k = SWORD[id].key; if (k && k.length === 1 && /[0-9A-Z]/.test(k)) SWORD_KEYS[k.toLowerCase()] = id; }
@@ -7221,9 +7244,9 @@ for (const id in SWORD) if (SWORD[id].r) TARGET_R[id] = SWORD[id].r;
 const SW = {charge:null, set:0, step:0, comboT:0, traps:[], pieces:[], cutMode:'v', preview:[]};
 function swordReset(){ SW.charge = null; SW.set = 0; SW.step = 0; SW.traps = []; SW.pieces = []; SW.preview.forEach(p => { if (p.parent) p.parent.remove(p); }); SW.preview = []; G.splits = []; G.severUsed = {}; G.camZoomUntil = 0; }
 function swordHelp(){
-  return '<b>Click</b> six sword combos in a loop (' + SW_COMBOS[SW.set].name + ' next) · <b>1</b> Heaven\'s Blade · <b>2</b> Rain of Swords · hold <b>3</b> Gate of Babylon (no limit)<br>' +
-    '<b>4</b> Titan Slash · hold <b>5</b> Chain Cut (up to 100) · <b>6</b> Splitter (6 again turns the line, Click cuts) · <b>7</b> Mihawk\'s Plunge · <b>8</b> Astral Sword · <b>9</b> Sword Trap<br>' +
-    '<b>B</b> ULT World Severance · <b>N</b> ULT Excalibur · <b>Tab</b> switch class';
+  return '<b>Click</b> six sword combos in a loop (' + SW_COMBOS[SW.set].name + ' next) · <b>1</b> Heaven\'s Blade · <b>2</b> Rain of Swords · hold <b>3</b> Gate of Babylon (100 swords, then every 5 s: giant, black, 4D, secret)<br>' +
+    '<b>4</b> Radial Slash · hold <b>5</b> Chain Cut (up to 100) · <b>6</b> Splitter (6 again turns the line, Click cuts) · <b>7</b> Blade Dash · <b>8</b> Astral Sword · <b>9</b> Sword Trap<br>' +
+    '<b>B</b> ULT World Severance (aim the line) · <b>N</b> ULT Excalibur · Gate of Babylon held ~25 s: ✴️ secret · <b>Tab</b> switch class';
 }
 
 /* ---------- meshes and slash effects ---------- */
@@ -7327,12 +7350,11 @@ function swordUse(id){
   if (amDefender() && id !== 's_slash') { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('🛡️ Defenders only get the sword combo (click).'); } return; }
   if (id === 's_slash') { swordSwing(); return; }
   if (d.ult && !ultReady(id)) return;
-  if (id === 's_cut' && G.targeting === 's_cut') { SW.cutMode = SW.cutMode === 'v' ? 'h' : 'v'; toast(SW.cutMode === 'v' ? '📐 Standing cut (left/right halves)' : '📐 Flat cut (top/bottom halves)'); sfx('click'); return; }
+  if (id === 's_cut' && G.targeting === 's_cut') { SW.cutMode = SW.cutMode === 'v' ? 'h' : 'v'; toast(SW.cutMode === 'v' ? '📐 Standing cut: left and right halves (6 switches)' : '📐 Flat cut: top and bottom halves (6 switches)'); sfx('click'); return; }
   if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
-  if (d.kind === 'aim' || d.kind === 'cut') { setTargeting(id); if (id === 's_cut') toast('📐 Splitter: move the line with your aim, 6 turns it, Click cuts everything on it in half.'); return; }
+  if (d.kind === 'aim' || d.kind === 'cut') { setTargeting(id); if (id === 's_cut') toast(`📐 Splitter (${SW.cutMode === 'v' ? 'standing' : 'flat'} cut): aim the line, press 6 to switch standing/flat, Click cuts. Right-click puts it away.`); if (id === 's_sever') toast('🔥 World Severance: aim where the sword comes down. It ploughs forward along the line the way you face. Click.'); return; }
   if (d.kind === 'charge') { toast(`${d.e} Hold ${d.key} to charge ${d.name}.`); return; }
   if (G.spCd > 0) return; G.spCd = .2;
-  if (id === 's_sever') { const f = V3(Math.sin(G.yaw), 0, Math.cos(G.yaw)), c = V3(P.body.position.x + f.x*14, 0, P.body.position.z + f.z*14); localCast(id, c, {}); return; }
   localCast(id, aimPoint(90));
 }
 function swordSwing(){
@@ -7352,7 +7374,7 @@ function swordKeyDown(k){
 }
 function swordKeyUp(k){
   const ch = SW.charge; if (!ch || (k != null && ch.key !== k)) return;
-  SW.charge = null; SW.preview.forEach(p => { if (p.parent) p.parent.remove(p); }); SW.preview = []; if (k == null) return;
+  SW.charge = null; SW.tier = 0; SW.preview.forEach(p => { if (p.parent) p.parent.remove(p); }); SW.preview = []; if (k == null) return;
   const c = +(performance.now()/1000 - ch.t0).toFixed(2);
   if (ch.id === 's_chain') { const n = chainCount(c), P = localP(), me = P.body.position, list = bEnemies(G.localKey, P.team).filter(e => hdist(e.pos, me) < 45).sort((a, b) => hdist(a.pos, me) - hdist(b.pos, me)).slice(0, 12);
     if (!list.length) { toast('💯 Nobody within 45 m to cut.'); return; }
@@ -7365,7 +7387,7 @@ function swordOwnerDied(id){
   const P = chars[id]; if (!P) return;
   if (P.sw) { if (P.sw.astral) { P.sw.astral.done = true; roundGroup.remove(P.sw.astral.g); } P.sw = null; }
   if (P.carpet && P.carpet.type === 'sword') { if (P.carpet.mesh.parent) P.carpet.mesh.parent.remove(P.carpet.mesh); P.carpet = null; }
-  P.sitT = 0;
+  P.sitT = 0; if (P.rig) { P.rig.rotation.x = 0; P.rig.position.y = 0; P.rig.position.z = 0; }
   if (id === G.localKey) { SW.charge = null; SW.preview.forEach(p => { if (p.parent) p.parent.remove(p); }); SW.preview = []; }
 }
 
@@ -7383,7 +7405,7 @@ function runSword(id, p, x){
     case 's_titan': sTitan(ci); break;
     case 's_chain': sChain(ci, x); break;
     case 's_cut': if (p) sCut(ci, p, x); break;
-    case 's_mihawk': if (p) sMihawk(ci, p); break;
+    case 's_bdash': sBladeDash(ci); break;
     case 's_astral': sAstral(ci); break;
     case 's_trap': if (p) sTrap(ci, p); break;
     case 's_sever': if (p) sSever(ci, p); break;
@@ -7476,38 +7498,125 @@ function sRain({key, team, rng}, p){
 }
 /* 4. Gate of Babylon: golden gates open behind you; hold longer for more gates, faster and harder swords (no limit).
    While charging (and right after) the camera pulls back so the whole wall of gates is in view. */
-const babylonN = c => Math.min(90, Math.round(6 + c*6));
+// up to 100 swords (~5 s of holding); after that every 5 more seconds upgrades them instead of adding more:
+// 1 giant swords · 2 black swords · 3 4D swords · 4 the secret (every gate around the defense fires at once)
+const BABYLON_MAX = 100, BABYLON_T100 = (BABYLON_MAX - 6)/19, BABYLON_STEP = 5;
+const babylonN = c => Math.min(BABYLON_MAX, Math.round(6 + c*19));
+const babylonTier = c => c < BABYLON_T100 + BABYLON_STEP ? 0 : Math.min(4, Math.floor((c - BABYLON_T100)/BABYLON_STEP));
+const BABYLON_COL = [0xFFD84D, 0xFFD84D, 0xC01040, 0x9DF0FF, 0xFFFFFF], BABYLON_NAME = ['', 'Giant swords', 'Black swords', '4D swords', 'SECRET: every gate'];
+// the sword each tier fires: gold, giant gold, black with a blood-red edge, 4D (a crystal blade with its other dimensions showing)
+let SWORD_BLACK_ = null;
+const swordBlackGeo = () => SWORD_BLACK_ || (SWORD_BLACK_ = natGeo([[natAt(new THREE.BoxGeometry(.16, 1.7, .05), 0, .95, 0), 0x16121C], [natAt(new THREE.BoxGeometry(.05, 1.5, .06), 0, .9, 0), 0xC01040],
+  [natAt(new THREE.ConeGeometry(.11, .34, 4), 0, 1.97, 0, 0, Math.PI/4, 0, 1, 1, .35), 0x16121C], [natAt(new THREE.BoxGeometry(.6, .09, .14), 0, .08, 0), 0x3A0A1A],
+  [natAt(new THREE.BoxGeometry(.09, .2, .16), .3, .12, 0), 0x3A0A1A], [natAt(new THREE.BoxGeometry(.09, .2, .16), -.3, .12, 0), 0x3A0A1A],
+  [natAt(new THREE.CylinderGeometry(.05, .05, .34, 6), 0, -.12, 0), 0x0A0A0A], [natAt(new THREE.IcosahedronGeometry(.08, 0), 0, -.33, 0), 0xC01040]]));
+function babylonSword(tier, s){
+  if (tier < 2) return swordOne(s);
+  if (tier === 2) { const m = new THREE.Mesh(swordBlackGeo(), NAT_MAT); m.scale.setScalar(s); m.userData.noRay = true; return m; }
+  // 4D: a pale crystal blade with shifted copies of itself in cyan, magenta and gold, like it exists in more directions than three
+  const g = new THREE.Group(), core = swordOne(s); g.add(core);
+  [[0x00E5FF, .18, 0, .1], [0xFF3BD4, -.18, .1, 0], [0xFFE14D, 0, -.15, -.12]].forEach(([c, x, y, z]) => { const gm = new THREE.Mesh(swordGeo(), addBlend(c)); gm.material.opacity = .55; gm.scale.setScalar(s*1.08); gm.position.set(x*s, y*s, z*s); gm.rotation.y = x*2; g.add(gm); });
+  return noRayAll(g);
+}
 function babylonSlots(n, rng){ const out = []; const cols = Math.ceil(Math.sqrt(n*2.2)); for (let i = 0; i < n; i++) { const r = Math.floor(i/cols), cI = i % cols; out.push({x:(cI - (cols - 1)/2)*1.7 + ((r % 2) ? .85 : 0), y:1.8 + r*1.6, back:1.6 + (rng ? rng()*.8 : .4) + r*.25}); } return out; }
 function sBabylon({key, C, team, pos, yaw, rng}, p, x){
-  const c = Math.max(0, x && +x.c || 0), n = babylonN(c), sp = Math.min(140, 62*(1 + c*.2)), dmg = 9*(1 + c*.25);
+  const c = Math.max(0, x && +x.c || 0), n = babylonN(c), tier = babylonTier(c);
+  if (tier >= 4) { babylonSecret({key, C, team, pos, yaw, rng}, p); return; }
+  const vis = n, big = tier >= 1 ? 2 : 1, mul = [1, 1.4, 2.2, 3.4][tier];
+  const sp = Math.min(140, 62*(1 + Math.min(c, 8)*.2)), dmg = 9*(1 + Math.min(c, 5)*.25)*mul, col = BABYLON_COL[tier];
   const f = V3(Math.sin(yaw), 0, Math.cos(yaw)), side = V3(f.z, 0, -f.x), target = p || V3(pos.x + f.x*40, pos.y + 1, pos.z + f.z*40);
   const gates = [];
-  babylonSlots(n, rng).forEach((s, i) => {
-    const q = V3(pos.x - f.x*s.back + side.x*s.x, pos.y + s.y, pos.z - f.z*s.back + side.z*s.x);
-    const portal = new THREE.Mesh(new THREE.RingGeometry(.25, .62, 24), addBlend(0xFFD84D)); portal.position.copy(q); portal.lookAt(target); portal.userData.noRay = true; portal.scale.setScalar(.1); roundGroup.add(portal);
+  babylonSlots(vis, rng).forEach((s, i) => {
+    const q = V3(pos.x - f.x*s.back*big + side.x*s.x*big, pos.y + s.y*big, pos.z - f.z*s.back*big + side.z*s.x*big);
+    const portal = new THREE.Mesh(new THREE.RingGeometry(.25*big, .62*big, 24), addBlend(col)); portal.position.copy(q); portal.lookAt(target); portal.userData.noRay = true; portal.scale.setScalar(.1); roundGroup.add(portal);
     gates.push({q, portal, delay:.35 + (i % 12)*.05 + Math.floor(i/12)*.08, fired:false}); });
   let t = 0; sfx('holy'); if (key === G.localKey) G.camZoomUntil = G.t + 2 + n*.03;
   BX.fx.push({update(dt){
     t += dt;
     for (const gt of gates) { gt.portal.scale.setScalar(Math.min(1, t*4)); gt.portal.rotation.z += dt*4;
       if (!gt.fired && t >= gt.delay) { gt.fired = true; const dir = target.clone().add(V3((rng() - .5)*3, (rng() - .5)*1.5, (rng() - .5)*3)).sub(gt.q).normalize();
-        const m = swordOne(.9); m.rotation.x = Math.PI/2; const holder = new THREE.Group(); holder.add(m); noRayAll(holder);
-        addBomb({p:gt.q.clone(), v:dir.multiplyScalar(sp), g:0, m:holder, owner:key, team, r:.3, arm:.02, magnet:false, trail:0xFFE9A8, trailS:.12, onHit:(b, at) => { swordArea(key, team, at, 1.8 + Math.min(2, c*.2), dmg, 6 + c, 2, {stun:.15}); sparkle(at, 0xFFD84D); sfx('thunk'); }});
+        const m = babylonSword(tier, .9*big); m.rotation.x = Math.PI/2; const holder = new THREE.Group(); holder.add(m); noRayAll(holder);
+        const heavy = tier >= 2 && gates.indexOf(gt) % 4 === 0;
+        addBomb({p:gt.q.clone(), v:dir.multiplyScalar(sp), g:0, m:holder, owner:key, team, r:.3*big, arm:.02, magnet:false, trail:vis > 60 && gates.indexOf(gt) % 4 ? null : tier === 2 ? 0x3A0A1A : tier === 3 ? 0x9DF0FF : 0xFFE9A8, trailS:.12*big, onHit:(b, at) => {
+          swordArea(key, team, at, (1.8 + Math.min(2, c*.2))*(big > 1 ? 1.6 : 1), dmg, Math.min(30, 6 + c), 2 + tier, {stun:.15, egg:tier >= 1});
+          if (heavy) bBoom(at, 3.5 + tier, dmg*.6, 10, key, team, {size:.35, pal:tier === 2 ? {ball:0x2A0A14, core:0xC01040, ring:0x5A1020} : tier === 3 ? {ball:0x9DF0FF, core:0xFFFFFF, ring:0xFF3BD4} : {ball:col, core:0xFFFFFF, ring:0xFFE9A8}, snd:'bboom'}); else { sparkle(at, col); sfx('thunk'); } }});
         if (Math.random() < .4) sfx('slash'); } }
     if (t > gates[gates.length - 1].delay + .6) { gates.forEach(gt => roundGroup.remove(gt.portal)); return false; }
   }});
   if (C) C.castPose = .8;
-  if (key === G.localKey) toast(`🌟 Gate of Babylon: ${n} swords!`);
+  if (key === G.localKey) toast(`🌟 Gate of Babylon: ${n} ${tier ? BABYLON_NAME[tier].toLowerCase() : 'swords'}!`);
+}
+/* ✴️ the secret ultimate (Gate of Babylon held past the 4D swords): golden gates open all around the target, a whole hemisphere of
+   them (around the egg's dome in Alpha Mode), and every one of them fires until nothing is left standing */
+function babylonSecret({key, C, team, pos, rng}, p){
+  const onEgg = eggOn() && egg && egg.alive, c = onEgg ? V3(egg.body.position.x, groundH(egg.body.position.x, egg.body.position.z), egg.body.position.z) : V3(p ? p.x : pos.x, 0, p ? p.z : pos.z);
+  if (!onEgg) c.y = groundH(c.x, c.z);
+  const Rin = onEgg ? Math.max(8, G.dome && G.dome.hp > 0 ? G.dome.R : 10) : 12, HR = Rin + 11, NP = 240, gates = [];
+  for (let i = 0; i < NP; i++) {
+    // a Fibonacci hemisphere: every angle, every side, all the way up
+    const yk = .06 + .94*(i + .5)/NP, r = Math.sqrt(1 - yk*yk), a = i*2.39996, q = V3(c.x + Math.cos(a)*r*HR, c.y + yk*HR, c.z + Math.sin(a)*r*HR);
+    const portal = new THREE.Mesh(new THREE.RingGeometry(.5, 1.25, 20), addBlend(i % 7 ? 0xFFD84D : 0xFFFFFF)); portal.position.copy(q); portal.lookAt(c); portal.userData.noRay = true; portal.scale.setScalar(.05); roundGroup.add(portal);
+    gates.push({q, portal, open:.1 + (i/NP)*1.2});
+  }
+  const ring = warnRing(c, Rin + 2, 0xFFD84D); let t = 0, fired = 0, volley = false, finale = false; const FIRE = 1.7, DUR = 2.9;
+  tintSky(0xFFE2A0, 8); sfx('holy'); sfx('trumpet'); sfx('siren'); flash(.6, 1.2);
+  if (key === G.localKey) { G.camZoomUntil = G.t + DUR + 1.5; toast('✴️ GATE OF BABYLON: ALL GATES OPEN ✴️'); } else toast(`✴️ ${C && C.name || 'Someone'} opened every gate of Babylon!`);
+  SpaceWarp.add({pos:() => V3(c.x, c.y + HR*.5, c.z), alive:() => t < DUR, R:() => HR*.6, s:() => .25});
+  BX.fx.push({update(dt){
+    t += dt; ring.material.opacity = .4 + Math.sin(t*14)*.3;
+    for (const gt of gates) { gt.portal.scale.setScalar(Math.min(1, Math.max(.05, (t - gt.open)*3))); gt.portal.rotation.z += dt*5; }
+    if (t >= FIRE && !volley) {
+      // every gate fires at the same instant, straight in at the defense
+      volley = true; flash(.5, .4); sfx('slashH'); sfx('boom'); sfx('slash');
+      for (const gt of gates) {
+        fired++;
+        const a = rng()*Math.PI*2, d = Math.sqrt(rng())*Rin*.9, at = V3(c.x + Math.cos(a)*d, 0, c.z + Math.sin(a)*d); at.y = groundH(at.x, at.z) + rr(0, 2);
+        const dir = at.sub(gt.q).normalize(), m = babylonSword(fired % 3 === 0 ? 3 : fired % 3 === 1 ? 2 : 1, 1.5); m.rotation.x = Math.PI/2; const holder = new THREE.Group(); holder.add(m); noRayAll(holder);
+        const heavy = fired % 8 === 0;
+        addBomb({p:gt.q.clone(), v:dir.multiplyScalar(60), g:0, m:holder, owner:key, team, r:.45, arm:.02, magnet:false, trail:fired % 12 ? null : 0xFFE9A8, trailS:.2, onHit:(b, hp) => {
+          swordArea(key, team, hp, 3.4, 45, 16, 6, {stun:.3, egg:true, props:200});
+          if (heavy) bBoom(hp, 4.5, 60, 14, key, team, {size:.45, pal:{ball:0xFFD84D, core:0xFFFFFF, ring:0xFFE9A8}, snd:'bboom'}); else sparkle(hp, 0xFFD84D); }});
+      }
+    }
+    if (t > DUR && !finale) {
+      // the last of them meet in the middle: one golden detonation
+      finale = true; gates.forEach(gt => roundGroup.remove(gt.portal)); roundGroup.remove(ring);
+      bBoom(V3(c.x, c.y + 1.5, c.z), Rin + 6, 260, 34, key, team, {size:3, killR:Rin, up:16, pal:{ball:0xFFD84D, core:0xFFFFFF, ring:0xFFE9A8}});
+      swordArea(key, team, V3(c.x, c.y + 1, c.z), Rin + 4, 200, 30, 14, {egg:true, props:2000});
+      if (onEgg && eggAuth()) eggHit(400, 'sword');
+      goldBurst(V3(c.x, c.y + 1, c.z), Rin + 10); shakeAt(c, 3, 300); flash(1, 2.5);
+      if (key === G.localKey) toast(`✴️ ${fired} swords.`);
+      return false;
+    }
+    return true;
+  }});
+}
+// a golden explosion: rings of light, rays, a shower of sparks (Excalibur's end, the secret Babylon finale)
+function goldBurst(at, R){
+  const g = new THREE.Group(); g.position.copy(at); roundGroup.add(g);
+  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 2), addBlend(0xFFFFFF)); g.add(core);
+  const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 2), addBlend(0xFFD84D)); g.add(shell);
+  const rings = [0, 1, 2].map(i => { const r = new THREE.Mesh(new THREE.TorusGeometry(1, .06, 6, 64), addBlend(i === 1 ? 0xFFFFFF : 0xFFE9A8)); r.rotation.set(Math.PI/2 + (i - 1)*.5, i*.7, 0); g.add(r); return r; });
+  const rays = []; for (let i = 0; i < 16; i++) { const ray = new THREE.Mesh(new THREE.ConeGeometry(.35, 1, 6, 1, true), addBlend(0xFFF3B0)); ray.geometry.translate(0, .5, 0); ray.rotation.set(rr(-1.4, 1.4), 0, rr(-1.6, 1.6)); g.add(ray); rays.push(ray); }
+  g.traverse(o => o.userData.noRay = true);
+  for (let i = 0; i < 40; i++) { const m = pmesh('oct', rr(.1, .3), bmat(pick([0xFFE9A8, 0xFFFFFF, 0xFFD84D]), .95)); m.position.copy(at); m.userData.noRay = true; roundGroup.add(m); const v = V3(rr(-1, 1), rr(.2, 1.2), rr(-1, 1)).normalize().multiplyScalar(rr(8, 24)); fx.push({mesh:m, v, r:V3(4, 4, 0), life:1.6}); }
+  shockRing(V3(at.x, groundH(at.x, at.z), at.z), R*1.4, 1, 0xFFD84D); warpPulse(at, R*1.6, .9, .07); tintSky(0xFFE2A0, 3); sfx('holy'); sfx('boom');
+  booms.push({t:0, parts:[g], custom(b){ const k = b.t/1.6, e = 1 - Math.pow(1 - Math.min(1, k), 3);
+    core.scale.setScalar(R*.35*e + .5); shell.scale.setScalar(R*.6*e + .5); core.material.opacity = Math.max(0, 1 - k*1.2); shell.material.opacity = Math.max(0, .7 - k*.7);
+    rings.forEach((r, i) => { r.scale.setScalar(R*(.5 + i*.3)*e + .5); r.material.opacity = Math.max(0, .9 - k); r.rotation.z += .02*(i + 1); });
+    rays.forEach(ray => { ray.scale.set(1 + e*2, R*1.2*e + .5, 1 + e*2); ray.material.opacity = Math.max(0, .8 - k); });
+    return b.t > 1.6; }});
 }
 // local preview while charging: the gates open one by one behind you
 function babylonPreview(){
   const ch = SW.charge, P = localP(); if (!ch || ch.id !== 's_babylon' || !P) return;
-  const c = performance.now()/1000 - ch.t0, n = babylonN(c), slots = babylonSlots(n), f = V3(Math.sin(G.yaw), 0, Math.cos(G.yaw)), side = V3(f.z, 0, -f.x), pos = P.root.position;
-  while (SW.preview.length < n) { const m = new THREE.Mesh(new THREE.RingGeometry(.25, .62, 20), addBlend(0xFFD84D)); m.userData.noRay = true; roundGroup.add(m); SW.preview.push(m); if (SW.preview.length % 3 === 0) sfx('click'); }
-  SW.preview.forEach((m, i) => { const s = slots[i]; m.position.set(pos.x - f.x*s.back + side.x*s.x, pos.y + s.y, pos.z - f.z*s.back + side.z*s.x); m.lookAt(m.position.clone().add(f)); m.rotation.z += G.t*3 + i; m.material.opacity = .6 + Math.sin(G.t*8 + i)*.3; });
+  const c = performance.now()/1000 - ch.t0, n = babylonN(c), tier = babylonTier(c), vis = n, big = tier >= 1 ? 2 : 1, slots = babylonSlots(vis), f = V3(Math.sin(G.yaw), 0, Math.cos(G.yaw)), side = V3(f.z, 0, -f.x), pos = P.root.position;
+  while (SW.preview.length < vis) { const m = new THREE.Mesh(new THREE.RingGeometry(.25, .62, 20), addBlend(0xFFD84D)); m.userData.noRay = true; roundGroup.add(m); SW.preview.push(m); if (SW.preview.length % 3 === 0) sfx('click'); }
+  if (SW.tier !== tier) { SW.tier = tier; if (tier) { sfx(tier >= 4 ? 'trumpet' : 'holy'); flash(.25, .3); } }
+  SW.preview.forEach((m, i) => { const s = slots[i]; m.position.set(pos.x - f.x*s.back*big + side.x*s.x*big, pos.y + s.y*big, pos.z - f.z*s.back*big + side.z*s.x*big); m.scale.setScalar(big); m.material.color.setHex(tier >= 4 ? (i % 2 ? 0xFFFFFF : 0xFFD84D) : tier === 3 ? [0x9DF0FF, 0xFF3BD4, 0xFFE14D][(i + Math.floor(G.t*6)) % 3] : BABYLON_COL[tier]); m.lookAt(m.position.clone().add(f)); m.rotation.z += G.t*3 + i; m.material.opacity = .6 + Math.sin(G.t*(8 + tier*4) + i)*.3; });
   G.camZoomUntil = G.t + .3;
 }
-/* 5. Titan Slash: a giant FLAT sword sweeps one perfect circle around you, leaving a swoosh of light */
+/* 5. Radial Slash (was Titan Slash): a giant FLAT sword sweeps one perfect circle around you, leaving a swoosh of light */
 function sTitan({key, C, team, pos, yaw}){
   const R = 16, T = .62, g = new THREE.Group(), s = swordMesh(7.6, 0xFFFFFF); s.rotation.x = Math.PI/2; s.position.set(0, 0, 1.2); g.add(s); noRayAll(g);
   g.position.set(pos.x, pos.y + 1.2, pos.z); roundGroup.add(g);
@@ -7573,13 +7682,45 @@ function cutReach(pl, q, r){
   else { if (Math.abs(v.dot(pl.f)) > CUT.L || v.y < -2 || v.y > CUT.H) return null; }
   return d;
 }
+// where the Splitter will cut, drawn through everything: a glowing line on the ground and an upright blade of light (standing
+// cut), or a ring and a flat sheet at waist height (flat cut), plus a label. 6 switches between them while aiming.
 function cutIndicator(){
-  if (!SW.ind) { const g = new THREE.Group(); const sheet = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), addBlend(0xFF6A8A)); sheet.material.opacity = .22; g.add(sheet); const line = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), addBlend(0xFFFFFF)); g.add(line); g.userData = {sheet, line}; g.traverse(o => o.userData.noRay = true); scene.add(g); SW.ind = g; }
-  const g = SW.ind, show = G.targeting === 's_cut' && G.targetPoint && G.phase === 'attack'; g.visible = !!show; if (!show) return;
+  if (!SW.ind) {
+    const g = new THREE.Group(), top = (c, op) => { const m = addBlend(c); m.opacity = op; m.depthTest = false; return m; };
+    const N = 64, pos = new Float32Array((N + 1)*2*3), idx = []; for (let i = 0; i < N; i++) { const a = i*2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    const lineGeo = new THREE.BufferGeometry(); lineGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); lineGeo.setIndex(idx);
+    const ground = new THREE.Mesh(lineGeo, top(0xFF3B6A, .95)); ground.frustumCulled = false; ground.renderOrder = 32; scene.add(ground);   // world space, follows the terrain
+    const sheet = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), top(0xFF6A8A, .16)); sheet.renderOrder = 31; g.add(sheet);
+    const edge = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), top(0xFFFFFF, .9)); edge.renderOrder = 33; g.add(edge);
+    const pole = new THREE.Mesh(new THREE.BoxGeometry(.18, 1, .18), top(0xFFFFFF, .9)); pole.renderOrder = 33; g.add(pole);
+    const rim = new THREE.Mesh(new THREE.RingGeometry(.96, 1, 96), top(0xFF3B6A, .95)); rim.renderOrder = 33; g.add(rim);
+    const label = textSprite(); label.scale.set(4.6, 1.7, 1); scene.add(label);
+    g.userData = {sheet, edge, pole, rim, ground, label, pos}; [g, ground, label].forEach(o => o.traverse(q => q.userData.noRay = true)); scene.add(g); SW.ind = g;
+  }
+  const g = SW.ind, U = g.userData, show = G.targeting === 's_cut' && G.targetPoint && G.phase === 'attack';
+  g.visible = U.ground.visible = U.label.visible = !!show; if (!show) return;
   marker.visible = false;
-  const p = G.targetPoint, {sheet, line} = g.userData; sheet.material.opacity = .18 + Math.sin(G.t*8)*.06;
-  if (SW.cutMode === 'h') { g.position.set(p.x, p.y + 1.1, p.z); g.rotation.set(-Math.PI/2, 0, 0); sheet.scale.set(CUT.RH*2, CUT.RH*2, 1); line.scale.set(CUT.RH*2, .12, 1); line.position.set(0, 0, .01); line.rotation.z = G.yaw; }
-  else { g.position.set(p.x, p.y + CUT.H/2 - 1, p.z); g.rotation.set(0, G.yaw - Math.PI/2 + Math.PI/2, 0); g.rotation.y = G.yaw; sheet.scale.set(.01, CUT.H, 1); sheet.rotation.y = Math.PI/2; sheet.scale.set(CUT.L*2, CUT.H, 1); line.rotation.set(0, Math.PI/2, 0); line.scale.set(CUT.L*2, .15, 1); line.position.set(0, -CUT.H/2 + 1.1, 0); }
+  const p = G.targetPoint, pulse = .75 + Math.sin(G.t*10)*.25, f = V3(Math.sin(G.yaw), 0, Math.cos(G.yaw)), sd = V3(f.z, 0, -f.x);
+  // the ground line: along your view for a standing cut, across it for a flat one (where the flat sheet meets the ground)
+  const dir = SW.cutMode === 'h' ? sd : f, L = SW.cutMode === 'h' ? CUT.RH : CUT.L, w = .35, N = 64;
+  for (let i = 0; i <= N; i++) { const k = -L + 2*L*i/N; for (let j = 0; j < 2; j++) { const o = (j ? w : -w), x = p.x + dir.x*k + (SW.cutMode === 'h' ? f.x : sd.x)*o, z = p.z + dir.z*k + (SW.cutMode === 'h' ? f.z : sd.z)*o, q = (i*2 + j)*3; U.pos[q] = x; U.pos[q + 1] = groundH(x, z) + .12; U.pos[q + 2] = z; } }
+  U.ground.geometry.attributes.position.needsUpdate = true; U.ground.material.opacity = .95*pulse;
+  if (SW.cutMode === 'h') {
+    // flat: a sheet at waist height with a bright rim; everything it touches loses its top half
+    g.position.set(p.x, p.y + 1.1, p.z); g.rotation.set(-Math.PI/2, 0, 0);
+    U.sheet.scale.set(CUT.RH*2, CUT.RH*2, 1); U.sheet.rotation.set(0, 0, 0); U.sheet.position.set(0, 0, 0); U.sheet.material.opacity = .07 + .04*pulse;
+    U.rim.visible = true; U.rim.scale.setScalar(CUT.RH); U.edge.visible = false; U.pole.visible = false;
+    U.label.userData.set('— FLAT', '#FF8AA8');
+  } else {
+    // standing: an upright blade of light along your view, a bright edge where it meets the ground, and a pole at the aim
+    g.position.set(p.x, p.y, p.z); g.rotation.set(0, G.yaw, 0);
+    U.sheet.rotation.set(0, Math.PI/2, 0); U.sheet.scale.set(CUT.L*2, CUT.H, 1); U.sheet.position.set(0, CUT.H/2 - 1, 0); U.sheet.material.opacity = .14 + .08*pulse;
+    U.edge.visible = true; U.edge.rotation.set(0, Math.PI/2, 0); U.edge.scale.set(CUT.L*2, .1, 1); U.edge.position.set(0, CUT.H - 1, 0);
+    U.pole.visible = true; U.pole.scale.set(1, CUT.H, 1); U.pole.position.set(0, CUT.H/2 - 1, 0);
+    U.rim.visible = false;
+    U.label.userData.set('│ UPRIGHT', '#FF8AA8');
+  }
+  U.label.position.set(p.x, p.y + (SW.cutMode === 'h' ? 3.2 : 4.2), p.z);
 }
 function splitMesh(mesh, pl, mass, half){
   // two clones of the mesh, each clipped to one side of the plane, each riding its own physics body
@@ -7638,32 +7779,50 @@ function yoruMesh(){
   for (let i = 0; i < 6; i++) bx(.92, .06, .2, 0x2E2E3A, 0, 1 + i*1.3, 0, g);
   mergeToon(g); addOutline(g); g.traverse(o => o.userData.noRay = true); return g;
 }
-function sMihawk({key, C, team}, p){
-  const at = V3(p.x, groundH(p.x, p.z), p.z), top = V3(at.x, at.y + 18, at.z), sword = yoruMesh();
-  sword.position.set(top.x, top.y - 2.5, top.z); sword.rotation.z = Math.PI/2; sword.scale.setScalar(.01); roundGroup.add(sword);
-  const ring = warnRing(at, 9, 0x2E2E3A), core = warnRing(at, 2.2, 0xFF3B30);
-  if (key === G.localKey) { C.fly = {target:top.clone()}; C.lockT = 2.3; }
-  C.sitT = 2.2; let t = 0, landed = false;
-  sfx('jump2'); sfx('dash');
+/* 8. Blade Dash: ten swords appear in your hands, under your arms, in your mouth, behind your knees and on your back, then
+   you curl up into a spinning wheel of blades and roll 30 m forward, cutting everything you pass (the caster's own screen
+   moves them; every screen spins the same wheel on that character). */
+const BDASH_POSES = [   // [x, y, z, rotX, rotY, rotZ] on the rig: hands, armpits, mouth, knees, back
+  [.55, 1.05, .25, 1.4, 0, .3], [-.55, 1.05, .25, 1.4, 0, -.3], [.38, 1.35, -.05, .2, 0, 1.4], [-.38, 1.35, -.05, .2, 0, -1.4], [0, 1.72, .28, 0, 0, Math.PI/2],
+  [.2, .45, -.2, -.4, 0, 1.6], [-.2, .45, -.2, -.4, 0, -1.6], [.25, 1.3, -.3, -2.4, 0, .5], [-.25, 1.3, -.3, -2.4, 0, -.5], [0, .9, -.32, 3.1, 0, 0]];
+function sBladeDash({key, C, team, yaw}){
+  const f = V3(Math.sin(yaw), 0, Math.cos(yaw)), DIST = 30, SPD = 42, T = DIST/SPD, rig = C.rig;
+  const swords = BDASH_POSES.map(([x, y, z, rx, ry, rz]) => { const m = swordOne(.85); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); rig.add(m); m.scale.setScalar(.01); return m; });
+  const wheel = new THREE.Mesh(new THREE.TorusGeometry(1.25, .07, 6, 40), addBlend(0xBFE9FF)); wheel.userData.noRay = true; roundGroup.add(wheel);
+  const wheel2 = new THREE.Mesh(new THREE.RingGeometry(.9, 1.5, 32, 1, 0, Math.PI*1.2), addBlend(0xE6F4FF)); wheel2.userData.noRay = true; roundGroup.add(wheel2);
+  const hit = new Set(); let t = 0, phase = 'draw';
+  if (key === G.localKey) { C.lockT = .35 + T + .2; }
+  sfx('slash'); setTimeout(() => sfx('slashH'), 120); if (key === G.localKey) toast('🌀 Blade Dash!');
+  const resetRig = () => { rig.rotation.x = 0; rig.position.y = 0; rig.position.z = 0; };
   BX.fx.push({update(dt){
-    t += dt; ring.material.opacity = .35 + Math.sin(t*12)*.3; core.material.opacity = .5 + Math.sin(t*20)*.4;
-    if (t < 1.4) { const k = Math.min(1, t/.8); sword.scale.setScalar(Math.max(.01, k)); sword.rotation.z = Math.PI/2; sword.position.set(C.root.position.x, C.root.position.y - .55, C.root.position.z); sword.rotation.y = C.face;
-      if (Math.random() < .5) puff(sword.position.clone().add(V3(rr(-3, 3), 0, rr(-3, 3))), 0x2E2E3A, .3); return true; }
-    // tip down, riding it to the ground
-    if (!landed) { const k = Math.min(1, (t - 1.4)/.5); sword.rotation.z = Math.PI/2*(1 - k) + Math.PI*k; sword.position.y = lerp(top.y - 1, at.y + 10.2, k*k); sword.position.x = at.x; sword.position.z = at.z;
-      if (key === G.localKey) { C.fly = {target:V3(at.x, sword.position.y + .6, at.z)}; }
-      if (k >= 1) { landed = true; roundGroup.remove(ring); roundGroup.remove(core);
-        if (key === G.localKey) { C.fly = null; C.body.velocity.set(0, 4, 0); C.floatT = .3; }
-        C.sitT = 0;
-        const P = victimFor(key, team); if (P) { const d = hdist(P.body.position, at); if (d < 2.2) painHurt(P, 999, key); else if (d < 9) { const f = 1 - d/9, away = V3(P.body.position.x - at.x, 0, P.body.position.z - at.z).normalize(); painHurt(P, 40*f + 10, key); knock(P, away.x*22*f, 9, away.z*22*f, .8); } }
-        PAIN.dummies.forEach(dm => { if (!dm.dead) { const d = hdist(dm.body.position, at); if (d < 9) dummyHit(dm.body, d < 2.2 ? 999 : 40); } });
-        swordArea(key, team, V3(at.x, at.y + 1, at.z), 9, 0, 18, 8, {props:200}); summonsTakeArea(V3(at.x, at.y + 1, at.z), 9, 45, key, team);
-        shockRing(at, 22, .7, 0x2E2E3A); dustRing(at, 5, 14); debris(V3(at.x, at.y + .5, at.z), 18, [0x7E5433, 0x9AA3AD, 0x111116]); flash(.3); shakeAt(at, 2, 80); sfx('boom'); sfx('slashH'); t = 1.9; }
-      return true; }
-    if (t > 4.5) { roundGroup.remove(sword); return false; }
-    if (t > 3.8) sword.position.y -= dt*6;
+    t += dt;
+    if (phase === 'draw') {
+      // the swords snap into place one by one: a quick anime pose
+      swords.forEach((m, i) => m.scale.setScalar(Math.min(.85, Math.max(.01, (t - i*.025)*8))));
+      C.castPose = .4; if (t > .35) { phase = 'roll'; t = 0; sfx('dash'); }
+      return true;
+    }
+    if (phase === 'roll') {
+      // curled up and spinning around the body's middle, the whole wheel rolling forward
+      const th = t*26, cy = .9; rig.rotation.x = th; rig.position.y = cy - cy*Math.cos(th) + .5; rig.position.z = -cy*Math.sin(th);
+      if (key === G.localKey) { const b = C.body; b.velocity.x = f.x*SPD; b.velocity.z = f.z*SPD; b.velocity.y = Math.min(b.velocity.y, 2); }
+      const cp = C.root.position, mid = V3(cp.x, cp.y + 1.4, cp.z);
+      wheel.position.copy(mid); wheel.rotation.set(0, yaw + Math.PI/2, 0); wheel.scale.setScalar(1 + Math.sin(t*40)*.08); wheel2.position.copy(mid); wheel2.rotation.set(th, yaw + Math.PI/2, 0);
+      if (Math.random() < .7) { const q = V3(cp.x + rr(-.6, .6), groundH(cp.x, cp.z) + .2, cp.z + rr(-.6, .6)); puff(q, pick([0xE6F4FF, 0x9AA3AD, 0x7E5433]), .35); }
+      if (Math.random() < .35) slashArc(mid, yaw + rr(-.4, .4), 2.2, {vertical:true, tilt:rr(-.6, .6), col:0xE6F4FF, life:.18});
+      // whatever the wheel touches gets cut (victim-side)
+      const P = victimFor(key, team); if (P && !hit.has('me') && P.body.position.distanceTo(V3(cp.x, cp.y, cp.z)) < 2.4) { hit.add('me'); const s0 = Math.sign((P.body.position.x - cp.x)*f.z - (P.body.position.z - cp.z)*f.x) || 1; painHurt(P, 34, key); knock(P, f.x*14 + f.z*s0*9, 9, f.z*14 - f.x*s0*9, .6); sfx('slashH'); }
+      PAIN.dummies.forEach((dm, i) => { if (!dm.dead && !hit.has('d' + i) && dm.body.position.distanceTo(V3(cp.x, cp.y, cp.z)) < 2.6) { hit.add('d' + i); dummyHit(dm.body, 34); dm.body.velocity.y += 8; } });
+      forEachObject(b => { if (hit.has(b.id) || b.position.distanceTo(V3(cp.x, cp.y + 1, cp.z)) > 2.6) return; hit.add(b.id); if (b.wakeUp) b.wakeUp(); b.velocity.x += f.x*14; b.velocity.z += f.z*14; b.velocity.y += 7; if (b.wild) wildBlastHit(b, 40); });
+      if (Math.random() < .5) { damageProps(V3(cp.x, cp.y + 1, cp.z), 2.4, 60); summonsTakeArea(V3(cp.x, cp.y + 1, cp.z), 2.4, 20, key, team); cutProjectiles(V3(cp.x, cp.y + 1, cp.z), 2.6, key); }
+      if (t >= T) { phase = 'end'; t = 0; resetRig(); roundGroup.remove(wheel); roundGroup.remove(wheel2); if (key === G.localKey) { C.body.velocity.x *= .2; C.body.velocity.z *= .2; } slashArc(V3(C.root.position.x, C.root.position.y + 1.1, C.root.position.z), yaw, 3.4, {col:0xFFFFFF, life:.3}); sfx('slashH'); }
+      return true;
+    }
+    // land in a pose, then the swords vanish
+    swords.forEach(m => m.scale.multiplyScalar(Math.max(0, 1 - dt*6)));
+    if (t > .45) { swords.forEach(m => rig.remove(m)); return false; }
+    return true;
   }});
-  if (key === G.localKey) toast("🗡 Mihawk's Plunge!");
 }
 /* 9. Astral Sword: a huge spectral blade floats beside you, cuts down projectiles near you and attacks enemies on its own */
 function sAstral({key, C, team}){
@@ -7731,31 +7890,77 @@ function voidSteer(x, z, v){
 }
 function sSever({key, C, team, pos, yaw}, p){
   G.severUsed = G.severUsed || {}; G.severUsed[key] = true;
-  const f = V3(Math.sin(yaw), 0, Math.cos(yaw)), c = V3(p.x, 0, p.z), along = V3(f.z, 0, -f.x);
-  if (key === G.localKey) { C.lockT = 3.4; C.castPose = 3.4; }
-  // a sword that reaches past the sky; it comes down edge-first along the red line and carves the ground open
-  const g = new THREE.Group(), blade = new THREE.Mesh(new THREE.BoxGeometry(12, 400, 2), new THREE.MeshToonMaterial({color:0xDCE3EA, gradientMap:TOON, emissive:0x223344})); blade.position.y = 200; g.add(blade);
-  const edgeM = new THREE.Mesh(new THREE.BoxGeometry(1.2, 400, 2.4), new THREE.MeshBasicMaterial({color:0xFFFFFF})); edgeM.position.y = 200; g.add(edgeM);
-  const aura = new THREE.Mesh(new THREE.BoxGeometry(20, 420, 4), bmat(0xBFE9FF, .18)); aura.position.y = 210; g.add(aura); noRayAll(g);
-  g.position.set(c.x - along.x*ISL*1.4, 360, c.z - along.z*ISL*1.4); g.rotation.y = Math.atan2(along.x, along.z) + Math.PI/2; roundGroup.add(g);
-  const line = new THREE.Mesh(new THREE.PlaneGeometry(1, ISL*3), addBlend(0xFF3B30)); line.rotation.x = -Math.PI/2; line.rotation.z = -Math.atan2(along.x, along.z); line.position.set(c.x, groundH(c.x, c.z) + .3, c.z); line.userData.noRay = true; roundGroup.add(line);
-  let t = 0, struck = false, carve = 0; const WIND = 3.2; tintSky(0x6A7A9A, 5); sfx('siren'); sfx('rumble');
-  if (key === G.localKey) toast('🌌 WORLD SEVERANCE'); else toast(`🌌 ${C.name || 'Someone'} is cutting the world in half! Get off the red line!`);
+  const f = V3(Math.sin(yaw), 0, Math.cos(yaw)), side = V3(f.z, 0, -f.x), start = V3(p.x, groundH(p.x, p.z), p.z);
+  const L = severLen(start, f), WIND = 2.2, SPD = 34;
+  if (key === G.localKey) { C.castPose = 2.4; }
+  // the flaming sword: a blade taller than a tower, fire running up its edges
+  const g = new THREE.Group(), HB = 60;
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(5, HB, 1), new THREE.MeshToonMaterial({color:0xFFB46A, gradientMap:TOON, emissive:0x6A1A00})); blade.position.y = HB/2; g.add(blade);
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(3.5, 7, 4), blade.material); tip.rotation.x = Math.PI; tip.scale.z = .3; tip.position.y = -3.5; g.add(tip);
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(18, 2.2, 2.6), M3(0x3A1A10)); guard.position.y = HB + 1; g.add(guard);
+  const hilt = new THREE.Mesh(new THREE.CylinderGeometry(.9, .9, 12, 8), M3(0x2A140C)); hilt.position.y = HB + 8; g.add(hilt);
+  const gem = new THREE.Mesh(new THREE.IcosahedronGeometry(1.6, 1), new THREE.MeshBasicMaterial({color:0xFF3B1F})); gem.position.y = HB + 1.2; gem.position.z = 1.4; g.add(gem);
+  const flames = []; for (let i = 0; i < 3; i++) { const fl = new THREE.Mesh(new THREE.BoxGeometry(7 + i*2.5, HB + 4, 2 + i), addBlend([0xFFE14D, 0xFF8A1F, 0xFF3B1F][i])); fl.material.opacity = [.55, .35, .2][i]; fl.position.y = HB/2; g.add(fl); flames.push(fl); }
+  noRayAll(g); g.rotation.y = Math.atan2(f.x, f.z); g.position.set(start.x, start.y + 170, start.z); roundGroup.add(g);
+  // where it will plough: a burning line on the ground
+  const line = new THREE.Mesh(new THREE.PlaneGeometry(3, L), addBlend(0xFF5A1F)); line.rotation.x = -Math.PI/2; line.rotation.z = -Math.atan2(f.x, f.z); const mid = start.clone().addScaledVector(f, L/2); line.position.set(mid.x, groundH(mid.x, mid.z) + .3, mid.z); line.userData.noRay = true; roundGroup.add(line);
+  const ring = warnRing(start, 8, 0xFF5A1F);
+  let t = 0, phase = 'fall', along = 0, lastCarve = -9; const hit = new Set();
+  tintSky(0xB84A2A, 6); sfx('siren'); sfx('rumble');
+  if (key === G.localKey) toast('🔥 WORLD SEVERANCE'); else toast(`🔥 ${C && C.name || 'Someone'} brought down a burning sword! Get off the line!`);
+  const blastHere = (q, R, dmg, kb) => {
+    // everything nearby is thrown away from the blade and anything standing is destroyed
+    const P = victimFor(key, team);
+    if (P) { const d = hdist(P.body.position, q); if (d < R) { const s0 = Math.sign((P.body.position.x - q.x)*side.x + (P.body.position.z - q.z)*side.z) || 1; painHurt(P, d < 3.5 ? 9999 : dmg*(1 - d/R) + 15, key); knock(P, side.x*s0*kb + f.x*6, 10, side.z*s0*kb + f.z*6, .9); P.burnT = Math.max(P.burnT || 0, 4); P.burnBy = key; } }
+    PAIN.dummies.forEach(dm => { if (!dm.dead && hdist(dm.body.position, q) < R) dummyHit(dm.body, hdist(dm.body.position, q) < 3.5 ? 999 : dmg); });
+    for (const A of WILD.animals) if (!A.dead && hdist(A.body.position, q) < R) animalHurt(A, 999);
+    forEachObject(b => { const dx = b.position.x - q.x, dz = b.position.z - q.z, d = Math.hypot(dx, dz); if (d > R + 3) return; if (b.wakeUp) b.wakeUp(); const s0 = Math.sign(dx*side.x + dz*side.z) || 1; b.velocity.x += side.x*s0*kb*1.2 + f.x*5; b.velocity.z += side.z*s0*kb*1.2 + f.z*5; b.velocity.y += 12; if (b.wild) wildBlastHit(b, 200); });
+    damageProps(V3(q.x, q.y + 1, q.z), R, 2000); summonsTakeArea(V3(q.x, q.y + 1, q.z), R, 200, key, team); cutProjectiles(V3(q.x, q.y + 2, q.z), R, key);
+    if (typeof igniteAt === 'function') igniteAt(q, R*.9);
+  };
   BX.fx.push({update(dt){
     t += dt;
-    if (!struck) { const k = Math.min(1, t/WIND); g.position.y = 360 - k*k*120; line.material.opacity = .3 + Math.sin(t*(8 + t*6))*.3; line.scale.x = 1 + k*3; shakeAt(c, .25 + k*.5, 400);
-      if (t >= WIND) { struck = true; carve = 0; flash(1, 2.2); G.shake = reduceMotion ? 0 : 3; sfx('boom'); sfx('thunder'); setTimeout(() => sfx('boom'), 200); setTimeout(() => sfx('slashH'), 60);
-        // anyone directly under the blade is simply gone
-        const P = victimFor(key, team); if (P && Math.abs(splitSide({c, n:f}, P.body.position.x, P.body.position.z)) < 3.5) { painHurt(P, 9999, key); toast('🌌 Severed.'); }
-        PAIN.dummies.forEach(dm => { if (!dm.dead && Math.abs(splitSide({c, n:f}, dm.body.position.x, dm.body.position.z)) < 3.5) dummyHit(dm.body, 999); });
-        for (const A of WILD.animals) if (!A.dead && Math.abs(splitSide({c, n:f}, A.body.position.x, A.body.position.z)) < 3.5) animalHurt(A, 999);
-        severWorld(c, f); } return true; }
-    // the blade sweeps along the cut line, sinking into the abyss, sparks and earth flying where it passes
-    carve += dt; g.position.y = 240 - carve*60; const sweep = -ISL*1.4 + Math.min(1, carve/1.2)*ISL*2.8; g.position.x = c.x + along.x*sweep; g.position.z = c.z + along.z*sweep;
-    line.material.opacity = Math.max(0, .6 - carve); if (Math.random() < .9) { const q = V3(g.position.x, 0, g.position.z); if (Math.abs(q.x) < ISL && Math.abs(q.z) < ISL) { q.y = groundH(q.x + f.x*9, q.z + f.z*9) + .5; for (let i = 0; i < 3; i++) puff(q.clone().add(V3(rr(-2, 2), rr(0, 2), rr(-2, 2))), pick([0xFFFFFF, 0xBFE9FF, 0x7E5433]), .7); } }
-    aura.material.opacity = Math.max(0, .18 - carve*.06);
-    if (carve > 3) { roundGroup.remove(g); roundGroup.remove(line); return false; }
+    flames.forEach((fl, i) => { fl.scale.x = 1 + Math.sin(t*(14 + i*5) + i)*.12; fl.material.opacity = [.55, .35, .2][i]*(.8 + Math.sin(t*20 + i)*.2); });
+    if (Math.random() < .8) { const q = V3(g.position.x + rr(-2.5, 2.5), g.position.y + rr(0, HB), g.position.z + rr(-.5, .5)); puff(q, pick([0xFF8A1F, 0xFFE14D, 0xFF3B1F]), .9); }
+    if (phase === 'fall') {
+      const k = Math.min(1, t/WIND); g.position.y = start.y + 170 - 170*k*k + 4*(1 - k); ring.material.opacity = .3 + Math.sin(t*14)*.3; line.material.opacity = .25 + Math.sin(t*10)*.2; shakeAt(start, .2 + k*.6, 200);
+      if (k >= 1) { phase = 'plough'; t = 0; roundGroup.remove(ring); g.position.y = start.y - 9;
+        flash(.6, .8); G.shake = reduceMotion ? 0 : 2.4; sfx('boom'); sfx('thunder'); sfx('slashH'); setTimeout(() => sfx('boom'), 220);
+        bBoom(V3(start.x, start.y + 1, start.z), 12, 90, 30, key, team, {size:2, up:14, killR:5, pal:{ball:0xFF5A1F, core:0xFFE14D, ring:0xFFB46A}});
+        blastHere(start, 12, 90, 34); shockRing(start, 30, .8, 0xFF8A1F); debris(V3(start.x, start.y + 1, start.z), 30, [0x7E5433, 0x5E3F24, 0xFF8A1F, 0x2B2621]); }
+      return true;
+    }
+    if (phase === 'plough') {
+      // half buried, it drags forward along the line: a burning trench, everything flung aside
+      along = Math.min(L, along + SPD*dt); const q = start.clone().addScaledVector(f, along); q.y = groundH(q.x, q.z);
+      g.position.set(q.x, q.y - 9 + Math.sin(t*30)*.3, q.z); g.rotation.z = Math.sin(t*9)*.03;
+      if (along - lastCarve > 4.5) { lastCarve = along; craterAt(V3(q.x, q.y, q.z), 2.6, 1.4); fireStrip(q, key, team); debris(V3(q.x, q.y + .5, q.z), 5, [0x7E5433, 0x5E3F24, 0xFF8A1F]); }
+      if (along - (g.userData.lastBlast || -9) > 2.5) { g.userData.lastBlast = along; blastHere(q, 8, 70, 30); } shakeAt(q, 1.2, 120);
+      for (let i = 0; i < 3; i++) { const s0 = Math.random() < .5 ? -1 : 1, w = V3(q.x + side.x*s0*rr(1.5, 4), q.y + .3, q.z + side.z*s0*rr(1.5, 4)); puff(w, pick([0x7E5433, 0x9A8A70, 0xFF8A1F]), .7); }
+      line.material.opacity = Math.max(0, .45 - along/L*.45);
+      if (along >= L) { phase = 'end'; t = 0; roundGroup.remove(line);
+        bBoom(V3(q.x, q.y + 2, q.z), 14, 110, 34, key, team, {size:2.4, up:16, killR:6, pal:{ball:0xFF5A1F, core:0xFFE14D, ring:0xFFB46A}}); blastHere(q, 14, 110, 36); sfx('boom'); flash(.8, 1); }
+      return true;
+    }
+    // it rises out of the ground and burns away
+    g.position.y += dt*30; flames.forEach(fl => fl.material.opacity *= .95); blade.material.emissive && blade.material.emissive.setHex(0xFF3B1F);
+    if (t > 2.2) { roundGroup.remove(g); return false; }
+    return true;
   }});
+}
+// how far the burning sword ploughs: 90 m, or to the edge of the island
+function severLen(o, f){ let L = 90; for (const [d, c0] of [[f.x, o.x], [f.z, o.z]]) { if (Math.abs(d) < 1e-3) continue; const s0 = ((d > 0 ? ISL - 4 : -ISL + 4) - c0)/d; if (s0 > 0) L = Math.min(L, s0); } return Math.max(10, L); }
+// a stretch of burning ground left behind the blade: flames for 8 s, burns whoever stands in it
+function fireStrip(q, key, team){
+  const g = new THREE.Group(); g.position.set(q.x, q.y + .05, q.z); roundGroup.add(g);
+  const base = new THREE.Mesh(new THREE.CircleGeometry(2.6, 10), new THREE.MeshBasicMaterial({color:0x2B1208})); base.rotation.x = -Math.PI/2; g.add(base);
+  const fl = []; for (let i = 0; i < 4; i++) { const m = new THREE.Mesh(new THREE.ConeGeometry(.5, 2.2, 5), addBlend(pick([0xFF8A1F, 0xFFE14D, 0xFF3B1F]))); m.position.set(rr(-1.8, 1.8), 1, rr(-1.8, 1.8)); g.add(m); fl.push(m); }
+  g.traverse(o => o.userData.noRay = true);
+  booms.push({t:0, parts:[g], custom(b){
+    fl.forEach((m, i) => { m.scale.set(1, .6 + Math.abs(Math.sin(b.t*9 + i*1.7))*.8, 1); m.material.opacity = Math.max(0, .85 - Math.max(0, b.t - 6.5)*.5); });
+    if (Math.random() < .15) puff(V3(q.x + rr(-2, 2), q.y + 1.5, q.z + rr(-2, 2)), 0x3A2A22, .5);
+    const P = victimFor(key, team); if (P && hdist(P.body.position, q) < 2.6 && P.body.position.y - q.y < 2) { P.burnT = Math.max(P.burnT || 0, 1.5); P.burnBy = key; }
+    return b.t > 8; }});
 }
 function severWorld(c, n){
   const snap = Float32Array.from(terrH), sp = {c, n, s:0, snap}; G.splits.push(sp);
@@ -7796,7 +8001,7 @@ function severWorld(c, n){
    The sword gathers light into a pillar, then one golden slash rolls 130 m forward: a wall of light that bends space
    around it, burns through props and cuts down everything in its path. */
 function sExcal({key, C, team, pos, yaw}){
-  const f = V3(Math.sin(yaw), 0, Math.cos(yaw)), side = V3(f.z, 0, -f.x), O = V3(pos.x, pos.y, pos.z), CH = 1.7, L = 130, W = 7;
+  const f = V3(Math.sin(yaw), 0, Math.cos(yaw)), side = V3(f.z, 0, -f.x), O = V3(pos.x, pos.y, pos.z), CH = 1.7, W = 7, L = excalLen(O, f);
   if (key === G.localKey) { C.lockT = CH + .6; }
   C.castPose = CH + .3;
   const pillar = new THREE.Mesh(new THREE.CylinderGeometry(.6, 1.4, 90, 16, 1, true), addBlend(0xFFE9A8)); pillar.position.set(O.x, O.y + 45, O.z); pillar.userData.noRay = true; pillar.scale.set(.01, 1, .01); roundGroup.add(pillar);
@@ -7824,9 +8029,26 @@ function sExcal({key, C, team, pos, yaw}){
     damageProps(V3(q.x, q.y + 1, q.z), W*1.5, 300); if (Math.random() < .3) { summonsTakeArea(V3(q.x, q.y + 1, q.z), W*1.5, 80, key, team); cutProjectiles(q, W*1.5, key); }
     if (typeof igniteAt === 'function' && Math.random() < .2) igniteAt(q, 3);
     shakeAt(q, 1, 60);
-    if (front >= L) { roundGroup.remove(wave); wave = null; return false; }
+    if (front >= L) { roundGroup.remove(wave); wave = null;
+      // it hits the defense (or the end of the world) and bursts into gold
+      const at = O.clone().addScaledVector(f, L + 2); at.y = groundH(at.x, at.z) + 2;
+      bBoom(at, 16, 120, 32, key, team, {size:2.6, up:14, killR:9, pal:{ball:0xFFD84D, core:0xFFFFFF, ring:0xFFE9A8}});
+      swordArea(key, team, at, 14, 60, 24, 10, {egg:true, props:1500});
+      if (eggOn() && egg && egg.alive && eggAuth() && egg.body.position.distanceTo(at) < 18) eggHit(80, 'sword');
+      goldBurst(at, 16); flash(1, 1.4); shakeAt(at, 2.6, 200); sfx('boom'); sfx('thunder');
+      return false; }
   }});
   if (key === G.localKey) toast('✨ EXCALIBUR!');
+}
+// how far Excalibur's slash runs: into the protected area's edge (Alpha Mode), or to the edge of the map
+function excalLen(O, f){
+  let L = 400;
+  for (const [d, o] of [[f.x, O.x], [f.z, O.z]]) { if (Math.abs(d) < 1e-3) continue; const s0 = ((d > 0 ? ISL : -ISL) - o)/d; if (s0 > 0) L = Math.min(L, s0); }
+  if (eggOn()) {   // the defense: a circle around the egg (the dome if it's bigger)
+    const c = V3(0, 0, 0), Rr = Math.max(AREA_R, G.dome && G.dome.hp > 0 ? G.dome.R : 0), ox = O.x - c.x, oz = O.z - c.z, b = ox*f.x + oz*f.z, cc = ox*ox + oz*oz - Rr*Rr, disc = b*b - cc;
+    if (cc > 0 && disc > 0) { const s0 = -b - Math.sqrt(disc); if (s0 > 0) L = Math.min(L, s0); }
+  }
+  return Math.max(8, L - 2);
 }
 // a frame of swordsman upkeep: burns, abyss, sitting on Yoru, hand swords, charge meter, cut pieces, Babylon preview
 function swordFrame(dt){
@@ -7844,10 +8066,18 @@ function swordFrame(dt){
   const ch = SW.charge;
   if (ch && typeof chargeUI !== 'undefined') { const s = performance.now()/1000 - ch.t0; chargeUI.style.display = 'block';
     if (ch.id === 's_chain') { const n = chainCount(s); chargeUI.querySelector('i').style.width = n + '%'; chargeUI.querySelector('i').style.background = n >= 100 ? '#FF6A8A' : 'linear-gradient(90deg,#FFFFFF,#FF8AA8)'; chargeUI.querySelector('span').textContent = n >= 100 ? '💯 100 CUTS. Release!' : `💯 ${n} cuts`; }
-    else { const n = babylonN(s); chargeUI.querySelector('i').style.width = ((s % 1)*100) + '%'; chargeUI.querySelector('i').style.background = 'linear-gradient(90deg,#FFD84D,#FFFFFF)'; chargeUI.querySelector('span').textContent = `🌟 ${n} gates open. Keep holding, no limit`; babylonPreview(); } }
+    else { const n = babylonN(s), tier = babylonTier(s), next = n < BABYLON_MAX ? null : BABYLON_T100 + (tier + 1)*BABYLON_STEP - s;
+      chargeUI.querySelector('i').style.width = (tier >= 4 ? 100 : n < BABYLON_MAX ? n : ((s - BABYLON_T100) % BABYLON_STEP)/BABYLON_STEP*100) + '%';
+      chargeUI.querySelector('i').style.background = tier >= 4 ? '#FFFFFF' : tier === 3 ? 'linear-gradient(90deg,#00E5FF,#FF3BD4,#FFE14D)' : tier === 2 ? 'linear-gradient(90deg,#16121C,#C01040)' : 'linear-gradient(90deg,#FFD84D,#FFFFFF)';
+      chargeUI.querySelector('span').textContent = tier >= 4 ? '✴️ SECRET: EVERY GATE. Release!' : n < BABYLON_MAX ? `🌟 ${n} swords. Keep holding` : `🌟 ${n} ${tier ? BABYLON_NAME[tier].toLowerCase() : 'swords'} · ${BABYLON_NAME[tier + 1]} in ${Math.ceil(next)} s`; babylonPreview(); } }
   else if (typeof chargeUI !== 'undefined' && !PAIN.charge && !PAIN.aim && !painKit()) chargeUI.style.display = 'none';
   if (SW.pieces.length) piecesFrame();
   cutIndicator();
+  // World Severance: show the line the sword will plough
+  if (G.targeting === 's_sever' && G.targetPoint) { const f = V3(Math.sin(G.yaw), 0, Math.cos(G.yaw)), L = severLen(G.targetPoint, f);
+    if (!SW.sevLine) { SW.sevLine = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), addBlend(0xFF5A1F)); SW.sevLine.rotation.x = -Math.PI/2; SW.sevLine.userData.noRay = true; scene.add(SW.sevLine); }
+    const mid = G.targetPoint.clone().addScaledVector(f, L/2); SW.sevLine.visible = true; SW.sevLine.scale.set(2.4, L, 1); SW.sevLine.rotation.z = -Math.atan2(f.x, f.z); SW.sevLine.position.set(mid.x, groundH(mid.x, mid.z) + .35, mid.z); SW.sevLine.material.opacity = .45 + Math.sin(G.t*8)*.2; }
+  else if (SW.sevLine) SW.sevLine.visible = false;
 }
 
 /* ===================================== SUMMONER =====================================
@@ -7968,13 +8198,14 @@ function summonHurt(e, dmg){
 }
 // damage to every enemy summon in a ball / a cone (key/team = whoever did it; unknown = everyone's summons)
 function summonsTakeArea(at, R, dmg, key, team){
-  barriersTakeArea(at, R, dmg, key, team); swarmTakeArea(at, R, dmg); animalsTakeArea(at, R, dmg); devicesTakeArea(at, R, dmg, key); golemsTakeArea(at, R, dmg, key); minionsTakeArea(at, R, dmg, key, team);
+  barriersTakeArea(at, R, dmg, key, team); swarmTakeArea(at, R, dmg); animalsTakeArea(at, R, dmg); devicesTakeArea(at, R, dmg, key); golemsTakeArea(at, R, dmg, key); minionsTakeArea(at, R, dmg, key, team); fortUnitsTakeArea(at, R, dmg, key);
   if (!SUM.list.length || !(dmg > 0)) return;
   for (const e of SUM.list) { if (e.done || (key && e.owner === key) || (team && e.team === team)) continue;
     const c = V3(e.p.x, e.p.y + 1.2*e.S, e.p.z), d = c.distanceTo(at); if (d < R + .8*e.S) summonHurt(e, dmg*(d < R ? 1 - .5*d/R : .5)); }
 }
 function summonsTakeCone(from, yaw, range, arc, dmg, key, team){
   barriersTakeCone(from, yaw, range, arc, dmg, key, team); swarmTakeCone(from, yaw, range, arc, dmg);
+  if (eggOn() && dmg > 0) { const mid = V3(from.x + Math.sin(yaw)*range*.5, from.y, from.z + Math.cos(yaw)*range*.5); fortUnitsTakeArea(mid, range*.6, dmg, key); golemsTakeArea(mid, range*.6, dmg, key); minionsTakeArea(mid, range*.6, dmg, key, team); devicesTakeArea(mid, range*.6, dmg, key); }
   if (!SUM.list.length || !(dmg > 0)) return;
   const fx = Math.sin(yaw), fz = Math.cos(yaw), cosA = Math.cos(arc/2);
   for (const e of SUM.list) { if (e.done || (key && e.owner === key) || (team && e.team === team)) continue;
@@ -9517,12 +9748,13 @@ function fortDrones(){
     const g = new THREE.Group(); sp(.55, 0xDCE3EA, 0, 0, 0, g, 1); const ring = new THREE.Mesh(new THREE.TorusGeometry(.8, .07, 6, 20), new THREE.MeshBasicMaterial({color:0x5FD4FF})); ring.rotation.x = Math.PI/2; g.add(ring);
     for (const s of [-1, 1]) bx(.9, .06, .3, 0x8A939C, s*.9, 0, 0, g); const eye = new THREE.Mesh(new THREE.IcosahedronGeometry(.18, 1), new THREE.MeshBasicMaterial({color:0xFF3B30})); eye.position.z = .5; g.add(eye);
     noRayAll(g); roundGroup.add(g);
-    FORT.drones.push({g, a:(base + i)/12*Math.PI*2, r:13 + (i % 3)*3, h:6 + (i % 2)*2.5, cd:rr(.5, 1.5)});
+    FORT.drones.push({g, a:(base + i)/12*Math.PI*2, r:13 + (i % 3)*3, h:6 + (i % 2)*2.5, cd:rr(.5, 1.5), hp:60, max:60});
   }
   sfx('grav'); fortNote('🛸 Six drones patrol the area.');
 }
 function dronesFrame(dt){
   for (const d of FORT.drones) {
+    if (d.dead) continue;
     d.a += dt*.55*(d.r < 15 ? 1.2 : 1); const p = V3(Math.cos(d.a)*d.r, groundH(0, 0) + d.h + Math.sin(d.a*3)*.5, Math.sin(d.a)*d.r); d.g.position.copy(p); d.g.rotation.y = -d.a;
     if (G.phase !== 'attack') continue;
     d.cd -= dt; if (d.cd > 0) continue;
@@ -9568,10 +9800,55 @@ function sorcMesh(){
   const staff = new THREE.Group(); bx(.1, 3.4, .1, 0x5E3F24, 0, 0, 0, staff); const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(.3, 1), new THREE.MeshBasicMaterial({color:0xD9A8FF})); orb.position.y = 1.9; staff.add(orb); staff.position.set(.8, 1.7, .2); g.add(staff);
   addOutline(g); g.traverse(o => o.userData.noRay = true); g.userData = {orb}; return g;
 }
+const SPIRIT_HP = {angel:260, devil:260, dragon:650, sorc:240};
+// everything of the defender's that can be hit: where it is (its middle), how big, its hit points
+function fortUnits(){
+  const out = [];
+  for (const d of FORT.drones) if (!d.dead) out.push({ent:d, kind:'drone', pos:d.g.position, r:1.1});
+  for (const k in FORT.spirits) { const S = FORT.spirits[k]; if (S.dead) continue; const gp = S.g.position; out.push({ent:S, kind:k, pos:V3(gp.x, gp.y + (k === 'dragon' ? 0 : k === 'sorc' ? 1.8 : 2), gp.z), r:k === 'dragon' ? 4.5 : 1.6}); }
+  for (const g of FORT.golems) if (!g.dead) out.push({ent:g, kind:'golem', pos:V3(g.pos.x, g.pos.y + 2.2, g.pos.z), r:2, max:400});
+  for (const m of FORT.minions) if (!m.dead) out.push({ent:m, kind:'minion', pos:V3(m.p.x, m.p.y + m.S, m.p.z), r:Math.max(.6, m.S)});
+  for (const o of FORT.devices) if (!o.dead) out.push({ent:o, kind:'device', pos:V3(o.body.position.x, o.body.position.y + .6, o.body.position.z), r:1.3, max:o.maxHp});
+  return out;
+}
+// attacks hurt the defender's drones and spirits (golems, swarm and devices have their own takers)
+function fortUnitsTakeArea(at, R, dmg, key){
+  if (!eggOn() || !(dmg > 0) || (G.egg && key && key === G.egg.def)) return;
+  for (const u of fortUnits()) { if (u.kind === 'golem' || u.kind === 'minion' || u.kind === 'device') continue; const d = u.pos.distanceTo(at); if (d < R + u.r) fortUnitHurt(u, dmg*(d < R ? 1 - .4*d/Math.max(R, .01) : .5)); }
+}
+function fortUnitHurt(u, dmg){
+  const e = u.ent; e.hp -= dmg/fortDurability(); e.hurtT = .15; if (e.hp > 0) return;
+  e.dead = true; const at = u.pos.clone();
+  if (u.kind === 'drone') { roundGroup.remove(e.g); debris(at, 8, [0xDCE3EA, 0x5FD4FF, 0x3A3F48]); boomVisual(at, false, .3); sfx('bboom'); FORT.drones = FORT.drones.filter(q => !q.dead); return; }
+  roundGroup.remove(e.g); if (e.dome) roundGroup.remove(e.dome); delete FORT.spirits[u.kind];
+  boomVisual(at, false, u.kind === 'dragon' ? 1.4 : .7, u.kind === 'dragon' ? {ball:0x2E7D4F, core:0xFFE14D, ring:0xFF8A1F} : u.kind === 'angel' ? {ball:0xFFFFFF, core:0xFFE9A8, ring:0xFFFFFF} : u.kind === 'devil' ? {ball:0xB3191B, core:0xFF8A1F, ring:0x5A0E10} : {ball:0x6A3FB8, core:0xD9A8FF, ring:0xB48CFF});
+  debris(at, u.kind === 'dragon' ? 30 : 14, u.kind === 'dragon' ? [0x2E7D4F, 0x1E5A38, 0xC9B26A] : u.kind === 'angel' ? [0xFFFFFF, 0xFFE9A8] : u.kind === 'devil' ? [0xB3191B, 0x2B1B10] : [0x6A3FB8, 0x3A2468]);
+  sfx('boom'); if (u.kind === 'dragon') { sfx('roar'); shakeAt(at, 1.5, 120); }
+  toast({angel:'😇 The guardian angel has fallen!', devil:'😈 The devil is banished!', dragon:'🐉 The dragon is down!', sorc:'🧙 The sorceress is defeated! Gravity powers work again.'}[u.kind]);
+}
+// a health bar over every one of them (and they flash when hit)
+function fortBarsFrame(){
+  const live = new Set();
+  if (eggOn()) for (const u of fortUnits()) {
+    const e = u.ent, max = u.max || e.max || e.maxHp || 100, hp = Math.max(0, e.hp != null ? e.hp : max); live.add(e);
+    if (!e.hpBar) { const mk = c => { const sp0 = new THREE.Sprite(new THREE.SpriteMaterial({color:c, depthTest:false, depthWrite:false})); sp0.center.set(0, .5); sp0.renderOrder = 41; sp0.userData.noRay = true; roundGroup.add(sp0); return sp0; }; e.hpBar = {bg:mk(0x1A1A1A), fill:mk(0x5BD15B)}; FORT.bars = FORT.bars || []; FORT.bars.push(e); }
+    const k = clamp(hp/max, 0, 1), w = clamp(u.r*1.4, 1.1, 5), y = u.pos.y + u.r + .5;
+    e.hpBar.bg.position.set(u.pos.x - w/2, y, u.pos.z); e.hpBar.bg.scale.set(w, .22, 1); e.hpBar.fill.position.set(u.pos.x - w/2, y, u.pos.z); e.hpBar.fill.scale.set(Math.max(.01, w*k), .16, 1);
+    e.hpBar.fill.material.color.setHex(e.hurtT > 0 ? 0xFFFFFF : k > .5 ? 0x5BD15B : k > .25 ? 0xF3C23A : 0xFF4B3E); if (e.hurtT > 0) e.hurtT -= 1/60;
+  }
+  if (FORT.bars) FORT.bars = FORT.bars.filter(e => { if (live.has(e)) return true; if (e.hpBar) { roundGroup.remove(e.hpBar.bg); roundGroup.remove(e.hpBar.fill); e.hpBar = null; } return false; });
+}
+// the nearest thing of the defender's (or the egg) to `at`, for attackers that only go after the defense
+function fortTargetNear(at, R){
+  let best = null, bd = R;
+  for (const u of fortUnits()) { const d = hdist(u.pos, at); if (d < bd) { bd = d; best = u.pos.clone(); } }
+  if (egg && egg.alive) { const ep = egg.body.position, d = hdist(ep, at); if (d < bd || !best) best = V3(ep.x, ep.y, ep.z); }
+  return best;
+}
 function fortSpirit(kind){
   if (FORT.spirits[kind]) return;
   const g = kind === 'angel' ? angelMesh() : kind === 'devil' ? devilMesh() : kind === 'dragon' ? dragonMesh() : sorcMesh();
-  const S = {kind, g, t:0, cd:2}; FORT.spirits[kind] = S; roundGroup.add(g);
+  const S = {kind, g, t:0, cd:2, hp:SPIRIT_HP[kind], max:SPIRIT_HP[kind]}; FORT.spirits[kind] = S; roundGroup.add(g);
   if (kind === 'sorc') { const dome = new THREE.Mesh(new THREE.SphereGeometry(AREA_R, 48, 16, 0, Math.PI*2, 0, Math.PI/2), domeMaterial()); dome.material.uniforms.col.value.setHex(0xB48CFF); dome.position.copy(fortCenter()); dome.userData.noRay = true; dome.scale.set(1, .5, 1); roundGroup.add(dome); S.dome = dome; }
   lightPillar(fortCenter(), .8, false); sfx('holy');
   fortNote({angel:'😇 The guardian angel watches over the egg: it heals it and stops what flies at it.', devil:'😈 The devil casts spells: fireballs at attackers, strength for your walls and devices.', dragon:'🐉 A dragon circles overhead, burning anything that comes at the egg.', sorc:'🧙 The sorceress protects the area from gravity: nothing inside can be pushed or pulled.'}[kind]);
@@ -9642,6 +9919,21 @@ function fortReflect(b, a, n){
   return false;
 }
 /* 13-14. Roofs over the area: reflective (bounces things back up) and teleport (swallows them for the gun) */
+// aimed powers that land in the teleport portal over the egg are re-aimed at the attacker who cast them. The caster's
+// screen decides (localCast) and sends the new point, so every screen plays the same thing; x.tp marks it for the FX.
+function teleRetarget(id, p){
+  const T = FORT.roofs && FORT.roofs.tele;
+  if (!T || T.hp <= 0 || !p || !eggOn() || G.phase !== 'attack' || amDefender() || GUARD[id] || id === 'd_use' || id === 'd_place') return null;
+  if (G.targeting !== id && id !== 'p_boulderx') return null;   // aimed things only (a marker or a ring); shots and thrown things go through the portal physically
+  if (hdist(p, T) > Math.max(TELE_R + 1.5, (TARGET_R[id] || 0)*.35)) return null;
+  const P = localP(); if (!P) return null; const b = P.body.position;
+  return V3(b.x, groundH(b.x, b.z), b.z);
+}
+function teleSwallowFX(at){
+  const T = FORT.roofs && FORT.roofs.tele; if (T) { T.pulse = 1; FORT.store++; sparkle(V3(T.x, T.y, T.z), 0xB48CFF); }
+  telePortalFX(V3(at.x, at.y + 14, at.z)); sfx('hole');
+  if (G.localKey && localP() && hdist(localP().body.position, at) < 3) toast('🌀 The teleport portal sent it back at you! Run!');
+}
 // the far end of the teleport roof: a purple hole opens in the air, spins, and closes again
 function telePortalFX(at){
   const g = new THREE.Group(); g.position.copy(at);
@@ -9780,7 +10072,7 @@ function fortSwarm({key, team}, x){
     if (kind === 'brute') for (const s of [-1, 1]) cone(.12, .4, 0xE8DCC0, s*.3, 2.2, .1, g, 4);
     mergeToon(g); addOutline(g); g.traverse(o => o.userData.noRay = true); g.scale.setScalar(S);
     const p = V3(c.x + Math.cos(a)*r, 0, c.z + Math.sin(a)*r); p.y = groundH(p.x, p.z) + (kind === 'flyer' ? 4 : 0); g.position.copy(p); roundGroup.add(g);
-    FORT.minions.push({g, p, kind, S, owner:key, team, spd:(kind === 'runner' ? 11 : kind === 'brute' ? 4 : 6.5)*(1.2 - S*.2) + rng()*2, hp:20*S*(kind === 'brute' ? 2.5 : 1), cd:rng()*2, t:0, life:45 + rng()*10});
+    FORT.minions.push({g, p, kind, S, owner:key, team, spd:(kind === 'runner' ? 11 : kind === 'brute' ? 4 : 6.5)*(1.2 - S*.2) + rng()*2, hp:20*S*(kind === 'brute' ? 2.5 : 1), max:20*S*(kind === 'brute' ? 2.5 : 1), cd:rng()*2, t:0, life:45 + rng()*10});
   }
   shockRing(c, LAVA[1] + 10, 1, 0x7A2E8A); sfx('demon'); sfx('roar'); flash(.2);
   toast(key === G.localKey ? `👹 ${n} creatures answer your call!` : `👹 The defender summoned a swarm of ${n}!`);
@@ -9915,7 +10207,7 @@ function fortFrame(dt){
     else if (FORT.lava && r > LAVA[0] && r < LAVA[1] && b.position.y < gy + .6) { toast('🌋 Burned up in the lava.'); hurt(me, 9999); if (G.phase !== 'attack') { const s = teamSpawn(me.team); b.position.set(s.x, s.y + 1, s.z); b.velocity.set(0, 0, 0); } }
     if (amDefender() && r > AREA_R - .6) { b.position.x *= (AREA_R - .7)/r; b.position.z *= (AREA_R - .7)/r; bootKick(me, -b.position.x/r, -b.position.z/r); }
   }
-  domesFrame(dt); dronesFrame(dt); spiritsFrame(dt); roofsFrame(dt); starsFrame(dt); golemsFrame(dt); minionsFrame(dt); fortSams(dt); eggBarFrame(); fortDevicesExtra(dt); ringIndicator();
+  fortBarsFrame(); domesFrame(dt); dronesFrame(dt); spiritsFrame(dt); roofsFrame(dt); starsFrame(dt); golemsFrame(dt); minionsFrame(dt); fortSams(dt); eggBarFrame(); fortDevicesExtra(dt); ringIndicator();
   if (FORT.charge && typeof chargeUI !== 'undefined') { const s = performance.now()/1000 - FORT.charge.t0, n = Math.round(clamp(5 + s*19, 5, 100)); chargeUI.style.display = 'block'; chargeUI.querySelector('i').style.width = n + '%'; chargeUI.querySelector('i').style.background = 'linear-gradient(90deg,#7A2E8A,#FF6A8A)'; chargeUI.querySelector('span').textContent = `👹 ${n} creatures${n >= 100 ? ' (max). Release!' : '. Keep holding, don’t get hit'}`; }
 }
 function splashAt(p){ for (let i = 0; i < 10; i++) { const m = pmesh('oct', rr(.1, .25), bmat(0xBFE9FF, .9)); m.position.set(p.x, -.4, p.z); m.userData.noRay = true; roundGroup.add(m); fx.push({mesh:m, v:V3(rr(-3, 3), rr(3, 7), rr(-3, 3)), r:V3(3, 3, 0), life:1}); } sfx('splash'); }
@@ -10136,11 +10428,11 @@ function rainSound(k){
   if (!actx) return;
   if (!RAIN.gain) { if (k < .02) return;
     const len = actx.sampleRate*2, buf = actx.createBuffer(1, len, actx.sampleRate), d = buf.getChannelData(0); let last = 0;
-    for (let i = 0; i < len; i++) { const w = Math.random()*2 - 1; last = last*.6 + w*.4; d[i] = last*(Math.random() < .0015 ? 3 : 1); }
+    for (let i = 0; i < len; i++) { const w = Math.random()*2 - 1; last = last*.6 + w*.4; d[i] = last*(Math.random() < .0015 ? 1.6 : 1); }
     const src = actx.createBufferSource(); src.buffer = buf; src.loop = true;
-    const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2600; const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 380;
+    const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1500; const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 300;   // soft and far away: background rain
     RAIN.gain = actx.createGain(); RAIN.gain.gain.value = 0; src.connect(lp); lp.connect(hp); hp.connect(RAIN.gain); RAIN.gain.connect(actx.destination); src.start(); }
-  RAIN.gain.gain.setTargetAtTime(muted ? 0 : .2*k, actx.currentTime, .3);
+  RAIN.gain.gain.setTargetAtTime(muted ? 0 : .045*k, actx.currentTime, .6);
 }
 // light and fog: scale whatever the game last set (night, Pain mode, tinted skies) instead of fighting it
 function rainLight(k){
@@ -11006,6 +11298,7 @@ addEventListener('keydown', e => {
 
 /* casting, locally and for other players */
 function runSkill(id, p, x){
+  if (x && x.tp && p) teleSwallowFX(p);
   if (id === 'w_loot') { lootTaken(x); return; }
   if (id === 'ki') { kiBlast(p); return; }
   if (id === 'd_use' || id === 'd_place') { runDefense(id, p, x); return; }
@@ -11049,6 +11342,8 @@ function localCast(id, p, x){
   if (G.egg && G.egg.over && id !== 'u_kill' && id !== 'g_break') return;
   const o = P ? [+P.body.position.x.toFixed(2), +P.body.position.y.toFixed(2), +P.body.position.z.toFixed(2)] : null;   // before the power moves you (counter, storm...)
   G.casterKey = G.localKey;
+  // the defender's teleport portal: anything aimed into it (missiles, nukes, ultimates, Chaos powers...) comes down on you
+  { const tp = teleRetarget(id, p); if (tp) { p = tp; x = Object.assign({}, x || {}, {tp:1}); G.teleBackUntil = G.t + (id === 'b_nuke' ? 12 : 9); } }   // for a while your own power can hit you
   // a bug in a power's local effect must never stop everyone else from seeing the cast
   try { runSkill(id, p, x); } catch (e) { console.warn(e); } finally { G.casterKey = null; }
   necroOnCast(G.localKey);

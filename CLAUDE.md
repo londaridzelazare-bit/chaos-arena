@@ -177,6 +177,17 @@ for them; `castOK` enforces charge + once per round on the host (`G.hostUlt`). T
 then glows (`.ultready`), then USED. Powers with `fixed:true` keep their cooldown even when cooldowns are off.
 
 **Swordsman** (module "SWORDSMAN", after the Bomber; rebuilt 2026-10-06 to the user's list): `s_*` ids in `SWORD`.
+Second pass (2026-10-06, supersedes the older notes below where they differ): 4 is now "Radial Slash" (id still
+`s_titan`). 7 Mihawk's Plunge was replaced by Blade Dash (`s_bdash`, `sBladeDash`: 10 swords posed on the rig
+(`BDASH_POSES`), the rig spins around its middle and rolls 30 m forward; `TELEPORTS.s_bdash`). Gate of Babylon: up to
+100 swords (`babylonN`, ~5 s), then every 5 s of holding upgrades the swords instead (`babylonTier(c)`: giant, black
+`swordBlackGeo`, 4D `babylonSword` with additive ghost copies) and at tier 4 the secret `babylonSecret`: 240 gates on a
+hemisphere around the egg/dome (or the aim point) open and all fire at once, then a `goldBurst` finale. World Severance is
+aimed now (`kind:'aim'`, line preview `SW.sevLine` from the marker along your facing): a flaming sword plunges in and
+ploughs a burning trench (`fireStrip`, `craterAt`) to `severLen`; the old map split (`severWorld`, `G.splits`) is unused.
+Excalibur's wave runs to the defense circle (`excalLen`: AREA_R or the dome, Alpha Mode) or the map edge and ends in
+`goldBurst` + bBoom. Splitter: 6 switches upright/flat while aiming; `cutIndicator` draws a terrain line, an upright
+blade + pole or a flat sheet + rim, and a label, all depthTest-off.
 Click = six combos that run in order and loop (`SW_COMBOS`: Crescent, Whirlwind, Rising Dragon, Piercing Fang, Cross
 Cut, Storm Flurry; `SW.set`/`SW.step`, cast `s_slash` {k: set*10 + step}; arm poses 0-5 in `swordAnim`). 1 Heaven's
 Blade (sinks, then shatters), 2 Rain of Swords (magic cloud, merged sword meshes `swordOne`), 3 Gate of Babylon (hold,
@@ -315,6 +326,15 @@ too). `#comboBar` shows [icon] + [icon] + ?, the combo name and "Can combine"; `
 Skills bar. Test: scratch `combo.mjs` (real key presses).
 
 ## Defender kit (Alpha Mode) — rebuilt 2026-10-06
+
+Everything the defender summons can be hurt and shows a health bar (2026-10-06): `fortUnits()` lists drones (hp 60),
+spirits (`SPIRIT_HP`: angel, devil, dragon, sorceress), golems, swarm minions and devices; `fortUnitsTakeArea` (called
+from `summonsTakeArea` and `summonsTakeCone`) damages drones/spirits, `fortUnitHurt` kills them; `fortBarsFrame` keeps a
+bar over each; bombs collide with them in `updateBombs`. Anything aimed (marker/ring casts, `teleRetarget` in
+`localCast`) into the teleport portal is re-aimed at the caster (`x.tp`, `teleSwallowFX`), and `G.teleBackUntil` lets
+the caster's own power hurt them for a few seconds (`victimFor`). Bomber's rocket squad parachutes from a plane
+(`paratrooper`) and in Alpha Mode only targets the egg and the defender's units (`fortTargetNear`). Alpha Mode classes:
+Pain, Bomber, Swordsman (no Chaos, Summoner, Necromancer).
 
 The old build-phase protection bar (DEFENSES) and the attack-phase GUARD kit were replaced by ONE kit the defender uses
 in both phases (`GUARD`, `f_*` ids; module "the defender's kit" inside PROTECTION, before WORLD). `guardActive()` is
