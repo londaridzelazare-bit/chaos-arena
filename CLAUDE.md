@@ -288,24 +288,31 @@ marker (carriers first), then `comboFuse` adds every element to every new carrie
 too). `#comboBar` shows [icon] + [icon] + ?, the combo name and "Can combine"; `.combo-ok` pulses on the
 Skills bar. Test: scratch `combo.mjs` (real key presses).
 
-## Protection (Egg mode defender)
+## Defender kit (Alpha Mode) — rebuilt 2026-10-06
 
-Module "PROTECTION", just before "casting, locally and for other players". Ten barrier types
-(`BAR_TYPES`: wood, stone, steel, energy, frost, fire, spike, thorn, bounce, crystal) are `DEFENSES['bar_*']`
-with `barrier:k`; `placeDefense` hands them to `placeBarrier`, which **merges** into any barrier within
-1.2 m (`mergeTrait`: tier +1, HP and size grow, traits stack, name like "Burning Spiked Stone Wall").
-`BARS = {list, destroyed, fields}`, reset in `startMatch`. Barriers are static cannon boxes (tag
-'barrier'), block bombs (`bSolid`) and summons (`eMove`), and take damage through
-`summonsTakeArea/Cone` -> `barriersTakeArea/Cone` -> `barHurt` (steel layers ×0.75 each). At 0 HP the
-egg's authority (host online) sends hidden cast `g_break` (clients' `g_break` is always rejected).
-`barrierFrame` runs the traits (energy regen + swallows bombs, frost freezes bombs and slows, crystal
-repairs neighbours and heals egg cracks, fire/spike/thorn/bounce on touch) and HP bars.
-`GUARD` is the defender's 20-skill kit in the attack phase (`guardActive()`; `skillTable` returns it
-first, keys via `guardKeyDown`, effects in `runGuard`): repair beam, mend egg, emergency wall, reinforce
-(steel), dome recharge, interceptor, turret overdrive (`G.overdriveT`), freeze, repulsor, egg teleport,
-holy shield (`G.eggInvulnT`), barrier fusion, golem, drones, tar pit / lightning rod / shockwave trap
-(`guardField`), smoke, rebuild (`BARS.destroyed`), last stand. castOK only accepts GUARD casts from
-`G.egg.def`. Test: scratch `guard.mjs`.
+The old build-phase protection bar (DEFENSES) and the attack-phase GUARD kit were replaced by ONE kit the defender uses
+in both phases (`GUARD`, `f_*` ids; module "the defender's kit" inside PROTECTION, before WORLD). `guardActive()` is
+true for the defender in build and attack; the Skills bar, keys (`guardKeyDown`/`guardKeyUp`), aiming
+(`updateTargeting`) and clicks (`actionDown` -> `fortRocket`, the rocket launcher) all follow it. Casts are checked by
+`fortOK` (host; counts per round in `G.egg.left2`, `inside` placements, ultimates attack-only + once), replayed in both
+phases. Powers: 1 dome layers (`G.domeLayers`, up to 4; `G.dome` is the outermost alive one; `hurtDome` promotes the
+next), 2 lasers / 3 missile batteries / 4 tesla coils (`fortDevice`: static DEFENSES bodies with hp in
+`FORT.devices`; batteries also hunt BX bombs in `fortSams`; coils cancel Pain casts near them via `fortBlocksPain` in
+`runPain`), 5 lava ring (`LAVA`, kills), 6 drones, 7 angel / 8 devil / 18 dragon / 19 sorceress (`FORT.spirits`,
+`spiritsFrame`; the sorceress makes `fortShielded()` true inside the area: forEachObject, liftProp, knock and kickCores
+skip it), 9-12 rings (`fortRing`: brick, steel, energy, reflective; a new type goes one ring further out, the same type
+again merges into every segment = taller and stronger; segments are BARS records), 13 reflective roof / 14 teleport
+roof (`FORT.roofs`, `fortReflect` in `updateBombs`: bounce or swallow into `FORT.store`), 15 teleport-out gun (burst
+scales with the stored count), 16 cosmic stars (`fortDurability()` divides damage to egg, walls, devices), 17 chained
+golems (outside the lava, 12 m chain), 20 repair. Ultimates: B swarm (hold to charge 5-100, `FORT.minions`; getting hit
+while charging loses it and waits 10 s, `fortHurtHook`), N God's hand (`fortGod`: sweeps once around, throws people to
+the map edge).
+Arena: `AREA_R` 25 (twice the old 12.4 ring; attackers are booted out, the defender is booted back in), river
+`RIVER` 25.6-30.2 carved into the terrain by `genTerrain` in Alpha Mode (falling in drowns, `fortFrame`), props and
+animals are kept out of the arena. The egg has health (`G.eggHP`, host-authoritative, sent as `h` in `eg`; `eggHit`,
+bar over the egg); in Alpha Mode `breakEgg` becomes a 40 damage hit unless `G.eggForce`, blasts in kill range call
+`eggHit`, and the egg is firm (blasts and pushes skip its body). The old Protection barrier types (`BAR_TYPES`, BARS,
+`barrierFrame`) are reused by the rings; BAR_TYPES gained `brick` and `mirror`.
 
 ## Network checks (castOK)
 
