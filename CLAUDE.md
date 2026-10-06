@@ -150,18 +150,21 @@ magnet, cargo, big red button) were removed; `flyCarpet` stays (sword surf, eagl
 for them; `castOK` enforces charge + once per round on the host (`G.hostUlt`). The Skills bar shows the charge seconds,
 then glows (`.ultready`), then USED. Powers with `fixed:true` keep their cooldown even when cooldowns are off.
 
-**Swordsman** (module "SWORDSMAN", after the Bomber): `s_*` ids in `SWORD`; click = 3-hit combo
-(`swordSwing`, `SW.combo`), 19 powers on 1-0 / Q R F G T Z X C V, ultimate World Severance on B.
-Charged powers (Gate of Babylon, World Splitter) use `SW.charge` (key down/up). Melee hits are
-victim-side cones/spheres (`swordHit`, `swordArea`); `cutProjectiles` deletes bombs/shots/rods.
-Per-character state in `C.sw` (blade buff, orbiting blades, mirror copies); the sword in hand is
-`setHandSword` (others see it via 'st' flag bit 16). Hidden follow-ups: s_orbitx, s_prisonx, s_surfx,
-s_counterx, s_ldash. Perfect Counter hooks `hurt()` (`P.parryT` -> `parried`). Blade Surfing reuses
-the carpet (`P.carpet.type === 'sword'`). **World Severance** no longer cuts the ground (the user wants
-an indestructible ground): the strike calls `severScar` (WORLD module), a glowing ribbon along the cut that
-cools over 9 s, destroys props on the line and throws everything away from it. `severWorld`, `G.splits`,
-`inVoid` and `voidSteer` remain but nothing creates splits now. Once per player per round
-(`G.severUsed`, host-checked); a new round regenerates the terrain.
+**Swordsman** (module "SWORDSMAN", after the Bomber; rebuilt 2026-10-06 to the user's list): `s_*` ids in `SWORD`.
+Click = six combos that run in order and loop (`SW_COMBOS`: Crescent, Whirlwind, Rising Dragon, Piercing Fang, Cross
+Cut, Storm Flurry; `SW.set`/`SW.step`, cast `s_slash` {k: set*10 + step}; arm poses 0-5 in `swordAnim`). 1 Heaven's
+Blade (sinks, then shatters), 2 Rain of Swords (magic cloud, merged sword meshes `swordOne`), 3 Gate of Babylon (hold,
+no limit: `babylonN`, local gate preview while charging, camera pulls back via `G.camZoomUntil`/`G.camZoomK`),
+4 Titan Slash (flat giant sword, one full turn, trail via drawRange), 5 Chain Cut (hold to count to 100, `chainCount`;
+blinks between up to 12 targets), 6 Splitter (`kind:'cut'`: `cutIndicator` shows the line, 6 again toggles standing/flat
+`SW.cutMode`; `sCut` splits props, objects and dummies into two physics halves with clipping planes (`splitMesh`,
+`piecesFrame` keeps each plane on its piece; `renderer.localClippingEnabled`), kills animals/Swarm, 150 to players on
+the line), 7 Mihawk's Plunge (`yoruMesh`, `C.fly`, `P.sitT` sitting pose), 8 Astral Sword (`C.sw.astral`, guards and
+attacks for 25 s, cuts projectiles near you), 9 Sword Trap (cages up to 6 enemies inside the circle, `SW.traps`).
+Ultimates: B World Severance (the giant sword sweeps along the line and `severWorld` really cuts the map: halves slide
+apart around a bottomless void, `G.splits`/`inVoid`/`voidSteer`; falling in kills), N Excalibur (`sExcal`: light pillar,
+then a 130 m golden wave). Removed: radial, flame/lightning swords, quickdraw, anime finisher, moon cleaver, orbiting
+blades, prison, mirrors, surfing, black hole blade, execution line, perfect counter, storm, world splitter.
 
 **Summoner** (module "SUMMONER", after the Swordsman): `u_*` ids in `SUMMON`; click = Command
 (`u_cmd`: every summon you own uses its signature move at the crosshair, `cmdPoint`), 20 animals on
