@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-06.17';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-06.18';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -4874,17 +4874,23 @@ const PAIN_SKILLS = {
   p_levitate:  {name:'Levitation', e:'🎈', key:'F', kind:'holdkey', cd:6},
   p_pull:      {name:'Pull Everything', e:'🧲', key:'Q', kind:'charge', cd:6},
   p_link:      {name:'Gravity Link', e:'⛓️', key:'X', kind:'link', cd:.5},
+  p_circ:      {name:'Falling Circuit', e:'➰', key:'G', kind:'circ', cd:.25},
   p_boulder:   {name:'Bansho Ten\'in', e:'🪨', key:'C', kind:'hold', cd:1},
   p_vortex:    {name:'Gravity Vortex', e:'🌀', key:'V', kind:'now', cd:18},   // with Planetary Orbit folded in: rocks torn from the ground join the storm
   p_almighty:  {name:'Almighty Push', e:'💥', key:'B', kind:'now', ult:true, cd:0},
   p_cata:      {name:'Catastrophic Chibaku', e:'🌕', key:'N', kind:'aim', ult:true, cd:0, range:60, r:9},
+  p_wring:     {name:'World Wring', e:'🌪️', key:'M', kind:'aim', ult:true, cd:0, range:90, r:30},
+  p_zerog:     {name:'Zero Gravity', e:'🌌', key:'Z', kind:'now', ult:true, cd:0},
   p_gdash:     {name:'Gravity Dash', e:'💨', key:'⇧⇧', kind:'move', cd:1, hide:true},     // Shift x2
   p_gjump:     {name:'Gravity Jump', e:'⤴️', key:'␣␣', kind:'move', cd:2.2, hide:true},   // Space x2 in the air
   p_throw:     {name:'Throw', e:'🫳', hide:true, cd:0},
   p_boulderx:  {name:'Bansho Ten\'in release', e:'🪨', hide:true, cd:0},
   p_levitatex: {name:'Levitation ends', e:'🎈', hide:true, cd:0},
   p_shieldx:   {name:'Gravity Shield ends', e:'🔮', hide:true, cd:0},
-  p_linkx:     {name:'Gravity Link hurl', e:'⛓️', hide:true, cd:0}
+  p_linkx:     {name:'Gravity Link hurl', e:'⛓️', hide:true, cd:0},
+  p_circgo:    {name:'Falling Circuit run', e:'➰', hide:true, cd:0},
+  p_circx:     {name:'Falling Circuit break', e:'➰', hide:true, cd:0},
+  p_wringx:    {name:'World Wring release', e:'🌪️', hide:true, cd:0}
 };
 const PAIN_KEYS = {}; for (const id in PAIN_SKILLS) { const k = PAIN_SKILLS[id].key; if (k && k.length === 1 && /[0-9A-Z]/.test(k)) PAIN_KEYS[k.toLowerCase()] = id; }
 const PAIN_CFG = {
@@ -4908,7 +4914,7 @@ function skillDef(id){ return PAIN_SKILLS[id] || SPECIALS[id] || BOMBER[id] || S
 function cdFor(id){ { const d = skillDef(id); if (d && d.fixed) return d.cd; if (d && d.ult) return 0; } if (!G.cdOn) return 0;   // the match's cooldown setting covers every class (World Severance stays once per round)
   if (BOMBER[id]) return BOMBER[id].cd; if (SWORD[id]) return SWORD[id].cd; if (SUMMON[id]) return SUMMON[id].cd; if (NECRO_SK[id]) return NECRO_SK[id].cd; if (GUARD[id]) return GUARD[id].cd; return (PAIN_SKILLS[id] && PAIN_SKILLS[id].cd) || CD[id] || 3; }
 function painReset(){
-  PAIN.lev = {}; PAIN.vortex = {}; PAIN.shield = {}; PAIN.holdKeys = {}; PAIN.links = {};
+  PAIN.lev = {}; PAIN.vortex = {}; PAIN.shield = {}; PAIN.holdKeys = {}; PAIN.links = {}; PAIN.circ = {}; PAIN.wring = {}; PAIN.zeroG = null; zeroGStars(false);
   if (typeof TK !== 'undefined') { TK.holds = {}; TK.mine = null; TK.thrown = []; for (const k in BOULD) delete BOULD[k]; }
   PAIN.fx = []; PAIN.fields = []; PAIN.rods = []; PAIN.stuckRods = []; PAIN.regrow = []; PAIN.dummies = [];
   PAIN.cores = []; PAIN.orbits = {}; PAIN.shots = []; PAIN.charge = null; PAIN.aim = null; G.camZoomTgt = 1; if (PAIN.gRing) PAIN.gRing.visible = false;
@@ -5864,6 +5870,8 @@ function chargeRelease(key){
 function painKeyDown(id, k){
   const d = PAIN_SKILLS[id], P = localP(); if (!d || !P || P.alive === false || P.stun > 0 || P.lockT > 0) return;
   if (amDefender()) { cdToast2('🛡️ You defend: use your protection powers.'); return; }
+  if (id === 'p_wring' && PAIN.wring[G.localKey] && !PAIN.wring[G.localKey].released) { localCast('p_wringx', null, {}); return; }
+  if (d.kind === 'circ') { circuitKey(); return; }
   if (d.ult && !ultReady(id)) return;
   if (id === 'p_orbit' && PAIN.orbits[G.localKey] && !PAIN.orbits[G.localKey].fired) { localCast('p_orbit', G.targetPoint ? G.targetPoint.clone() : aimPoint(60), {fire:1}); G.targeting = null; marker.visible = false; renderTray(); return; }
   if (id === 'p_vortex' && PAIN.vortex[G.localKey] && !PAIN.vortex[G.localKey].fired) { localCast('p_vortex', G.targetPoint ? G.targetPoint.clone() : aimPoint(120), {fire:1}); G.targeting = null; marker.visible = false; renderTray(); return; }
@@ -5887,6 +5895,7 @@ function painUse(id){
   if (d.kind === 'move') { toast(id === 'p_gdash' ? '💨 Gravity Dash: double-tap Shift while moving (works sideways and backward).' : '⤴️ Gravity Jump: press Space again in the air.'); return; }
   if (d.kind === 'click') { toast('🫳 Telekinesis: Right-click something to pick it up, hold Click to charge the throw, release to throw.'); return; }
   if (d.kind === 'link') { linkKey(); return; }
+  if (d.kind === 'circ') { circuitKey(); return; }
   if (d.kind === 'holdkey') { toast(id === 'p_levitate' ? '🎈 Levitation: hold F. Everything around you floats while you hold it.' : '🔮 Gravity Shield: hold X (up to 5 s). Everything thrown at you bounces off.'); return; }
   if (d.ult && !ultReady(id)) return;
   if (id === 'p_orbit' && PAIN.orbits[G.localKey] && !PAIN.orbits[G.localKey].fired) { localCast('p_orbit', G.targetPoint ? G.targetPoint.clone() : aimPoint(60), {fire:1}); G.targeting = null; renderTray(); return; }
@@ -5998,6 +6007,8 @@ function tkGrabToggle(){
 // left-click: holding something = start charging the throw; a rock in the air = drop it
 function tkDown(){
   const me = localP(); if (!me || me.alive === false || me.stun > 0) return;
+  if (PAIN.wring[G.localKey] && !PAIN.wring[G.localKey].released) { localCast('p_wringx', null, {}); return; }
+  { const Ci = PAIN.circ[G.localKey]; if (Ci && !Ci.done && (Ci.running || Ci.pts.length >= 2)) { localCast(Ci.running ? 'p_circx' : 'p_circgo', null, {}); return; } }
   if (PAIN.links && PAIN.links[G.localKey] && !PAIN.links[G.localKey].hurled) { linkKey(); return; }
   if (boulderAir(G.localKey)) { localCast('p_boulderx', boulderAim(), {drop:1}); return; }
   if (TK.holds[G.localKey]) { TK.chargeT0 = performance.now()/1000; return; }
@@ -6194,6 +6205,7 @@ function painLink(x){
     if (L.rock && L.hurled && !L.arrived) { const r = L.rock, to = L.end.clone().sub(r.g.position), dist = to.length(); r.g.rotation.x += dt*3; if (dist < L.speed*dt + 1) { r.g.position.copy(L.end); linkArrive(L); } else r.g.position.addScaledVector(to, L.speed*dt/dist); }
     if (L.core && L.hurled && !L.arrived) { const to = L.end.clone().sub(L.core.g.position), dist = to.length(); if (dist < 3) linkArrive(L); else L.core.vel.copy(to.multiplyScalar(L.speed/dist)); }
     if (L.hurled && L.t - L.hurlT > 4) linkArrive(L);
+    else if (L.body && L.hurled && !L.arrived && L.t - L.hurlT > .35 && L.body.velocity.length() < 4) { L.end = V3(L.body.position.x, L.body.position.y, L.body.position.z); linkArrive(L); }   // something in the way: it hits there
     if (!L.hurled && L.t > 25 && key === G.localKey && !L.sent) { L.sent = true; localCast('p_linkx', linkEnd2(), {}); }   // let go on its own after a while
     if (Math.random() < .4) puff(A, 0xC9B8FF, .25);
     return true;
@@ -6231,6 +6243,236 @@ function linkEnd(L){
   if (L.body) delete L.body._link;
   if (L.rock && L.rock.phase === 'link' && !L.arrived) { L.rock.linked = false; L.rock.phase = 'air'; }
   if (PAIN.links[L.key] === L) delete PAIN.links[L.key];
+}
+
+/* ---------- NEW. Falling Circuit (G): mark up to 8 points in the air. Whatever is near the first point when the circuit
+   starts "falls" from point to point, faster with every step. Mark a point back on the first one to close the circuit: it
+   starts on its own and keeps them going round and round; G (or Click) breaks it and flings everything off at full speed.
+   An open circuit (Click to run it) throws them off the last point. ---------- */
+PAIN.circ = {};
+const CIRC_MAX = 8, CIRC_CATCH = 7;
+function circuitAim(){ const h = crosshairHit(); if (h && h.point && h.point.distanceTo(camera.position) < 55) return h.point.clone().add(V3(0, 1.6, 0)); const v = new THREE.Vector3(); camera.getWorldDirection(v); return camera.position.clone().addScaledVector(v, 25); }
+function circuitKey(){
+  const P = localP(); if (!P || P.alive === false || P.stun > 0) return;
+  const C = PAIN.circ[G.localKey];
+  if (C && !C.done && C.running) { localCast('p_circx', null, {}); return; }
+  if (C && !C.done && C.pts.length >= CIRC_MAX) { cdToast2(`➰ ${CIRC_MAX} points is the most. Click to run it, or mark the first point again to close it.`); return; }
+  if ((G.cd.p_circ || 0) > 0) return;
+  // the crosshair passes close to the first point: that closes the circuit (exactly on it)
+  if (C && !C.done && C.pts.length >= 3) { const v = new THREE.Vector3(); camera.getWorldDirection(v); const w = C.pts[0].clone().sub(camera.position), along = w.dot(v); if (along > 0 && w.addScaledVector(v, -along).length() < Math.max(3, along*.08)) { localCast('p_circ', C.pts[0].clone(), {}); return; } }
+  localCast('p_circ', circuitAim(), {});
+}
+function painCircuitPoint(p){
+  const {key, team} = casterInfo();
+  let C = PAIN.circ[key]; if (!C || C.done || C.running) { if (C && !C.done) circuitEnd(C); C = PAIN.circ[key] = {key, team, pts:[], nodes:[], lines:[], items:[], closed:false, running:false, t:0, idle:0}; circuitFrameStart(C); }
+  // back on the first point: the circuit closes and starts
+  if (C.pts.length >= 3 && p.distanceTo(C.pts[0]) < 4.5) { C.closed = true; circuitLine(C, C.pts[C.pts.length - 1], C.pts[0]); sfx('holy'); if (key === G.localKey) toast('➰ Circuit closed: round and round they go. G (or Click) breaks it.'); circuitStart(key); return; }
+  const q = V3(p.x, Math.max(p.y, groundH(p.x, p.z) + .8), p.z); C.pts.push(q); C.idle = 0;
+  const node = new THREE.Group(); node.position.copy(q);
+  node.add(new THREE.Mesh(new THREE.IcosahedronGeometry(.32, 1), addBlend(0xFFFFFF)));
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(.75, .06, 6, 24), addBlend(0x9D6BFF)); node.add(ring); node.userData.ring = ring;
+  if (C.pts.length === 1) { const cr = new THREE.Mesh(new THREE.TorusGeometry(CIRC_CATCH, .08, 6, 48), addBlend(0xC9B8FF)); cr.material.opacity = .35; cr.rotation.x = Math.PI/2; node.add(cr); node.userData.catch = cr; }
+  node.traverse(o => o.userData.noRay = true); roundGroup.add(node); C.nodes.push(node);
+  if (C.pts.length > 1) circuitLine(C, C.pts[C.pts.length - 2], q);
+  sfx('click'); sfx('grav'); warpPulse(q, 3, .3, .03);
+  if (key === G.localKey) toast(C.pts.length === 1 ? '➰ First point: whatever is in the ring falls along the circuit. Mark more points with G.' : `➰ Point ${C.pts.length}. Click to run it, or mark the first point again to close the loop.`);
+}
+function circuitLine(C, a, b){
+  const d = b.clone().sub(a), m = new THREE.Mesh(new THREE.BoxGeometry(.1, .1, 1), addBlend(0xC9B8FF)); m.material.opacity = .7;
+  m.position.copy(a).addScaledVector(d, .5); m.scale.z = d.length(); m.lookAt(b); m.userData.noRay = true; roundGroup.add(m); C.lines.push(m);
+}
+// catch everything near the first point and set it falling
+function circuitStart(key){
+  const C = PAIN.circ[key]; if (!C || C.done || C.running || C.pts.length < 2) return;
+  C.running = true; C.t = 0; const c0 = C.pts[0], team = C.team;
+  for (const pr of propsNear(c0, CIRC_CATCH*.8).slice(0, 8)) { const o = liftProp(pr, V3(0, 4, 0)); if (o) C.items.push({body:o.body, seg:0, speed:18}); }
+  for (const b of world.bodies) { if (b.mass === 0 || b.player || b._frozen || b._tk || gravityProof(b) || b.mass > 8000 || C.items.some(it => it.body === b)) continue; if (b.position.distanceTo(c0) < CIRC_CATCH || hdist(b.position, c0) < CIRC_CATCH*.7) C.items.push({body:b, seg:0, speed:18}); }
+  const P = victimFor(key, team); if (P && hdist(P.body.position, c0) < CIRC_CATCH && Math.abs(P.body.position.y - c0.y) < CIRC_CATCH + 2) C.items.push({player:P, seg:0, speed:18});
+  if (C.nodes[0] && C.nodes[0].userData.catch) C.nodes[0].userData.catch.visible = false;
+  sfx('pain'); sfx('grav');
+  if (key === G.localKey) toast(C.items.length ? `➰ ${C.items.length} caught in the circuit!` : '➰ Nothing was in the first ring.');
+  if (!C.items.length && !C.closed) circuitEnd(C);
+}
+function circuitPos(it){ return it.player ? it.player.body.position : it.body.position; }
+function circuitBreak(key){
+  const C = PAIN.circ[key]; if (!C || C.done) return;
+  if (C.running) for (const it of C.items) circuitLaunch(C, it);
+  sfx('shinra'); sfx('dash'); if (C.pts.length) warpPulse(C.pts[0], 10, .5, .06);
+  circuitEnd(C);
+}
+function circuitLaunch(C, it){
+  if (it.gone) return; it.gone = true;
+  const n = C.pts.length, to = C.pts[C.closed ? (it.seg + 1) % n : Math.min(n - 1, it.seg + 1)], from = C.pts[Math.min(n - 1, it.seg)], d = to.clone().sub(from).normalize(), sp = it.speed;
+  if (it.player) { const P = it.player; painHurt(P, 10 + sp*.3, C.key); knock(P, d.x*sp*.7, 8 + Math.max(0, d.y)*sp*.4, d.z*sp*.7, 1.1); return; }
+  const b = it.body; if (!b.world) return; if (b.wakeUp) b.wakeUp(); b.velocity.set(d.x*sp*1.1, d.y*sp*1.1 + 6, d.z*sp*1.1); spin(b, 6);
+  TK.thrown.push({b, owner:C.key, team:C.team, t:0, dmg:10 + sp*.4, R:1.5});
+}
+function circuitEnd(C){
+  if (C.done) return; C.done = true;
+  for (const m of C.nodes.concat(C.lines)) if (m.parent) m.parent.remove(m);
+  if (PAIN.circ[C.key] === C) delete PAIN.circ[C.key];
+}
+function circuitFrameStart(C){
+  // the pull along the circuit, every physics step: aim at the next point, faster at every point passed
+  PAIN.fields.push({apply(g){
+    if (C.done) { this.done = true; return; }
+    if (!C.running) return;
+    const n = C.pts.length;
+    for (const it of C.items) {
+      if (it.gone) continue;
+      const nextI = C.closed ? (it.seg + 1) % n : it.seg + 1;
+      if (nextI >= n) { circuitLaunch(C, it); continue; }   // an open circuit throws them off the last point
+      const b = it.player ? it.player.body : it.body; if (!b.world) { it.gone = true; continue; }
+      const to = C.pts[nextI], dx = to.x - b.position.x, dy = to.y - b.position.y, dz = to.z - b.position.z, dist = Math.hypot(dx, dy, dz) || .01;
+      if (dist < 1.3) { it.seg = nextI; it.speed = Math.min(85, it.speed*1.25 + 2); if (it.player) { painHurt(it.player, 2, C.key); it.player.stun = Math.max(it.player.stun, .4); } continue; }
+      b.force.y += g*b.mass; const k = it.player ? .35 : .25;
+      b.velocity.x = lerp(b.velocity.x, dx/dist*it.speed, k); b.velocity.y = lerp(b.velocity.y, dy/dist*it.speed, k); b.velocity.z = lerp(b.velocity.z, dz/dist*it.speed, k);
+      if (it.player) { b._onGround = false; it.player.pinT = .15; }
+    }
+    if (!C.closed && C.items.every(it => it.gone)) { C.running = false; circuitEnd(C); }
+  }});
+  PAIN.fx.push({owner:C.key, cancel(){ circuitEnd(C); }, update(dt){
+    if (C.done) return false;
+    C.t += dt; C.idle += dt;
+    C.nodes.forEach((nd, i) => { nd.userData.ring.rotation.x += dt*(2 + i); nd.userData.ring.rotation.y += dt*1.5; nd.scale.setScalar(1 + Math.sin(C.t*6 + i)*.1); });
+    C.lines.forEach(m => { m.material.opacity = C.running ? .55 + Math.sin(C.t*12)*.3 : .6; });
+    if (C.running) for (const it of C.items) if (!it.gone && Math.random() < .5) puff(circuitPos(it), 0xC9B8FF, .3);
+    if (C.key === G.localKey && !C.sent && ((C.running && C.closed && C.t > 15) || (!C.running && C.idle > 30))) { C.sent = true; localCast(C.running ? 'p_circx' : 'p_circgo', null, {}); if (!C.running) circuitEnd(C); }
+    return true;
+  }});
+}
+
+/* ---------- ULTIMATE 3. World Wring (M): a huge cylinder of bent gravity closes over the marked area and twists it like a
+   wet towel: everything inside is wound tighter and tighter around one axis and climbs it, cracking and splintering.
+   M again (or Click, or after 9 s) releases it: the wreckage is flung out in a colossal corkscrew. ---------- */
+PAIN.wring = {};
+const WRING_R = 30, WRING_T = 9;
+function painWring(p){
+  const {key, C, team} = casterInfo(); if (PAIN.wring[key] && !PAIN.wring[key].released) return;
+  const c = V3(p.x, groundH(p.x, p.z), p.z), W = PAIN.wring[key] = {key, team, c, t:0, k:0, released:false, caught:new Set(), uproot:propsNear(c, WRING_R).slice(0, 70), ui:0, crack:0};
+  // the twisting column: stacked rings that turn at different speeds, so it looks wrung
+  const g = new THREE.Group(); g.position.copy(c); roundGroup.add(g); W.g = g; W.rings = [];
+  for (let i = 0; i < 9; i++) { const r = new THREE.Mesh(new THREE.TorusGeometry(1, .035, 6, 64), addBlend(i % 2 ? 0x9D6BFF : 0xD9CCFF)); r.rotation.x = Math.PI/2; r.position.y = 2 + i*4.2; r.material.opacity = .55; g.add(r); W.rings.push(r); }
+  const wall = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 40, 48, 1, true), warpMaterial()); wall.position.y = 20; g.add(wall); W.wall = wall;
+  g.traverse(o => o.userData.noRay = true);
+  W.ground = groundRing(0x9D6BFF, .85, roundGroup); W.ground.set(c.x, c.z, WRING_R, .8);
+  SpaceWarp.add({pos:() => V3(c.x, c.y + 12, c.z), alive:() => !W.released, R:() => WRING_R*.8, s:() => .25 + W.k*.35});
+  tintSky(0x6A5A8A, WRING_T); sfx('rumble'); sfx('hole'); sfx('pain'); if (C) C.castPose = 1;
+  if (key === G.localKey) { G.targeting = null; marker.visible = false; renderTray(); toast('🌪️ WORLD WRING. M again (or Click) to release it.'); } else toast(`🌪️ ${C && C.name || 'Someone'} is wringing the world! Get out of the ring!`);
+  PAIN.fields.push({apply(g2){
+    if (W.released) { this.done = true; return; }
+    const k = W.k, w = 1.2 + 4.2*k;   // tighter and faster as it winds
+    for (const b of world.bodies) {
+      if (b.mass === 0 || b.player || b._frozen || b._tk || gravityProof(b)) continue;
+      const dx = b.position.x - c.x, dz = b.position.z - c.z, r = Math.hypot(dx, dz) || .01;
+      if (!W.caught.has(b)) { if (r > WRING_R || b.position.y - c.y > 45) continue; W.caught.add(b); if (b.wakeUp) b.wakeUp(); }
+      const rt = Math.max(2.5, r*(1 - .06*k)), tx = -dz/r, tz = dx/r, h = c.y + 2 + (b.id % 17)*2.2*k + 1.5;
+      b.force.y += g2*b.mass;
+      b.velocity.x = lerp(b.velocity.x, tx*w*Math.min(r, 14) + (rt - r)*dx/r*3, .15); b.velocity.z = lerp(b.velocity.z, tz*w*Math.min(r, 14) + (rt - r)*dz/r*3, .15); b.velocity.y = lerp(b.velocity.y, (h - b.position.y)*1.6, .1);
+      b.angularVelocity.y = lerp(b.angularVelocity.y, w*2, .05);
+    }
+    const A = bodyFor(key, team); if (A && A.harm) { const b = A.P.body, dx = b.position.x - c.x, dz = b.position.z - c.z, r = Math.hypot(dx, dz) || .01;
+      if (r < WRING_R) { W.me = true; const tx = -dz/r, tz = dx/r; b.force.y += g2*b.mass*.9; b.velocity.x = lerp(b.velocity.x, tx*w*Math.min(r, 12) - dx/r*4*k, .12); b.velocity.z = lerp(b.velocity.z, tz*w*Math.min(r, 12) - dz/r*4*k, .12); b.velocity.y = lerp(b.velocity.y, (c.y + 4 + 10*k - b.position.y)*1.4, .08); b._onGround = false; A.P.stun = Math.max(A.P.stun, .25); A.P.stars.visible = true; } }
+  }});
+  PAIN.fx.push({owner:key, cancel(){ wringRelease(key); }, update(dt){
+    if (W.released) return false;
+    W.t += dt; W.k = Math.min(1, W.t/5); const k = W.k;
+    // pull the land up into it: trees, rocks, ruins, a few at a time
+    while (W.ui < W.uproot.length && W.ui < W.t*9) { const pr = W.uproot[W.ui++]; const o = liftProp(pr, V3(rr(-3, 3), 6, rr(-3, 3))); if (o) W.caught.add(o.body); }
+    kickCores(cp => { const dx = cp.x - c.x, dz = cp.z - c.z, r = Math.hypot(dx, dz); return r < WRING_R ? V3(-dz, 0, dx).normalize().multiplyScalar(6 + 10*k).setY(3) : null; });
+    // the column winds tighter
+    W.rings.forEach((r, i) => { const rad = WRING_R*(1 - .82*k)*(1 - i*.03); r.scale.setScalar(rad); r.rotation.z += dt*(1 + k*6)*(i % 2 ? 1 : -1.3); r.rotation.y = Math.sin(W.t*2 + i)*.15*k; });
+    W.wall.scale.set(WRING_R*(1 - .8*k), 1, WRING_R*(1 - .8*k)); W.wall.rotation.y += dt*(1 + 5*k); W.wall.material.uniforms.t.value = W.t*3; W.wall.material.uniforms.a.value = .25 + .4*k;
+    W.ground.material.opacity = .55 + Math.sin(W.t*8)*.25;
+    // under the pressure everything cracks: props split, wreckage flies off it, anyone inside is crushed
+    W.crack -= dt; if (W.crack <= 0) { W.crack = .35;
+      damageProps(V3(c.x, c.y + 2, c.z), WRING_R*(1 - .5*k), 120 + 300*k); summonsTakeArea(V3(c.x, c.y + 6, c.z), WRING_R*(1 - .6*k), 10 + 25*k, key, team);
+      const list = [...W.caught]; for (let i = 0; i < 3 && list.length; i++) { const b = list[Math.floor(Math.random()*list.length)]; if (b.world) debris(V3(b.position.x, b.position.y, b.position.z), 5, [0x7E5433, 0x6B5A4E, 0x9AA3AD, 0x3A2A22]); }
+      if (k > .3) sfx(Math.random() < .5 ? 'crack' : 'thud');
+      const A = bodyFor(key, team); if (A && A.harm && W.me) painHurt(A.P, 3 + 6*k, key);
+      PAIN.dummies.forEach(dm => { if (!dm.dead && hdist(dm.body.position, c) < WRING_R) dummyHit(dm.body, 4 + 8*k); });
+      if (eggOn() && egg && egg.alive && eggAuth() && hdist(egg.body.position, c) < WRING_R) eggHit(2 + 5*k, 'wring');
+    }
+    shakeAt(c, .3 + .9*k, 200);
+    if (W.t > WRING_T && key === G.localKey && !W.sent) { W.sent = true; localCast('p_wringx', null, {}); }
+    return true;
+  }});
+}
+function wringRelease(key){
+  const W = PAIN.wring[key]; if (!W || W.released) return; W.released = true;
+  const c = W.c, k = Math.max(.3, W.k), team = W.team;
+  // the corkscrew: everything flies out turning, up and away
+  for (const b of W.caught) { if (!b.world) continue; const dx = b.position.x - c.x, dz = b.position.z - c.z, r = Math.hypot(dx, dz) || .01, tx = -dz/r, tz = dx/r, sp = 22 + 30*k;
+    if (b.wakeUp) b.wakeUp(); b.velocity.set(tx*sp + dx/r*sp*.9, 10 + 18*k + Math.random()*8, tz*sp + dz/r*sp*.9); spin(b, 8); TK.thrown.push({b, owner:key, team, t:0, dmg:14 + 20*k, R:1.6}); }
+  const A = bodyFor(key, team); if (A && A.harm) { const b = A.P.body, dx = b.position.x - c.x, dz = b.position.z - c.z, r = Math.hypot(dx, dz) || .01; if (r < WRING_R + 4) { const tx = -dz/r, tz = dx/r, f = 1 - Math.min(1, r/(WRING_R + 4))*.5; painHurt(A.P, (30 + 40*k)*f, key); knock(A.P, (tx + dx/r)*24*f, 14*f, (tz + dz/r)*24*f, 1.2); } }
+  PAIN.dummies.forEach(dm => { if (!dm.dead && hdist(dm.body.position, c) < WRING_R + 4) dummyHit(dm.body, 40 + 40*k); });
+  if (eggOn() && egg && egg.alive && eggAuth() && hdist(egg.body.position, c) < WRING_R) eggHit(30 + 40*k, 'wring');
+  damageProps(V3(c.x, c.y + 1, c.z), WRING_R, 600 + 900*k); summonsTakeArea(V3(c.x, c.y + 3, c.z), WRING_R + 4, 60 + 60*k, key, team);
+  kickCores(cp => { const dx = cp.x - c.x, dz = cp.z - c.z, r = Math.hypot(dx, dz); return r < WRING_R + 10 ? V3(-dz + dx, 0, dx + dz).normalize().multiplyScalar(30).setY(14) : null; });
+  // a spiral of shock rings climbing the axis, then one wide one on the ground
+  for (let i = 0; i < 7; i++) setTimeout(() => { const a = i*.9, q = V3(c.x + Math.cos(a)*4, c.y + 2 + i*4, c.z + Math.sin(a)*4); shockRing(q, 10 + i*4, .5, i % 2 ? 0x9D6BFF : 0xD9CCFF); }, i*70);
+  shockRing(c, WRING_R*2.2, 1, 0xC9B8FF); warpPulse(V3(c.x, c.y + 10, c.z), WRING_R*2, 1, .1); flash(.6, 1); shakeAt(c, 2.5, 300);
+  sfx('shinra'); sfx('boom'); setTimeout(() => sfx('boom'), 150); sfx('wind');
+  if (W.g && W.g.parent) W.g.parent.remove(W.g); if (W.ground) W.ground.kill();
+  setTimeout(() => { if (PAIN.wring[key] === W) delete PAIN.wring[key]; }, 100);
+}
+
+/* ---------- ULTIMATE 4. Zero Gravity (Z): for 15 seconds there is no gravity for people. Everyone else floats up off the
+   ground and drifts helplessly (they can barely paddle); the caster flies freely through it: WASD where you look, Space up. Things, items and everything of the defense stay as they are, and so do the defenders. Each screen moves its
+   own player (P.carpet type 'zerog' / 'float'). ---------- */
+const ZEROG_T = 15;
+function painZeroG(){
+  const {key, C} = casterInfo(), until = G.t + ZEROG_T;
+  PAIN.zeroG = {key, until};
+  const me = localP();
+  if (me && me.alive !== false) {
+    if (G.localKey === key) { me.carpet = {type:'zerog', t:0, dur:ZEROG_T}; me.body.velocity.y = Math.max(me.body.velocity.y, 5); toast('🌌 ZERO GRAVITY. Fly: WASD where you look (look down to go down), Space up.'); }
+    else if (!(eggOn() && isDef(G.localKey))) { me.carpet = {type:'float', t:0, dur:ZEROG_T, spin:rr(-1, 1)}; me.body.velocity.y = 2.2; toast('🌌 Zero gravity! You are floating.'); }
+  }
+  zeroGStars(true); tintSky(0x15122A, ZEROG_T); sfx('holy'); sfx('grav'); warpPulse(C ? V3(C.body.position.x, C.body.position.y, C.body.position.z) : V3(0, 0, 0), 60, 1.2, .06); flash(.3, .5);
+  PAIN.fx.push({owner:key, cancel(){ zeroGEnd(); }, update(){
+    if (!PAIN.zeroG || G.t >= PAIN.zeroG.until) { zeroGEnd(); return false; }
+    // the floaters on every screen slowly tumble
+    for (const k in chars) { const P = chars[k]; if (!P || k === key || P.alive === false || (eggOn() && isDef(k))) continue; P.rig.rotation.z = Math.sin(G.t*.9 + k.length)*.35; P.rig.rotation.x = Math.sin(G.t*.6 + k.length*2)*.25; }
+    return true;
+  }});
+}
+function zeroGEnd(){
+  if (!PAIN.zeroG) return; const key = PAIN.zeroG.key; PAIN.zeroG = null; zeroGStars(false);
+  for (const k in chars) { const P = chars[k]; if (P && P.rig && k !== key) { P.rig.rotation.z = 0; P.rig.rotation.x = 0; } }
+  const me = localP(); if (me && me.carpet && (me.carpet.type === 'zerog' || me.carpet.type === 'float')) me.carpet = null;
+  sfx('thud');
+}
+function zeroGMove(P, c, dt, input){
+  const b = P.body;
+  if (c.t > c.dur || !PAIN.zeroG) { P.carpet = null; return; }
+  let mx = 0, mz = 0; if (input) { mx = input.x; mz = input.z; }
+  const cp = Math.cos(G.pitch), f = V3(Math.sin(G.yaw)*cp, Math.sin(G.pitch), Math.cos(G.yaw)*cp), r = V3(-Math.cos(G.yaw), 0, Math.sin(G.yaw));
+  const upDown = keys[' '] ? 1 : 0; if (input && G.jumpQ > 0) G.jumpQ = 0;
+  if (c.type === 'zerog') {
+    // free flight in the direction you look
+    const sp = 20, v = f.multiplyScalar(mz).addScaledVector(r, mx).add(V3(0, upDown, 0)); if (v.lengthSq() > 1) v.normalize();
+    b.velocity.x = lerp(b.velocity.x, v.x*sp, .1); b.velocity.y = lerp(b.velocity.y, v.y*sp, .1); b.velocity.z = lerp(b.velocity.z, v.z*sp, .1);
+    if (b.position.y > 90) b.velocity.y = Math.min(0, b.velocity.y);
+    if (Math.hypot(mx, mz) > .1) P.moveFace = Math.atan2(v.x, v.z);
+  } else {
+    // floating: no gravity, a little paddling, slow drift
+    b.velocity.x = lerp(b.velocity.x, (f.x*mz + r.x*mx)*2.5, .02); b.velocity.z = lerp(b.velocity.z, (f.z*mz + r.z*mx)*2.5, .02);
+    b.velocity.y = lerp(b.velocity.y, .6 + upDown*1.2 + Math.sin(c.t*1.3)*.4, .02);
+    if (b.position.y - groundH(b.position.x, b.position.z) > 25) b.velocity.y = Math.min(b.velocity.y, 0);
+  }
+  b.velocity.y += 9.82*dt;   // cancel this step's gravity
+  b._onGround = false; P.moving = false; P.naruto = false;
+}
+// a field of stars all around the camera while it lasts (local)
+let ZG_STARS = null;
+function zeroGStars(on){
+  if (!on) { if (ZG_STARS) ZG_STARS.visible = false; return; }
+  if (!ZG_STARS) { const n = 500, pos = new Float32Array(n*3); for (let i = 0; i < n; i++) { const v = V3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).normalize().multiplyScalar(rr(25, 70)); pos.set([v.x, v.y, v.z], i*3); }
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    ZG_STARS = new THREE.Points(geo, new THREE.PointsMaterial({color:0xEDE6FF, size:.35, transparent:true, opacity:.85, depthWrite:false})); ZG_STARS.frustumCulled = false; ZG_STARS.userData.noRay = true; scene.add(ZG_STARS);
+    ZG_STARS.onBeforeRender = () => { ZG_STARS.position.copy(camera.position); ZG_STARS.rotation.y += .0007; }; }
+  ZG_STARS.visible = true;
 }
 
 /* ---------- NEW. Gravity Shield: hold X (up to 5 s); a sphere of folded space around you throws everything that comes at
@@ -6446,7 +6688,7 @@ function coresMerge(){
 
 /* ---------- dispatch, per-frame update, forces, cancellation ---------- */
 function runPain(id, p, x){
-  if (!['p_gdash', 'p_gjump', 'p_throw', 'p_boulderx'].includes(id) && fortBlocksPain(id, p, casterInfo().key)) return;   // tesla coils, the sorceress
+  if (!['p_gdash', 'p_gjump', 'p_throw', 'p_boulderx', 'p_circgo', 'p_circx', 'p_wringx', 'p_linkx'].includes(id) && fortBlocksPain(id, p, casterInfo().key)) return;   // tesla coils, the sorceress
   const {C} = casterInfo();
   if (id === 'p_gdash') { runGravityDash(x); return; }
   if (id === 'p_gjump') { runGravityJump(); return; }
@@ -6458,6 +6700,9 @@ function runPain(id, p, x){
   if (id === 'p_levitatex') { painLevitateEnd(); return; }
   if (id === 'p_shieldx') { const S = PAIN.shield[casterInfo().key]; if (S) S.end = true; return; }
   if (id === 'p_linkx') { painLinkHurl(p); return; }
+  if (id === 'p_circgo') { circuitStart(casterInfo().key); return; }
+  if (id === 'p_circx') { circuitBreak(casterInfo().key); return; }
+  if (id === 'p_wringx') { wringRelease(casterInfo().key); return; }
   if (!fire) painCastFX(C);
   if (id === 'p_pull') painPull(x);
   else if (id === 'p_shinra') painShinraFront(x);
@@ -6469,6 +6714,9 @@ function runPain(id, p, x){
   else if (id === 'p_levitate') painLevitate(x);
   else if (id === 'p_shield') painShield();
   else if (id === 'p_link') painLink(x);
+  else if (id === 'p_circ' && p) painCircuitPoint(p);
+  else if (id === 'p_wring' && p) painWring(p);
+  else if (id === 'p_zerog') painZeroG();
   else if (id === 'p_linkx') painLinkHurl(p);
   else if (id === 'p_vortex') painVortex(p, x);
   else if (id === 'p_levitatex') painLevitateEnd();
@@ -6486,6 +6734,7 @@ function applyPainForces(){
   }
   for (const f of PAIN.fields) if (!f.done && f.apply) f.apply(g);
   tkForces(g);
+  if (PAIN.zeroG && G.t < PAIN.zeroG.until) for (const dm of PAIN.dummies) if (!dm.dead && !dm.animal) { const b = dm.body; if (b.sleepState === CANNON.Body.SLEEPING) b.wakeUp(); if (!dm.zgT || dm.zgT < PAIN.zeroG.until - ZEROG_T) { dm.zgT = G.t; b.velocity.y += 2.2; } b.force.y += g*b.mass*.98; b.velocity.x *= .995; b.velocity.z *= .995; if (b.velocity.y < .4 && b.position.y - groundH(b.position.x, b.position.z) < 2.5) b.velocity.y += .05; }
 }
 function painFrame(dt){
   const me = localP();
@@ -6502,13 +6751,13 @@ function painFrame(dt){
 // a player was knocked out: their ongoing channelled abilities stop on every screen
 function painOwnerDied(id){
   PAIN.fx.forEach(e => { if (e.owner === id && e.cancel) e.cancel(); });
-  tkRelease(id); if (BOULD[id]) boulderEnd(BOULD[id]); if (PAIN.lev[id]) PAIN.lev[id].end = true; if (PAIN.vortex[id]) PAIN.vortex[id].done = true; if (PAIN.shield[id]) PAIN.shield[id].end = true; if (PAIN.links && PAIN.links[id]) linkEnd(PAIN.links[id]);
+  tkRelease(id); if (BOULD[id]) boulderEnd(BOULD[id]); if (PAIN.lev[id]) PAIN.lev[id].end = true; if (PAIN.vortex[id]) PAIN.vortex[id].done = true; if (PAIN.shield[id]) PAIN.shield[id].end = true; if (PAIN.links && PAIN.links[id]) linkEnd(PAIN.links[id]); if (PAIN.circ[id]) circuitEnd(PAIN.circ[id]); if (PAIN.wring[id] && !PAIN.wring[id].released) wringRelease(id);
   if (id === G.localKey) { PAIN.charge = null; PAIN.aim = null; const P = localP(); if (P) { P.fly = null; P.warp = null; P.lockT = 0; P.floatT = 0; } }
 }
 function painHelp(){
   return '<b>Right-click</b> telekinesis: pick up anything, hold <b>Click</b> to charge the throw (no limit) · <b>Shift ×2</b> warp dash · <b>Space ×2</b> gravity jump<br>' +
     '<b>1</b>/<b>2</b> gravity from below/above (shows the ring; hold Click to charge, release) · hold <b>R</b> Shinra Tensei where you look · hold <b>T</b> Shinra Tensei all around · hold <b>F</b> levitation · hold <b>Q</b> pull everything<br>' +
-    '<b>X</b> gravity link: lock onto a rock, a tree, a crate, a Chibaku core or a Bansho Ten’in rock, aim, X (or Click) hurls it along the link · <b>C</b> Bansho Ten’in: every press sends another rock into the sky (hold for bigger), Click rains them all on the ring · <b>V</b> gravity vortex: rocks and everything around you orbit you (V again or Click to hurl it all) · <b>B</b> ULT Almighty Push · <b>N</b> ULT Catastrophic Chibaku';
+    '<b>X</b> gravity link: lock onto a rock, a tree, a crate, a Chibaku core or a Bansho Ten’in rock, aim, X (or Click) hurls it along the link · <b>C</b> Bansho Ten’in: every press sends another rock into the sky (hold for bigger), Click rains them all on the ring · <b>V</b> gravity vortex: rocks and everything around you orbit you (V again or Click to hurl it all) · <b>G</b> falling circuit: mark points in the air (back on the first one closes the loop), Click runs it, G breaks it · <b>B</b> ULT Almighty Push · <b>N</b> ULT Catastrophic Chibaku · <b>M</b> ULT World Wring (M again releases) · <b>Z</b> ULT Zero Gravity (everyone floats, you fly: WASD where you look, Space up)';
 }
 
 /* ---------- host-side cast validation (both modes) ----------
@@ -7362,6 +7611,7 @@ function bNuclear({key, team, yaw}, p){
 // the local player riding something (sword surf, eagle, steed, lich float): called from controlPlayer
 function flyCarpet(P, dt, input){
   const b = P.body, c = P.carpet; c.t += dt;
+  if (c.type === 'zerog' || c.type === 'float') { zeroGMove(P, c, dt, input); return; }
   if (c.type === 'lich') { if (input && G.jumpQ > 0) G.jumpQ = 0; if (c.t > c.dur) { P.carpet = null; return; } }   // the lich just floats
   else if (c.t > c.dur || (input && G.jumpQ > 0)) { G.jumpQ = 0; if (c.type === 'sword') { if (c.mesh && c.mesh.parent) c.mesh.parent.remove(c.mesh); P.carpet = null; } else if (c.type === 'eagle') localCast('u_eaglex', null, {}); else if (c.type === 'steed') localCast('n_steedx', null, {}); else { if (c.mesh && c.mesh.parent) c.mesh.parent.remove(c.mesh); P.carpet = null; } return; }
   let mx = 0, mz = 0; if (input) { mx = input.x; mz = input.z; }

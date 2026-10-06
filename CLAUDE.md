@@ -124,6 +124,18 @@ X is now Gravity Link (`p_link`/`p_linkx`, `painLink`, `PAIN.links`): X locks on
 the far end follows your crosshair (local), X again or Click hurls it straight along the link (`painLinkHurl`,
 `linkArrive`: Bansho rocks use `boulderImpact`, cores slam down, bodies hit like a boulder). The Gravity Shield code
 (`painShield`) is still there but off the bar.
+G Falling Circuit (`p_circ`, follow-ups `p_circgo` run / `p_circx` break; `PAIN.circ[key]`): G marks points in the air
+(`circuitAim`), aiming back near the first point closes the loop (`circuitKey` sends exactly pts[0]); starting catches
+everything within `CIRC_CATCH` of the first point (bodies, props via liftProp, the local victim) and a field drives each
+item point to point, x1.25 speed per point; open circuits throw them off the last point, G/Click breaks a closed loop
+(`circuitLaunch`, damage via TK.thrown / painHurt). Ultimates are now four: B Almighty Push, N Catastrophic Chibaku,
+M World Wring (`painWring`/`wringRelease`, `PAIN.wring`: a WRING_R 30 m cylinder winds every body and uprooted prop
+around its axis for up to WRING_T 9 s, crushing and splintering, M/Click releases a corkscrew blast) and Z Zero Gravity
+(`painZeroG`, `PAIN.zeroG`, 15 s: the caster gets P.carpet type 'zerog' = free 3D flight (WASD along the view, Space
+up), everyone else (not defenders) gets type 'float'; dummies float; objects and the defense are untouched; star field
+`zeroGStars`). Click priority in `tkDown`: wring release, circuit run/break, link hurl, Bansho drop, telekinesis.
+Camera (2026-10-06): PITCH_MAX 1.38 (look almost straight up; the boom shortens as you look up), obstacle pull-in eases
+(2e-6/s instead of a one-frame snap), the ground lift eases (`CAM.lift`) with a hard floor at ground + .25.
 Performance (2026-10-06): all `fx` particles draw through shared InstancedMeshes (`fxInstAdd`, one per geometry +
 lit/unlit; the particle's own mesh is detached), `puff`/`sparkle` share materials (`pmat`), Babylon gates share ring
 geometry/materials (`babRing`, `babMat`), every Bansho rock is one merged mesh (`boulderGeo`), and `propCull` hides prop
