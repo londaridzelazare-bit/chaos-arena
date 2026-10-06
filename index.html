@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-06.20';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-07.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -1479,14 +1479,48 @@ function grabNearest(P){
   if (!best) { toast('Nothing close enough to grab.'); return; }
   if (best.body.mass > 300) { toast(`Too heavy to lift (${Math.round(best.body.mass).toLocaleString()} kg).`); return; }
   if (best.parts) { toast('Grandma refuses to be carried. Kick her instead.'); return; }
-  P.carry = best;
-  world.removeBody(best.body);
-  best.body.velocity.set(0,0,0); best.body.angularVelocity.set(0,0,0);
-  sfx('grab');
+  if (G.pvp && P === localP()) { const q = best.body.position; localCast('w_grab', null, {ob:[+q.x.toFixed(2), +q.y.toFixed(2), +q.z.toFixed(2)]}); if (best.kind === 'egg') toast('You picked up the egg. Careful…'); return; }
+  carryTake(P, best);
   if (best.kind === 'egg') toast('You picked up the egg. Careful…');
 }
-function dropCarry(P, thrown){
-  const o = P.carry; if (!o) return; P.carry = null;
+function carryTake(P, o){
+  if (!o || o.dead || isCarried(o)) return;
+  P.carry = o; if (o.body.world) world.removeBody(o.body);
+  o.body.velocity.set(0,0,0); o.body.angularVelocity.set(0,0,0);
+  sfx('grab');
+}
+// every screen: the caster picks up whatever loose thing is at that spot
+function runGrab(x){
+  const {C} = casterInfo(); if (!C || !x || !Array.isArray(x.ob)) return;
+  const at = V3(x.ob[0], x.ob[1], x.ob[2]); let best = null, bd = 3;
+  for (const o of objs) { if (o.dead || isCarried(o) || !['item','proj','yolk','egg'].includes(o.kind)) continue; const d = o.body.position.distanceTo(at); if (d < bd) { bd = d; best = o; } }
+  if (C.carry) dropCarry(C, false, true);
+  carryTake(C, best);
+}
+// every screen: the caster lets go (x.th thrown) from the position and with the speed the caster's screen worked out
+function runDrop(x){
+  const {C} = casterInfo(); if (!C || !C.carry) return;
+  const o = C.carry; C.carry = null; if (o.dead) return;
+  const b = o.body; if (Array.isArray(x && x.p)) b.position.set(x.p[0], x.p[1], x.p[2]);
+  if (Array.isArray(x && x.v)) b.velocity.set(x.v[0], x.v[1], x.v[2]); else b.velocity.set(0, 0, 0);
+  if (x && x.th) { b.angularVelocity.set(rr(-3,3), rr(-3,3), rr(-3,3)); b.proj = true; o.thrownT = 1.2; sfx('fire'); } else { b.quaternion.setFromEuler(0, C.face, 0); sfx('place'); }
+  b.wakeUp && b.wakeUp(); world.addBody(b);
+  if (o.kind === 'egg') { egg.grace = x && x.th ? 0.15 : .6; }
+  if (G.phase === 'attack') { b.collisionFilterMask = -1 ^ GRP_CHAR; o.maskT = .35; }
+}
+function dropCarry(P, thrown, quiet){
+  const o = P.carry; if (!o) return;
+  // online, your own drops and throws go out as a cast (worked out here, replayed the same everywhere)
+  if (G.pvp && P === localP() && !quiet) {
+    if (o.dead) { P.carry = null; return; }
+    const pp0 = P.body.position, fx0 = Math.sin(P.face), fz0 = Math.cos(P.face); let pos, vel;
+    if (thrown) { const dir = new THREE.Vector3(); camera.getWorldDirection(dir); pos = [pp0.x + fx0*1.1, pp0.y + 1.9 + (o.bottom||.4), pp0.z + fz0*1.1]; const sp0 = 11*Math.max(.25, Math.sqrt(heft(o.body))); vel = [dir.x*sp0 + P.body.velocity.x*.5, Math.max(2.5, dir.y*sp0 + 3), dir.z*sp0 + P.body.velocity.z*.5]; }
+    else { pos = [pp0.x + fx0*1.2, pp0.y + (o.bottom||.4) + .15, pp0.z + fz0*1.2]; vel = [0, 0, 0]; }
+    localCast('w_drop', null, {th:thrown ? 1 : 0, p:pos.map(v => +v.toFixed(2)), v:vel.map(v => +v.toFixed(2))});
+    if (P.carry === o) P.carry = null;   // (a dead caster's cast is dropped: let go anyway)
+    return;
+  }
+  P.carry = null;
   if (o.dead) return;
   const b = o.body, pp = P.body.position;
   const fx = Math.sin(P.face), fz = Math.cos(P.face);
@@ -6790,19 +6824,19 @@ function castOK(c, m){
   if (m.s === 'u_kill') return typeof m.k === 'string' && m.k.startsWith('S' + m.id + ':');
   if (m.s === 'g_break') return false;   // only the host breaks barriers
   if (m.s === 'w_loot') return P.alive !== false && typeof m.i === 'number';   // picking up a potion (WILD)
+  if (m.s === 'w_grab' || m.s === 'w_drop') return m.s === 'w_drop' || Array.isArray(m.ob);   // carrying things (E)
   if (GUARD[m.s] && (!eggOn() || !isDef(m.id))) return false;   // the protector's kit is the defender's alone   // only for your own summons, even while dead
-  if (P.alive === false) return false;
   if (eggOn() && (G.egg.over || (isDef(m.id) && !['ki', 'b_bazooka', 's_slash', 'u_cmd', 'n_skull'].includes(m.s) && !GUARD[m.s]))) return false;   // the defender only shoots
   const def = m.s === 'ki' ? null : (BOMBER[m.s] || SWORD[m.s] || SUMMON[m.s] || NECRO_SK[m.s] || PAIN_SKILLS[m.s] || GUARD[m.s] || modeTable()[m.s]); if (m.s !== 'ki' && !def) return false;   // the mode's own kit or a class (anyone may switch class any time)
   // cast from where they actually are. Positions arrive ~15 times a second and can be late, so allow for how fast they
   // were moving and how old the last position is (knockbacks reach 50+ m/s), and for powers that teleport them
   const tNow = performance.now()/1000, age = P.netT ? tNow - P.netT : 0, spd = P.net ? Math.hypot(P.net.vx || 0, P.net.vz || 0) : 0;
   const tol = 16 + spd*Math.min(1.5, age + .4) + (P.warpUntil > tNow ? 60 : 0) + (age > .6 ? 80 : 0);
-  if (m.o && P.net && Math.hypot(m.o[0] - P.net.x, m.o[2] - P.net.z) > tol) return false;
+  if (m.o && P.net && Math.hypot(m.o[0] - P.net.x, m.o[2] - P.net.z) > tol*4 + 40) return false;   // only a cast from somewhere else entirely (lag must never hide a power)
   if (m.s === 'p_gdash') { if (m.e && (!Array.isArray(m.e) || !m.o || Math.hypot(m.e[0] - m.o[0], m.e[2] - m.o[2]) > WARP_DIST + 1.5)) return false; }
-  if (def && def.range && m.p && m.o && Math.hypot(m.p[0] - m.o[0], m.p[2] - m.o[2]) > def.range + 6) return false;
+  if (def && def.range && m.p && m.o && Math.hypot(m.p[0] - m.o[0], m.p[2] - m.o[2]) > def.range*1.5 + 20) return false;
   const now = performance.now()/1000;
-  const r = castRate[m.id] = (castRate[m.id] || []).filter(t => now - t < 1); if (r.length >= 14) return false;   // flood guard, even with cooldowns off
+  const r = castRate[m.id] = (castRate[m.id] || []).filter(t => now - t < 1); if (r.length >= 40) return false;   // flood guard, even with cooldowns off
   r.push(now);
   if (m.s === 'p_orbit' && m.fire) return !!(PAIN.orbits[m.id] && !PAIN.orbits[m.id].fired);
   const key = m.id + '|' + m.s, last = castLog[key], lts = castTs[key];
@@ -6812,7 +6846,7 @@ function castOK(c, m){
   const useTs = typeof m.ts === 'number' && lts != null && last && m.ts > lts && m.ts - lts <= now - last + 1.5;   // bursts are fine; a clock running ahead isn't
   const span = useTs ? m.ts - lts : now - (last || G.matchT0 || 0);
   // a charged cast can't claim more charge than the time since that player's last cast of it (or the match start)
-  if (m.c != null && (typeof m.c !== 'number' || !(m.c >= 0) || m.c > span + .6)) return false;
+  if (m.c != null && (typeof m.c !== 'number' || !(m.c >= 0) || m.c > span + 3)) return false;
   if (G.cdOn && m.s === 's_sever' && G.severUsed && G.severUsed[m.id]) return false;
   if (def && def.ult && G.cdOn) { const uk = m.id + '|' + m.s; G.hostUlt = G.hostUlt || {}; if (G.hostUlt[uk] || now - (G.hostUltT0 || G.matchT0 || 0) < ULT_CHARGE - 3) return false; G.hostUlt[uk] = true; }   // ultimates: charged, once per round
   if (G.cdOn && m.s === 'n_circles' && G.circlesUsed && G.circlesUsed[m.id]) return false;   // Nine Circles: once per round   // World Severance: once per round
@@ -11752,6 +11786,8 @@ addEventListener('keydown', e => {
 function runSkill(id, p, x){
   if (x && x.tp && p) teleSwallowFX(p);
   if (id === 'w_loot') { lootTaken(x); return; }
+  if (id === 'w_grab') { runGrab(x); return; }
+  if (id === 'w_drop') { runDrop(x); return; }
   if (id === 'ki') { kiBlast(p); return; }
   if (id === 'd_use' || id === 'd_place') { runDefense(id, p, x); return; }
   if (BOMBER[id]) { runBomber(id, p, x); return; }
@@ -11838,7 +11874,33 @@ function kiPop(o){
 }
 
 /* remote players: smooth movement from the network */
-function applyState(m){ const P = chars[m.id]; if (!P || !P.remote) return; P.net = m; P.netT = performance.now()/1000; if (m.gm) guidedNet(m.id, m.gm); if (m.pb) boulderNet(m.id, m.pb); }
+function applyState(m){ const P = chars[m.id]; if (!P || !P.remote) return; P.net = m; P.netT = performance.now()/1000; if (m.ch) P.netChT = G.t; if (m.gm) guidedNet(m.id, m.gm); if (m.pb) boulderNet(m.id, m.pb); }
+// what the local player is charging right now: [power id, seconds], for everyone else to see
+function chargeState(){
+  const now = performance.now()/1000;
+  if (PAIN.charge) return [PAIN.charge.id, +(now - PAIN.charge.t0).toFixed(1)];
+  if (SW.charge) return [SW.charge.id, +(now - SW.charge.t0).toFixed(1)];
+  if (TK.chargeT0 && TK.mine) return ['p_throw', +(now - TK.chargeT0).toFixed(1)];
+  if (BX.nade) return ['b_nade', +(now - BX.nade.t0).toFixed(1)];
+  return null;
+}
+// other players charging: a growing orb in their hand (and for the Gate of Babylon the gates opening behind them)
+const CH_COL = {pain:0x9D6BFF, sword:0xFFD84D, bomber:0xFF8A3A};
+function remoteChargeFX(){
+  for (const k in chars) {
+    const P = chars[k]; if (!P || !P.remote) continue;
+    const ch = P.alive !== false && P.netCh && G.t - (P.netChT || 0) < 1 ? P.netCh : null;
+    if (!ch) { if (P.chOrb) P.chOrb.visible = false; if (P.chGates) P.chGates.forEach(m => m.visible = false); continue; }
+    if (!P.chOrb) { const o = new THREE.Group(); o.add(new THREE.Mesh(new THREE.IcosahedronGeometry(.16, 2), new THREE.MeshBasicMaterial({color:0x07040C}))); const glow = new THREE.Mesh(new THREE.IcosahedronGeometry(.28, 2), bmat(0x9D6BFF, .55)); o.add(glow); o.userData.glow = glow; o.position.set(-.45, 1.35, .45); o.traverse(m => m.userData.noRay = true); P.root.add(o); P.chOrb = o; }
+    const secs = ch[1] || 0, col = CH_COL[P.cls] || 0xC9B8FF; P.chOrb.visible = true; P.chOrb.userData.glow.material.color.setHex(col); P.chOrb.scale.setScalar((1 + Math.log2(1 + secs)*.6)*(1 + Math.sin(G.t*20)*.05)); P.castPose = .2;
+    if (ch[0] === 's_babylon') {
+      const n = babylonN(secs), tier = babylonTier(secs), big = tier >= 1 ? 2 : 1, slots = babylonSlots(n), f = V3(Math.sin(P.face), 0, Math.cos(P.face)), side = V3(f.z, 0, -f.x), pos = P.root.position;
+      P.chGates = P.chGates || [];
+      while (P.chGates.length < n) { const m = new THREE.Mesh(babRing(.25, .62), babMat(0xFFD84D)); m.userData.noRay = true; roundGroup.add(m); P.chGates.push(m); }
+      P.chGates.forEach((m, i) => { if (i >= n) { m.visible = false; return; } const sl = slots[i]; m.visible = true; m.material = babMat(tier >= 4 ? 0xFFFFFF : BABYLON_COL[tier]); m.scale.setScalar(big); m.position.set(pos.x - f.x*sl.back*big + side.x*sl.x*big, pos.y + sl.y*big, pos.z - f.z*sl.back*big + side.z*sl.x*big); m.lookAt(m.position.clone().add(f)); m.rotation.z += G.t*3 + i; });
+    } else if (P.chGates) P.chGates.forEach(m => m.visible = false);
+  }
+}
 function updateRemotes(dt){
   for (const k in chars) {
     const P = chars[k]; if (!P || !P.remote || !P.net) continue;
@@ -11849,7 +11911,7 @@ function updateRemotes(dt){
     const far = Math.hypot(n.x - ox, n.z - oz) > 12;
     b.position.set(far ? n.x : lerp(ox, n.x + n.vx*.06, k2), far ? n.y : lerp(b.position.y, n.y, k2), far ? n.z : lerp(oz, n.z + n.vz*.06, k2));
     b.velocity.set(0,0,0);
-    P.netHs = Math.hypot(n.vx, n.vz); P.netFace = n.f; P.naruto = !!(n.fl & 1); P.grounded = !!(n.fl & 2); P.stars.visible = !!(n.fl & 8); P.cls = n.fl & 16 ? 'sword' : null; P.hidden = !!(n.fl & 32); P.hp = n.hp;
+    P.netHs = Math.hypot(n.vx, n.vz); P.netFace = n.f; P.naruto = !!(n.fl & 1); P.grounded = !!(n.fl & 2); P.stars.visible = !!(n.fl & 8); P.cls = typeof n.cl === 'string' ? n.cl : n.fl & 16 ? 'sword' : null; P.netCh = Array.isArray(n.ch) ? n.ch : null; P.hidden = !!(n.fl & 32); P.hp = n.hp;
   }
 }
 
@@ -12112,7 +12174,7 @@ function netTick(dt){
   if (!NET.peer || !G.pvp || !(G.phase === 'attack' || G.phase === 'build')) return;
   NET.sendT -= dt; if (NET.sendT > 0) return; NET.sendT = 1/15;
   const P = localP(); if (!P) return; const b = P.body;
-  netSend({t:'st', id:G.localKey, x:+b.position.x.toFixed(2), y:+b.position.y.toFixed(2), z:+b.position.z.toFixed(2), f:+P.face.toFixed(2), vx:+b.velocity.x.toFixed(1), vz:+b.velocity.z.toFixed(1), fl:(P.naruto ? 1 : 0) | (P.grounded ? 2 : 0) | (P.dashT > 0 ? 4 : 0) | (P.stun > 0 ? 8 : 0) | (G.cls === 'sword' ? 16 : 0) | (G.hiddenUntil > G.t ? 32 : 0), hp:Math.round(P.hp), al:P.alive === false ? 0 : 1, ...(BX.guided[G.localKey] ? {gm:guidedState()} : {}), ...(boulderAir(G.localKey) ? {pb:boulderState()} : {})});
+  netSend({t:'st', cl:G.cls, ...(chargeState() ? {ch:chargeState()} : {}), id:G.localKey, x:+b.position.x.toFixed(2), y:+b.position.y.toFixed(2), z:+b.position.z.toFixed(2), f:+P.face.toFixed(2), vx:+b.velocity.x.toFixed(1), vz:+b.velocity.z.toFixed(1), fl:(P.naruto ? 1 : 0) | (P.grounded ? 2 : 0) | (P.dashT > 0 ? 4 : 0) | (P.stun > 0 ? 8 : 0) | (G.cls === 'sword' ? 16 : 0) | (G.hiddenUntil > G.t ? 32 : 0), hp:Math.round(P.hp), al:P.alive === false ? 0 : 1, ...(BX.guided[G.localKey] ? {gm:guidedState()} : {}), ...(boulderAir(G.localKey) ? {pb:boulderState()} : {})});
 }
 
 /* ---------- menus and HUD ---------- */
@@ -12214,7 +12276,7 @@ function pvpFrame(rdt){
   for (const k in G.cd) G.cd[k] = Math.max(0, G.cd[k] - rdt);
   G.kiCd = Math.max(0, (G.kiCd || 0) - rdt); G.spawnShield = Math.max(0, (G.spawnShield || 0) - rdt);
   G.cdUiT = (G.cdUiT || 0) - rdt; if (G.cdUiT <= 0) { G.cdUiT = .1; updateCooldownUI(); }
-  updateRemotes(rdt); netTick(rdt); updateEnemyFinder(); eggFrame(rdt);
+  updateRemotes(rdt); remoteChargeFX(); netTick(rdt); updateEnemyFinder(); eggFrame(rdt);
   const P = localP();
   if (P && P.alive === false && G.phase === 'attack') { P.deadT -= rdt; $('respawnT').textContent = Math.max(1, Math.ceil(P.deadT)); if (P.deadT <= 0) respawn(P); }
   if (P && P.alive && P.hp < 100 && G.phase === 'attack') { P.regenWait = (P.regenWait || 0) + rdt; }
