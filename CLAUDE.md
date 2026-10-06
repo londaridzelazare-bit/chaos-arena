@@ -119,6 +119,15 @@ charges show a terrain-hugging ring (`groundRing`, drawn through hills) with no 
 in the sky down over it (sunflower spread, `boulderSlot`). Levitation's area follows you and grows while F is held
 (`L.R`, visible ring + faint wall); levitating bodies are tagged `_levT` and the Gravity Vortex pulls them in from any
 distance (`_vxT` marks the vortex's bodies so Levitation lets go). The vortex no longer makes dust.
+X is now Gravity Link (`p_link`/`p_linkx`, `painLink`, `PAIN.links`): X locks onto a loose body, a prop (lifted with
+`liftProp`), a Chibaku core or one of your Bansho rocks in the sky (`linkPick` ids K/O/R/B, `linkResolve`); it hovers,
+the far end follows your crosshair (local), X again or Click hurls it straight along the link (`painLinkHurl`,
+`linkArrive`: Bansho rocks use `boulderImpact`, cores slam down, bodies hit like a boulder). The Gravity Shield code
+(`painShield`) is still there but off the bar.
+Performance (2026-10-06): all `fx` particles draw through shared InstancedMeshes (`fxInstAdd`, one per geometry +
+lit/unlit; the particle's own mesh is detached), `puff`/`sparkle` share materials (`pmat`), Babylon gates share ring
+geometry/materials (`babRing`, `babMat`), every Bansho rock is one merged mesh (`boulderGeo`), and `propCull` hides prop
+outlines past `OUTLINE_FAR` (55 m; outlines were half of all draw calls). Measured: ~25-30% fewer draw calls.
 
 ## Networking (peer-to-peer, no server)
 
@@ -326,6 +335,14 @@ too). `#comboBar` shows [icon] + [icon] + ?, the combo name and "Can combine"; `
 Skills bar. Test: scratch `combo.mjs` (real key presses).
 
 ## Defender kit (Alpha Mode) — rebuilt 2026-10-06
+
+Roles (2026-10-06): up to `MAX_DEFS` (2) players defend at once (`G.egg.defs`, `isDef(id)`, `defIds()`; `G.egg.def` is
+just the first defender, for names). Anyone switches any time with Y or the button (`eggSwitchRole` -> host `eggRole`,
+message `erole`; team blue = defending, red = attacking). Building ends when every defender pressed Ready (`eggReady`,
+`edone` -> host, `erdy` to everyone; `eggCheckReady` also starts the fight when nobody defends). Things the fort makes
+belong to `FORT_OWNER` ('fort', team blue), so every defender is safe from them; "not the defender's" checks use
+`!isDef(owner)`. Defender points go to every defender. The egg ignores gravity powers while the angel, devil or
+sorceress lives (`eggGuarded`, `gravityProof(body)` in the Pain loops that touch bodies directly).
 
 Everything the defender summons can be hurt and shows a health bar (2026-10-06): `fortUnits()` lists drones (hp 60),
 spirits (`SPIRIT_HP`: angel, devil, dragon, sorceress), golems, swarm minions and devices; `fortUnitsTakeArea` (called
