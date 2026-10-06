@@ -55,11 +55,15 @@ PeerJS 1.5.4 is inlined in a `<script>` block near the top.
 
 ## Game modes
 
-`G.mode` is `'egg'` (the default), `'chaos'` (the original 31 skills, `SPECIALS`) or `'pain'`
-(gravity powers, `PAIN_SKILLS`). Picked on the title screen (`ME.mode`, localStorage key `ca-mode2`);
-the host's choice travels as `NET.mode` in `lobby`/`start` messages and can be switched in the lobby.
-`startMatch(seed, list, score, mode, cdOn, eg)`. `skillTable()` / `skillDef()` return the active table;
-tray, keys (`PAIN_KEYS`), cooldowns all follow it.
+`G.mode` is `'egg'` (shown to players as **Alpha Mode**, the default) or `'chaos'` (team deathmatch). Pain mode and
+Swarm mode were removed from the title screen on 2026-10-06 (`normMode` maps anything else to 'egg'); their code is
+still there (`isPain()` is now always false, Swarm is unreachable). In Alpha Mode the Chaos (native) and Summoner
+classes are hidden (`classCycle`); `startMatch` moves you to the first allowed class.
+Picked on the title screen (`ME.mode`, localStorage key `ca-mode2`); the host's choice travels as `NET.mode` in
+`lobby`/`start` messages and can be switched in the lobby. `startMatch(seed, list, score, mode, cdOn, eg)`.
+
+**Giant Boot** (`bootKick`, next to `keepInBounds`): the local player touching the map edge, or an attacker touching
+the egg ring in Alpha Mode, gets kicked back 30 m by a boot that swings in from behind (`P.bootSpin` flips the rig).
 
 **Egg mode** (module "EGG MODE (online)", right before the Pain module): the old hotseat Egg Defense,
 online. Each round the host picks the next defender (`NET.eggOrder`, everyone defends once, late
@@ -77,40 +81,25 @@ egg held = defender + number of attackers. Field defenses that hit players (tesl
 mirror) use `eggFoe()`: the local player only if they're attacking (victim-side, like all damage).
 Practice alone in Egg mode: build for 60 s, then you attack your own defense.
 
-**Pain mode** (module "PAIN MODE" in index.html, right before `runSkill`): ids are prefixed `p_`
-and dispatched by `runPain()` from `runSkill()`. Tunables in `PAIN_CFG`. Shared systems:
-GravityForce (`radialPush`, `conePush`, `knock`), gravity fields (`PAIN.fields`, applied every
-physics step by `applyPainForces()` from `applyForces`), PhysicsObjectAttractor (`liftProp` turns
-props into debris objects and `regrowProps` puts them back after 40 s; `makeCore`/`attractorField`/
-`stickToCore`/`collapseCore` build the Chibaku masses with instanced rock chunks), timed phases in
-`PAIN.fx` (`update(dt)` returns false when done), and `SpaceWarp` (screen-space lens/shockwave pass,
-only renders through a texture while an entry is alive; `warpPulse` for one-off rings).
-- Terrain is indestructible in Pain mode (`craterAt` returns early). Props are uprooted, never deleted.
-- Damage/knockback stay victim-side like the rest of the game (`victimFor`, `painHurt`, no friendly fire).
-- Pull sends its target as `tg`; the warp dash sends its direction `d` and end point `e` (host rejects `e` farther than WARP_DIST).
-- `castOK()` (host) rejects casts with a spoofed id, unknown skill for the mode, broken cooldown,
-  out-of-range target or a teleported origin; `st`/`death` must come from the sender's own id.
-- Practice in Pain mode spawns training dummies (`PAIN.dummies`, physics objects with damage numbers).
-- Abilities owned by a player stop when they're knocked out (`painOwnerDied`).
-- Input kinds (`PAIN_SKILLS[id].kind`): `charge` (hold, release casts with `c` = seconds; Chakra Rod
-  `chargeMul` has no cap for any of them: rod +1x per second, both Shinra +0.5x per second; Shinra damage and reach use the full multiplier, knockback `shinraKick(m)` = m^0.55, at most `SHINRA_MAX_PROPS` props torn loose), `aimhold` (Pull: hold Q shows a lock-on via
-  `pickPullTarget`, release casts `{tg}`; no target = `pullEverything`), `aim` (red marker + click), `now`, `move` (dash/jump). Keyboard goes
-  through `painKeyDown`/`painKeyUp`, Skills-bar clicks through `painUse`.
-- Area gravity uses `bodyFor()` (moves the caster and allies too, `harm` only for enemies);
-  direct hits use `victimFor()`. Chibaku cores are movable bodies (`trackCore`, `moveCore`,
-  `kickCores`): From Below lifts them, From Above slams them into an early collapse, pushes/pulls
-  shove them. Chibaku orbs fly from the hand first (`throwOrb`).
-- Planetary Orbit (`PAIN.orbits`, second press fires `PAIN.shots`). Meteor Dive, Weightless World,
-  Deva Barrier and Six Paths were removed at the user's request (2026-10-03).
-- Warp Dash (Shift x2, `p_gdash`): `warpEnd` walks the line in 0.5 m steps up to WARP_DIST (32 m),
-  stopping before props (`warpBlocked`), objects over 300 kg, cliffs and the island edge; the caster
-  rides `P.warp` in `controlPlayer` for WARP_T (0.14 s). Visuals: lenses, a warpMaterial tunnel,
-  see-through afterimages (`warpGhost`). Gravity Jump stays on Space x2 but is hidden from the
-  Skills bar (`hide:true`; the tray skips hidden entries).
-- Cooldowns are a match setting (`G.cdOn`, off by default; title button for practice, host button
-  in the lobby, sent as `cd` in `lobby`/`start`). `cdFor(id)` gives 0 when off. The host still
-  rate-limits casts (14/s per player) and checks that a claimed charge `c` is not longer than the
-  time since that player's previous cast of the same ability.
+**Pain class** (module "PAIN MODE" in index.html, right before `runSkill`; rebuilt 2026-10-06 to the user's list):
+ids `p_*`, dispatched by `runPain()`. Click (hold) = **Telekinesis** (`TK`: `tkDown`/`tkUp`/`tkRight`; hidden casts
+`p_grab` {tg} and `p_throw` {c}, c = -1 drops). Grab targets: 'P'+player id (victim side, `tkForces`), 'R'+prop index,
+'K'+core index, 'O'+x,y,z (nearest body there on each screen). Right-click held while holding = throw charge (no limit).
+1/2 Gravity From Below/Above (`kind:'aimcharge'`: hold shows the marker and charges, release casts at it; radius `gravR`,
+force `shinraKick`), R/T Shinra Tensei front/360 (charge), F Levitation (`painLevitate`), Q Pull Everything (charge,
+`pullEverything(..., m)`), X Planetary Orbit (14 rocks + nearby debris; sets `G.targeting='p_orbit'` so the marker shows;
+Click or X fires `{fire:1}`), C Earth Titan (`kind:'hold'`, `BOULD`: `p_boulder` at the marker starts the rise,
+release sends `p_boulderx` {c} -> rock size, it flies 38 m up and follows the marker (`pb` in the state message), Click
+sends `p_boulderx` {drop:1}), V Gravity Vortex (`painVortex`). Ultimates (generic `ult:true`, see Bomber): B Almighty
+Push (rises 28 m, a dome of warped space comes down and sweeps outward to 60 m), N Catastrophic Chibaku.
+Chibaku cores: every push/pull/lift/slam/vortex/boulder kicks them (`kickCores`), Telekinesis can grab and throw them,
+and two cores that touch merge (`coresMerge`). Shift x2 warp dash and Space x2 gravity jump remain (hidden from the bar).
+Removed: Chakra Rod, Gravity Push, plain Chibaku Tensei (`PAIN.rods`/`updateRods` stay for other code).
+While charging anything, walking sideways/backward turns the character the way it walks (`controlPlayer` facing).
+Shared systems: GravityForce (`radialPush`, `conePush`, `knock`), gravity fields (`PAIN.fields`, applied every physics
+step by `applyPainForces()`), PhysicsObjectAttractor (`liftProp`, `regrowProps`, `makeCore`/`attractorField`/
+`stickToCore`/`collapseCore`), timed effects in `PAIN.fx`, and `SpaceWarp` (screen-space lens; `warpPulse`).
+- Damage/knockback stay victim-side (`victimFor`, `painHurt`, no friendly fire). `castOK()` (host) validates casts.
 
 ## Networking (peer-to-peer, no server)
 

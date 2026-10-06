@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-06.4';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-06.5';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -962,7 +962,9 @@ function animatePlayer(P, dt, isActive){
   const aiming = false;
   const acting = P.castPose > 0 || P.punchPose > 0 || P.pushPose > 0;
   let target = P.face;
-  if (isActive && acting) target = G.yaw;
+  // charging keeps the arms up, but walking sideways or backward still turns you the way you walk
+  const charging = isActive && (PAIN.charge || (typeof SW !== 'undefined' && SW.charge) || (typeof TK !== 'undefined' && TK.mine));
+  if (isActive && acting && !(charging && P.moving)) target = G.yaw;
   else if (isActive && P.moveFace != null && P.moving) target = P.moveFace;
   else if (!isActive) target = P.remote ? (P.netFace ?? P.face) : Math.atan2(-b.position.x, -b.position.z);
   let d = target - P.face; while (d > Math.PI) d -= Math.PI*2; while (d < -Math.PI) d += Math.PI*2;
@@ -975,6 +977,7 @@ function animatePlayer(P, dt, isActive){
   else if (aiming) { P.arms[1].rotation.x = -1.5; P.arms[0].rotation.x = -1.1; P.arms[0].rotation.z = -.4; }
   else { P.arms[0].rotation.x = -sw; P.arms[1].rotation.x = sw; P.arms[0].rotation.z = 0; }
   if (!P.grounded && !P.carry && !aiming) { P.arms[0].rotation.z = .6; P.arms[1].rotation.z = -.6; } else P.arms[1].rotation.z = 0;
+  if (P.bootSpin > 0) { P.bootSpin -= dt; P.rig.rotation.x = P.bootSpin > 0 ? (1 - P.bootSpin/.9)*Math.PI*4 : 0; }
   if (P.castPose > 0) { P.castPose -= dt; P.arms[0].rotation.x = P.arms[1].rotation.x = -2.6; P.arms[0].rotation.z = .3; P.arms[1].rotation.z = -.3; }
   if (P.punchPose > 0) { P.punchPose -= dt; P.arms[1].rotation.x = -1.57; P.arms[1].rotation.z = 0; P.arms[0].rotation.x = .6; }
   if (P.pushPose > 0) { P.pushPose -= dt; P.arms[1].rotation.x = -1.6; P.arms[1].rotation.z = 0; }
@@ -2119,7 +2122,7 @@ function updateBolts(dt){
 }
 
 /* ---------------- targeting: pick where each power lands ---------------- */
-const TARGET_R = {p_above:7, p_below:5.5, p_chibaku:3.2, p_cata:9, nuke:4.5, chibaku:3, bijuu:7, comet:4, army:3.4, shinra:2.2, tornado:3, volcano:6, lightning:4, gcow:3.5, frog:5.5, knives:7, antimatter:10, hellgate:4.8, fireball:9, doomnuke:15, judgement:11, coming:16};
+const TARGET_R = {p_above:7, p_below:5.5, p_cata:9, nuke:4.5, chibaku:3, bijuu:7, comet:4, army:3.4, shinra:2.2, tornado:3, volcano:6, lightning:4, gcow:3.5, frog:5.5, knives:7, antimatter:10, hellgate:4.8, fireball:9, doomnuke:15, judgement:11, coming:16};
 const marker = new THREE.Group(); marker.visible = false; scene.add(marker);
 const mkRing = new THREE.Mesh(new THREE.RingGeometry(.9,1,56), new THREE.MeshBasicMaterial({color:0xFF3B30, transparent:true, opacity:.9, depthWrite:false})); mkRing.rotation.x = -Math.PI/2; marker.add(mkRing);
 const mkDisc = new THREE.Mesh(new THREE.CircleGeometry(.9,40), new THREE.MeshBasicMaterial({color:0xFF3B30, transparent:true, opacity:.14, depthWrite:false})); mkDisc.rotation.x = -Math.PI/2; marker.add(mkDisc);
@@ -2158,6 +2161,8 @@ function updateTargeting(){
 function castAt(){
   const id = G.targeting;
   if (!G.targetPoint) { toast(G.targetWhy || 'Aim at the ground.'); return; }
+  if (PAIN.charge && PAIN.charge.id === id) return;   // an aimed charge fires when its key is released
+  if (id === 'p_orbit') { localCast('p_orbit', G.targetPoint.clone(), {fire:1}); G.targeting = null; marker.visible = false; renderTray(); return; }
   if (G.spCd > 0) return; G.spCd = .22;
   if (CB.build.length > 1 && CB.build.includes(id)) { comboFire(); return; }   // a built combo fires as one attack
   if (G.pvp && (G.cd[id] || 0) > 0) { cdToast(id); return; }
@@ -4183,12 +4188,39 @@ for (const [x,z,ry] of [[0,-ISL,0],[0,ISL,0],[-ISL,0,Math.PI/2],[ISL,0,Math.PI/2
   const m = new THREE.Mesh(new THREE.PlaneGeometry(ISL*2, 10), new THREE.MeshBasicMaterial({color:0xBFE9FF, transparent:true, opacity:0, side:THREE.DoubleSide, depthWrite:false}));
   m.position.set(x, 5, z); m.rotation.y = ry; m.userData.noRay = true; scene.add(m); edgeWalls.push(m);
 }
+/* the Giant Boot: walk into the edge of the world (or into the ring attackers may not enter) and a huge boot swings
+   in from behind and kicks you back in. Local only: each screen boots its own player. */
+const BOOT = {cd:0};
+function bootMesh(){
+  const g = new THREE.Group(), leg = new THREE.Group(); g.add(leg);
+  bx(1.5, 5, 1.5, 0x2F4A7A, 0, 4.4, 0, leg); bx(1.62, .5, 1.62, 0x24385E, 0, 2.2, 0, leg);
+  bx(1.9, 1.6, 3.4, 0x6B3F1F, 0, 1.1, .7, leg); bx(2, .35, 3.6, 0x2A1A10, 0, .2, .75, leg); bx(1.9, 1.2, .9, 0x7E4B26, 0, 1, 2.3, leg);
+  for (let i = 0; i < 3; i++) bx(1.92, .08, .5, 0xD9C7A3, 0, 1.5 - i*.32, .1 + i*.3, leg);
+  addOutline(g); g.traverse(o => o.userData.noRay = true); return {g, leg};
+}
+function bootKick(P, nx, nz){
+  if (!G.pvp || P !== localP() || P.alive === false || G.t < BOOT.cd) return;
+  BOOT.cd = G.t + 1.4;
+  const b = P.body, {g, leg} = bootMesh(), yaw = Math.atan2(nx, nz);
+  g.position.set(b.position.x - nx*2.2, b.position.y - .3, b.position.z - nz*2.2); g.rotation.y = yaw; roundGroup.add(g);
+  let kicked = false;
+  booms.push({t:0, parts:[g], custom(bm, dt){
+    const t = bm.t;
+    // wind up, swing through, hold the pose, sink away
+    leg.rotation.x = t < .22 ? -1.1*(t/.22) : t < .36 ? -1.1 + 2*((t - .22)/.14) : .9;
+    if (t > .7) g.position.y -= dt*6;
+    if (!kicked && t > .3) { kicked = true; knock(P, nx*30, 13, nz*30, 1.3); P.bootSpin = .9; sfx('bonk'); sfx('boing'); popText(V3(b.position.x, b.position.y + 2.6, b.position.z), '👢 BONK!', '#FFD84D'); shakeAt(b.position, .6, 20); }
+    return t > 1.2;
+  }});
+  toast(pick(['👢 Get back in there!', '👢 No leaving.', '👢 The boot has spoken.', '👢 Wrong way.']));
+}
 function keepInBounds(P){
   const b = P.body, L = ISL - 1.5;
   if (b.position.x > L) { b.position.x = L; if (b.velocity.x > 0) b.velocity.x = 0; }
   if (b.position.x < -L) { b.position.x = -L; if (b.velocity.x < 0) b.velocity.x = 0; }
   if (b.position.z > L) { b.position.z = L; if (b.velocity.z > 0) b.velocity.z = 0; }
   if (b.position.z < -L) { b.position.z = -L; if (b.velocity.z < 0) b.velocity.z = 0; }
+  if ((Math.abs(b.position.x) >= L || Math.abs(b.position.z) >= L) && P === localP()) { const d = Math.hypot(b.position.x, b.position.z) || 1; bootKick(P, -b.position.x/d, -b.position.z/d); }
 }
 function updateEdge(){
   const P = activeChar(); const p = P ? P.body.position : null;
@@ -4489,6 +4521,7 @@ function startMatch(seed, list, score, mode, cdOn, eg){
   if (G.mode === 'egg' && !eg) eg = {def:G.localKey, round:1, total:1, pts:{}};
   buildRound(seed);
   painReset(); painAmbience(); barReset(); bomberReset(); swordReset(); summonReset(); necroReset(); ultReset();
+  if (!classCycle().includes(G.cls)) G.cls = classCycle()[0];   // a class hidden in this mode
   if (G.mode !== 'egg') {   // only Egg mode keeps the egg and its pedestal
     if (egg) { removeObj(egg); egg = null; }
     world.bodies.slice().forEach(b => { if (b.tag === 'pedestal') world.removeBody(b); }); if (G.pedMesh) roundGroup.remove(G.pedMesh);
@@ -4713,21 +4746,24 @@ function eggHud(force){
    enemies take damage. Chibaku cores are bodies too: every other gravity power can shove, lift or slam them.
    The terrain is never modified in this mode: craterAt() is off, props grow back where they stood. */
 const PAIN_SKILLS = {
-  p_rod:       {name:'Chakra Rod', e:'🥢', key:'1', kind:'charge', cd:.4},
-  p_push:      {name:'Gravity Push', e:'👊', key:'F', kind:'now', cd:3},
-  p_pull:      {name:'Gravity Pull', e:'🧲', key:'Q', kind:'aimhold', cd:6},
+  p_grab:      {name:'Telekinesis', e:'🫳', key:'🖱', kind:'click', cd:.3},
+  p_below:     {name:'Gravity From Below', e:'⏫', key:'1', kind:'aimcharge', cd:10, range:60, r:5.5},
+  p_above:     {name:'Gravity From Above', e:'⏬', key:'2', kind:'aimcharge', cd:12, range:60, r:7},
   p_shinra:    {name:'Shinra Tensei', e:'✋', key:'R', kind:'charge', cd:8},
   p_shinra360: {name:'Shinra Tensei 360°', e:'💫', key:'T', kind:'charge', cd:10},
-  p_above:     {name:'Gravity From Above', e:'⏬', key:'V', kind:'aim', cd:14, range:38, r:7},
-  p_below:     {name:'Gravity From Below', e:'⏫', key:'B', kind:'aim', cd:12, range:38, r:5.5},
-  p_chibaku:   {name:'Chibaku Tensei', e:'🌑', key:'C', kind:'aim', cd:18, range:40, r:3.2},
-  p_cata:      {name:'Catastrophic Chibaku', e:'🌕', key:'X', kind:'aim', cd:60, range:50, r:9},
-  p_orbit:     {name:'Planetary Orbit', e:'🪐', key:'2', kind:'now', cd:16},
-  p_almighty:  {name:'Giant Push', e:'💥', key:'Z', kind:'now', cd:75},
-  p_gdash:     {name:'Gravity Dash', e:'💨', key:'⇧⇧', kind:'move', cd:1},
-  p_gjump:     {name:'Gravity Jump', e:'⤴️', key:'␣␣', kind:'move', cd:2.2, hide:true}   // Space x2 in the air; not on the Skills bar
+  p_levitate:  {name:'Levitation', e:'🎈', key:'F', kind:'now', cd:14},
+  p_pull:      {name:'Pull Everything', e:'🧲', key:'Q', kind:'charge', cd:6},
+  p_orbit:     {name:'Planetary Orbit', e:'🪐', key:'X', kind:'now', cd:16},
+  p_boulder:   {name:'Earth Titan', e:'🪨', key:'C', kind:'hold', cd:16},
+  p_vortex:    {name:'Gravity Vortex', e:'🌀', key:'V', kind:'now', cd:18},
+  p_almighty:  {name:'Almighty Push', e:'💥', key:'B', kind:'now', ult:true, cd:0},
+  p_cata:      {name:'Catastrophic Chibaku', e:'🌕', key:'N', kind:'aim', ult:true, cd:0, range:60, r:9},
+  p_gdash:     {name:'Gravity Dash', e:'💨', key:'⇧⇧', kind:'move', cd:1, hide:true},     // Shift x2
+  p_gjump:     {name:'Gravity Jump', e:'⤴️', key:'␣␣', kind:'move', cd:2.2, hide:true},   // Space x2 in the air
+  p_throw:     {name:'Throw', e:'🫳', hide:true, cd:0},
+  p_boulderx:  {name:'Earth Titan release', e:'🪨', hide:true, cd:0}
 };
-const PAIN_KEYS = {}; for (const id in PAIN_SKILLS) { const k = PAIN_SKILLS[id].key; if (k.length === 1) PAIN_KEYS[k.toLowerCase()] = id; }
+const PAIN_KEYS = {}; for (const id in PAIN_SKILLS) { const k = PAIN_SKILLS[id].key; if (k && k.length === 1 && /[0-9A-Z]/.test(k)) PAIN_KEYS[k.toLowerCase()] = id; }
 const PAIN_CFG = {
   pushRange:7, pushDv:30, pushDmg:22,
   pullRange:32, pullDmg:10, pullAllR:20,
@@ -4735,7 +4771,7 @@ const PAIN_CFG = {
   aboveDelay:.9, belowDelay:.9, belowV:24,
   chibakuDur:7, chibakuR:14,
   cataCharge:8, cataFall:1.4, cataHeight:24, cataPullR:44, cataImpactR:26, cataDmg:75,
-  almightyHeight:18, almightyCharge:2.4, almightyR:40, almightyDmg:60,
+  almightyHeight:28, almightyCharge:2.2, almightyR:60, almightyDmg:70,
   rodSpeed:78, rodDmg:14,
   maxDebris:70, maxStuck:40, cataChunks:320, regrow:40
 };
@@ -4749,6 +4785,7 @@ function skillDef(id){ return PAIN_SKILLS[id] || SPECIALS[id] || BOMBER[id] || S
 function cdFor(id){ { const d = skillDef(id); if (d && d.fixed) return d.cd; if (d && d.ult) return 0; } if (!G.cdOn) return 0;   // the match's cooldown setting covers every class (World Severance stays once per round)
   if (BOMBER[id]) return BOMBER[id].cd; if (SWORD[id]) return SWORD[id].cd; if (SUMMON[id]) return SUMMON[id].cd; if (NECRO_SK[id]) return NECRO_SK[id].cd; if (GUARD[id]) return GUARD[id].cd; return (PAIN_SKILLS[id] && PAIN_SKILLS[id].cd) || CD[id] || 3; }
 function painReset(){
+  if (typeof TK !== 'undefined') { TK.holds = {}; TK.mine = null; TK.thrown = []; for (const k in BOULD) delete BOULD[k]; }
   PAIN.fx = []; PAIN.fields = []; PAIN.rods = []; PAIN.stuckRods = []; PAIN.regrow = []; PAIN.dummies = [];
   PAIN.cores = []; PAIN.orbits = {}; PAIN.shots = []; PAIN.charge = null; PAIN.aim = null;
   SpaceWarp.clear(); hideAimFX();
@@ -5104,29 +5141,11 @@ function warpPulse(p, R, dur, amp){ let t = 0; const t0 = performance.now(); ret
    No limit on any of them. The Chakra Rod adds its base power again every second held; both Shinra Tensei
    add half their base power per second (x3 at 4 s, x6 at 10 s, x31 at a minute). Damage and reach grow with
    the full multiplier; knockback grows with shinraKick() so a huge charge still throws people, not into orbit. */
-function chargeMul(id, c){ c = Math.max(0, +c || 0); return id === 'p_rod' ? 1 + c : 1 + c*.5; }
+function chargeMul(id, c){ c = Math.max(0, +c || 0); return 1 + c*.5; }
 const shinraKick = m => Math.pow(m, .55);
 const SHINRA_MAX_PROPS = 60;   // trees and rocks torn loose per cast, so a minute-long charge can't stall the game
 
 /* ---------- 1. Gravity Push ---------- */
-function painPush(){
-  const {key, C, team, pos, yaw} = casterInfo(), L = PAIN_CFG.pushRange;
-  const dir = V3(Math.sin(yaw), 0, Math.cos(yaw)), O = V3(pos.x, pos.y + 1.1, pos.z);
-  const P = victimFor(key, team);
-  if (P) { const b = P.body, dx = b.position.x - O.x, dz = b.position.z - O.z, d = Math.hypot(dx, dz) || .01, f = dx*dir.x + dz*dir.z;
-    if ((d < 1.8 || (f > 0 && f < L && f/d > .62)) && Math.abs(b.position.y - pos.y) < 3.5) { const k = 1 - Math.min(1, d/L), v = PAIN_CFG.pushDv*k + 14;
-      painHurt(P, PAIN_CFG.pushDmg*k + 8, key); knock(P, dir.x*v, 6, dir.z*v, .7); } }
-  conePush(O, dir, L, .62, 28, 5, PAIN_CFG.pushDmg);
-  for (const pr of propsNear(O, 5.5).slice(0, 4)) { const dx = pr.x - O.x, dz = pr.z - O.z, d = Math.hypot(dx, dz) || .01; if ((dx*dir.x + dz*dir.z)/d > .5) liftProp(pr, V3(dir.x*18, 5, dir.z*18)); }
-  kickCores(c => { const dx = c.x - O.x, dz = c.z - O.z, d = Math.hypot(dx, dz) || .01; return d < 9 && (dx*dir.x + dz*dir.z)/d > .5 ? dir.clone().multiplyScalar(12).setY(2) : null; });
-  if (C) C.punchPose = .5;
-  // a slab of warped space slams forward from the fist
-  const hand = O.clone().addScaledVector(dir, .9);
-  const wall = new THREE.Mesh(new THREE.PlaneGeometry(4, 3.4, 20, 20), warpMaterial()); wall.position.copy(hand); wall.lookAt(hand.clone().add(dir)); wall.userData.noRay = true; roundGroup.add(wall);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(.4, .62, 40), bmat(0xD9CCFF, .9)); ring.position.copy(hand); ring.lookAt(hand.clone().add(dir)); ring.userData.noRay = true; roundGroup.add(ring);
-  booms.push({t:0, parts:[wall, ring], custom(b){ const t = b.t; wall.position.copy(hand).addScaledVector(dir, t*24); wall.scale.setScalar(1 + t*2); wall.material.uniforms.t.value = t; wall.material.uniforms.a.value = Math.max(0, 1 - t/.35); ring.scale.setScalar(1 + t*9); ring.material.opacity = Math.max(0, .9 - t*2.6); return t > .38; }});
-  warpPulse(hand, 5, .4, .02); sfx('shinra'); sfx('thud'); shakeAt(hand, .45, 25);
-}
 
 /* ---------- 2. Gravity Pull: hold Q to aim, release to pull ---------- */
 // caster side: the enemy (or practice dummy) closest to where you are looking, within range
@@ -5157,7 +5176,7 @@ function painPull(x){
   const {key, C, team, pos, yaw} = casterInfo(), tg = x && x.tg, dur = 1.15;
   if (C) C.pushPose = dur;
   sfx('grav'); sfx('pain');
-  if (!tg) { pullEverything(key, team, pos); return; }
+  if (!tg) { pullEverything(key, team, pos, chargeMul('p_pull', x && x.c)); return; }
   const targetPos = () => pullTargetPos(tg);
   // a beam of warped space from the caster's hand to the target, with dust streaming toward the caster
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(.35, .35, 1, 16, 1, true).rotateX(Math.PI/2).translate(0, 0, .5), columnMat(true, 0xA88BFF)); beam.userData.noRay = true; roundGroup.add(beam);
@@ -5180,13 +5199,13 @@ function painPull(x){
   }
 }
 // nobody aimed at: everything around the caster (enemies, debris, props, cores) is dragged in
-function pullEverything(key, team, pos){
-  const R = PAIN_CFG.pullAllR, c = V3(pos.x, pos.y + 1, pos.z);
+function pullEverything(key, team, pos, m){
+  m = m || 1; const R = PAIN_CFG.pullAllR*(1 + .4*(m - 1)), c = V3(pos.x, pos.y + 1, pos.z), mk = shinraKick(m);
   const P = victimFor(key, team);
   if (P && hdist(P.body.position, c) < R) PAIN.fields.push(pullField(() => { const me = localP(); return me && me.alive !== false && !me.body._frozen ? me.body : null; }, key, pos, .8, 22, 3.5,
     b => { painHurt(b.player, 6, key); b.velocity.set(b.velocity.x*.3, 2, b.velocity.z*.3); }));
-  forEachObject(b => { const dx = c.x - b.position.x, dz = c.z - b.position.z, d = Math.hypot(dx, dz) || .01; if (d > R + 4 || d < 2) return; if (b.wakeUp) b.wakeUp(); const s = 10 + 8*(1 - d/(R + 4)); b.velocity.x += dx/d*s; b.velocity.z += dz/d*s; b.velocity.y += 5; if (b.tag === 'dummy') dummyHit(b, 6); });
-  for (const pr of propsNear(c, R*.9).slice(0, 8)) { const dx = c.x - pr.x, dz = c.z - pr.z, d = Math.hypot(dx, dz) || .01; if (d > 3) liftProp(pr, V3(dx/d*Math.min(16, d*1.1), 7, dz/d*Math.min(16, d*1.1))); }
+  forEachObject(b => { const dx = c.x - b.position.x, dz = c.z - b.position.z, d = Math.hypot(dx, dz) || .01; if (d > R + 4 || d < 2) return; if (b.wakeUp) b.wakeUp(); const s = (10 + 8*(1 - d/(R + 4)))*mk; b.velocity.x += dx/d*s; b.velocity.z += dz/d*s; b.velocity.y += 5; if (b.tag === 'dummy') dummyHit(b, 6); });
+  for (const pr of propsNear(c, R*.9).slice(0, Math.min(SHINRA_MAX_PROPS, Math.round(8*m)))) { const dx = c.x - pr.x, dz = c.z - pr.z, d = Math.hypot(dx, dz) || .01; if (d > 3) liftProp(pr, V3(dx/d*Math.min(16, d*1.1), 7, dz/d*Math.min(16, d*1.1))); }
   kickCores(cp => { const d = hdist(cp, c); return d < 30 && d > 3 ? c.clone().sub(cp).setY(0).normalize().multiplyScalar(10) : null; });
   // a ring of warped space that collapses inward onto the caster
   const y = groundH(c.x, c.z) + .1, ring = new THREE.Mesh(new THREE.RingGeometry(.9, 1, 72), bmat(0xC9B8FF, .85)); ring.rotation.x = -Math.PI/2; ring.position.set(c.x, y, c.z); ring.userData.noRay = true; roundGroup.add(ring);
@@ -5233,33 +5252,6 @@ function painShinra(x){
 
 /* ---------- 4. Chibaku Tensei: a black orb leaves the hand, then opens into a core ---------- */
 function handPos(pos, yaw){ return V3(pos.x + Math.sin(yaw)*.8, pos.y + 1.5, pos.z + Math.cos(yaw)*.8); }
-function painChibaku(p){
-  const {key, C, team, pos, yaw} = casterInfo(), c = V3(p.x, groundH(p.x, p.z) + 6.5, p.z), from = handPos(pos, yaw);
-  if (C) C.pushPose = .45;
-  throwOrb(from, c, clamp(from.distanceTo(c)/34, .3, 1.3), 1, () => deployChibaku(c, key, team));
-  sfx('grav');
-}
-function deployChibaku(c, key, team){
-  const rng = mulberry32(seedOf(c));
-  const core = makeCore(c, 1, 90); core.owner = key; core.team = team; core.maxStuck = 22; trackCore(core, c, 'chibaku');
-  const field = attractorField(core, {objR:16, objA:24, plR:PAIN_CFG.chibakuR, plA:26, trapR:3.6, dps:7});
-  PAIN.fields.push(field);
-  const uproot = propsNear(c, 12).slice(0, 14); let ui = 0, ut = 0, ct = 0;
-  SpaceWarp.add({pos:() => core.g.position, alive:() => !core.done, R:() => 4 + core.shell*1.6, s:() => Math.min(1, core.t/.4)*.45});
-  PAIN.fx.push({owner:key, update(dt){
-    if (core.done) { field.done = true; return false; }
-    updateCore(core, dt);
-    // slammed into the ground by another gravity power: it caves in right there, harder
-    if (moveCore(core, dt)) { field.done = true; collapseCore(core, {R:8, dmg:26, fling:6}); return false; }
-    const at = core.g.position;
-    ut += dt; while (ut > .3 && ui < uproot.length) { ut -= .3; const pr = uproot[ui++]; liftProp(pr, V3((at.x - pr.x)*.3, 7 + rng()*3, (at.z - pr.z)*.3)); }
-    ct += dt; while (ct > .12 && core.t < PAIN_CFG.chibakuDur - 1) { ct -= .12; addChunk(core, rng, 1); core.shell = Math.min(3.2, core.shell + .022); }
-    if (core.t > PAIN_CFG.chibakuDur || core.expire) { field.done = true; collapseCore(core, {R:6, dmg:14, fling:3}); return false; }
-    return true;
-  }});
-  sfx('hole'); sfx('pain'); flash(.15); shakeAt(c, .6, 40);
-  if (key === G.localKey) toast('🌑 Chibaku Tensei! Push it, lift it or slam it with your other powers.');
-}
 
 /* ---------- 5. Catastrophic Chibaku Tensei ---------- */
 function painCatastrophic(p){
@@ -5345,6 +5337,21 @@ function painAlmighty(){
 }
 function almightyBlast(O, key, team){
   const R = PAIN_CFG.almightyR, ground = V3(O.x, groundH(O.x, O.z), O.z), P = victimFor(key, team);
+  // the push comes DOWN as a dome of folded space, then sweeps outward along the ground over everything in range
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 20, 0, Math.PI*2, 0, Math.PI/2), warpMaterial()); dome.position.copy(ground); dome.userData.noRay = true; roundGroup.add(dome);
+  const ringM = new THREE.Mesh(new THREE.RingGeometry(.92, 1, 96), bmat(0xD9CCFF, .8)); ringM.rotation.x = -Math.PI/2; ringM.position.set(ground.x, ground.y + .3, ground.z); ringM.userData.noRay = true; roundGroup.add(ringM);
+  let wr = 0, hitMe = false; const swept = new Set();
+  SpaceWarp.add({pos:() => V3(ground.x, ground.y + 2, ground.z), alive:() => wr < R, R:() => Math.max(4, wr*.6), s:() => .5});
+  booms.push({t:0, parts:[dome, ringM], custom(b, dt){
+    wr = Math.min(R, b.t*R/1.1); const k = wr/R;
+    dome.scale.set(Math.max(1, wr), Math.max(1, (O.y - ground.y)*(1 - k)), Math.max(1, wr)); dome.material.uniforms.t.value = b.t*3; dome.material.uniforms.a.value = .9*(1 - k*.7);
+    ringM.scale.setScalar(Math.max(1, wr)); ringM.material.opacity = .8*(1 - k);
+    const Pv = victimFor(key, team); if (Pv && !hitMe) { const d = hdist(Pv.body.position, ground); if (d < wr) { hitMe = true; const away = V3(Pv.body.position.x - ground.x, 0, Pv.body.position.z - ground.z).normalize(), f = 1 - d/R; painHurt(Pv, 18*f + 6, key); knock(Pv, away.x*(30*f + 14), 6, away.z*(30*f + 14), .8); } }
+    forEachObject(bb => { if (swept.has(bb)) return; const d = hdist(bb.position, ground); if (d > wr || d < wr - 9) return; swept.add(bb); if (bb.wakeUp) bb.wakeUp(); const f = 1 - d/R; bb.velocity.x += (bb.position.x - ground.x)/(d || 1)*(26*f + 8); bb.velocity.z += (bb.position.z - ground.z)/(d || 1)*(26*f + 8); bb.velocity.y += 6 + 6*f; if (bb.tag === 'dummy') dummyHit(bb, 20*f + 6); });
+    for (const pr of propsNear(ground, wr)) { if (swept.has(pr) || hdist(pr, ground) < wr - 9) continue; swept.add(pr); const dx = pr.x - ground.x, dz = pr.z - ground.z, d = Math.hypot(dx, dz) || 1, f = 1 - d/R; if (swept.size < 160) liftProp(pr, V3(dx/d*(28*f + 8), 6 + 6*f, dz/d*(28*f + 8))); }
+    if (Math.random() < .6) { const a = Math.random()*Math.PI*2; smokePuffs(V3(ground.x + Math.cos(a)*wr, groundH(ground.x + Math.cos(a)*wr, ground.z + Math.sin(a)*wr) + .3, ground.z + Math.sin(a)*wr), 1.2, 1); }
+    return b.t > 1.3;
+  }});
   if (P) { const b = P.body, dx = b.position.x - O.x, dz = b.position.z - O.z, d = Math.hypot(dx, dz) || .01;
     if (d < R) { const f = 1 - d/R, v = 44*Math.pow(f, .7) + 12; painHurt(P, PAIN_CFG.almightyDmg*f + 12, key); knock(P, dx/d*v, 10*f + 5, dz/d*v, .9); } }
   radialPush(ground, R + 6, 48, 16, PAIN_CFG.almightyDmg);
@@ -5376,8 +5383,10 @@ function squashProp(pr){
     m.scale.y = sy*k; if (t > 1.7) { m.scale.y = sy; pr.squash = false; return true; } return false;
   }});
 }
-function painAbove(p){
-  const {key, team} = casterInfo(), R = PAIN_SKILLS.p_above.r, c = V3(p.x, groundH(p.x, p.z), p.z), T = PAIN_CFG.aboveDelay;
+// charged: the circle grows with the charge and the force grows too (no limit)
+const gravR = (id, m) => PAIN_SKILLS[id].r*(1 + .35*(m - 1));
+function painAbove(p, x){
+  const {key, team} = casterInfo(), m = chargeMul('p_above', x && x.c), R = gravR('p_above', m), c = V3(p.x, groundH(p.x, p.z), p.z), T = PAIN_CFG.aboveDelay;
   // warning: the circle darkens while a slab of compressed space comes down from the sky
   const ring = new THREE.Mesh(new THREE.RingGeometry(R - .35, R, 64), bmat(0xB69CFF, .8)); ring.rotation.x = -Math.PI/2; ring.position.set(c.x, c.y + .08, c.z);
   const disc = new THREE.Mesh(new THREE.CircleGeometry(R, 48), bmat(0x120A1C, 0)); disc.rotation.x = -Math.PI/2; disc.position.set(c.x, c.y + .07, c.z);
@@ -5392,34 +5401,36 @@ function painAbove(p){
     const y = c.y + 22 - 21.6*k*k; plate.position.set(c.x, y, c.z); plateWarp.position.set(c.x, y + .05, c.z);
     plate.material.opacity = .55*k; plateWarp.material.uniforms.t.value = t*2; plateWarp.material.uniforms.a.value = .7*k;
     col.material.uniforms.t.value = t*1.6; col.material.uniforms.a.value = k;
-    if (!fired && t >= T) { fired = true; parts.forEach(m => roundGroup.remove(m)); slamAbove(c, R, key, team); return false; }
+    if (!fired && t >= T) { fired = true; parts.forEach(q => roundGroup.remove(q)); slamAbove(c, R, key, team, m); return false; }
     return true;
   }});
   sfx('rumble'); shakeAt(c, .3, 30);
 }
-function slamAbove(c, R, key, team){
+function slamAbove(c, R, key, team, m){
+  m = m || 1; const mk = shinraKick(m);
   const A = bodyFor(key, team);
   if (A) { const P = A.P, b = P.body;
     if (hdist(b.position, c) < R && b.position.y - c.y < 16) {
       if (b.position.y - groundH(b.position.x, b.position.z) > .05) b.velocity.y = -42; else b.velocity.y = Math.min(b.velocity.y, 0);
       b.velocity.x *= .2; b.velocity.z *= .2; P.pinT = A.harm ? 1.4 : .6;
-      if (A.harm) { painHurt(P, 30, key); P.stun = Math.max(P.stun, .7); P.stars.visible = true; G.hurtFlash = Math.min(1, (G.hurtFlash || 0) + .5); }
+      if (A.harm) { painHurt(P, 30*m, key); P.stun = Math.max(P.stun, .7*Math.min(3, mk)); P.stars.visible = true; G.hurtFlash = Math.min(1, (G.hurtFlash || 0) + .5); }
     } }
   // every screen squashes every character caught in it (and trees, rocks and ruins spring back afterwards)
   for (const k in chars) { const P = chars[k]; if (P && P.alive !== false && hdist(P.body.position, c) < R && P.body.position.y - c.y < 16) P.squashT = 1; }
-  forEachObject(b => { if (hdist(b.position, c) > R) return; if (b.wakeUp) b.wakeUp(); b.velocity.y = Math.min(b.velocity.y, -30); b.velocity.x *= .3; b.velocity.z *= .3; if (b.tag === 'dummy') dummyHit(b, 30); });
+  forEachObject(b => { if (hdist(b.position, c) > R) return; if (b.wakeUp) b.wakeUp(); b.velocity.y = Math.min(b.velocity.y, -30*mk); b.velocity.x *= .3; b.velocity.z *= .3; if (b.tag === 'dummy') dummyHit(b, 30*m); });
+  if (m > 2) damageProps(V3(c.x, c.y + 1, c.z), R, 40*m);
   propsNear(c, R).forEach(squashProp);
   kickCores((cp, core) => hdist(cp, c) < R + core.shell ? V3(0, -Math.max(45, core.vel.y > 0 ? 45 + core.vel.y : 45), 0) : null, true);
   const cracks = new THREE.Group(); cracks.userData.noRay = true;
   for (let i = 0; i < 14; i++) { const l = new THREE.Mesh(new THREE.PlaneGeometry(.14, R*rr(.6, 1.1)), bmat(0x05030A, .85)); l.rotation.x = -Math.PI/2; l.rotation.z = i/14*Math.PI*2 + rr(-.2, .2); l.position.set(c.x, c.y + .08, c.z); l.translateY(R*.35); cracks.add(l); }
   roundGroup.add(cracks); booms.push({t:0, parts:[cracks], custom(b){ cracks.children.forEach(l => l.material.opacity = Math.max(0, .85 - Math.max(0, b.t - 1.5)*.6)); return b.t > 3; }});
   shockRing(c, R*1.4, .45); dustRing(c, R*.9, 12); smokePuffs(V3(c.x, c.y + .4, c.z), 2.2, 8);
-  warpPulse(V3(c.x, c.y + 1, c.z), R*2.2, .5, .05); flash(.2); shakeAt(c, 1.3, 45); sfx('boom'); sfx('thud');
+  warpPulse(V3(c.x, c.y + 1, c.z), R*2.2, .5, .05*Math.min(3, mk)); flash(Math.min(.7, .2*mk)); shakeAt(c, 1.3*Math.min(3, mk), 45 + R); sfx('boom'); sfx('thud');
 }
 
 /* ---------- 11. Gravity From Below: a glowing circle, then one force that throws everything up ---------- */
-function painBelow(p){
-  const {key, team} = casterInfo(), R = PAIN_SKILLS.p_below.r, c = V3(p.x, groundH(p.x, p.z), p.z), T = PAIN_CFG.belowDelay;
+function painBelow(p, x){
+  const {key, team} = casterInfo(), m = chargeMul('p_below', x && x.c), R = gravR('p_below', m), c = V3(p.x, groundH(p.x, p.z), p.z), T = PAIN_CFG.belowDelay;
   const ring = new THREE.Mesh(new THREE.RingGeometry(R - .5, R, 56), bmat(0xD9CCFF, .8)); ring.rotation.x = -Math.PI/2; ring.position.set(c.x, c.y + .08, c.z);
   const glow = new THREE.Mesh(new THREE.CircleGeometry(R, 48), bmat(0x9D6BFF, 0)); glow.rotation.x = -Math.PI/2; glow.position.set(c.x, c.y + .07, c.z);
   const col = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 6, 40, 1, true), columnMat(true, 0xC9B8FF)); col.position.set(c.x, c.y + 3, c.z);
@@ -5429,19 +5440,20 @@ function painBelow(p){
     t += dt; const k = Math.min(1, t/T);
     ring.material.opacity = .5 + Math.sin(t*30)*.3; ring.scale.setScalar(1 - k*.12); glow.material.opacity = .35*k*k; col.material.uniforms.t.value = t*2; col.material.uniforms.a.value = .6*k;
     if (Math.random() < .7) { const a = Math.random()*Math.PI*2, d = Math.random()*R, m = pmesh('oct', rr(.04, .09), bmat(0xD9CCFF, .8)); m.position.set(c.x + Math.cos(a)*d, c.y + .2, c.z + Math.sin(a)*d); m.userData.noRay = true; roundGroup.add(m); fx.push({mesh:m, v:V3(0, rr(3, 7), 0), r:V3(2, 2, 0), life:.6}); }
-    if (!fired && t >= T) { fired = true; [ring, glow, col].forEach(m => roundGroup.remove(m)); launchBelow(c, R, key, team); return false; }
+    if (!fired && t >= T) { fired = true; [ring, glow, col].forEach(q => roundGroup.remove(q)); launchBelow(c, R, key, team, m); return false; }
     return true;
   }});
   sfx('rumble'); shakeAt(c, .3, 30);
 }
-function launchBelow(c, R, key, team){
+function launchBelow(c, R, key, team, m){
+  m = m || 1; const mk = shinraKick(m);
   const A = bodyFor(key, team);
   if (A) { const P = A.P, b = P.body, dx = b.position.x - c.x, dz = b.position.z - c.z, d = Math.hypot(dx, dz) || .01;
-    if (d < R && b.position.y - c.y < 6) { const f = 1 - d/R; b.velocity.y = Math.max(b.velocity.y, PAIN_CFG.belowV + 8*f); b.velocity.x += dx/d*3; b.velocity.z += dz/d*3; b._onGround = false;
-      if (A.harm) { painHurt(P, 16*f + 8, key); P.stun = Math.max(P.stun, .6); P.stars.visible = true; } } }
-  forEachObject(b => { const d = hdist(b.position, c); if (d > R + 1 || b.position.y - c.y > 8) return; if (b.wakeUp) b.wakeUp(); b.velocity.y += 26*(.5 + .5*(1 - d/R)); spin(b, 6); if (b.tag === 'dummy') dummyHit(b, 20); });
-  for (const pr of propsNear(c, R).slice(0, 10)) liftProp(pr, V3(rr(-1, 1), 20 + rr(0, 6), rr(-1, 1)));
-  kickCores((cp, core) => hdist(cp, c) < R + core.shell ? V3(0, 30, 0) : null, true);
+    if (d < R && b.position.y - c.y < 6) { const f = 1 - d/R; b.velocity.y = Math.max(b.velocity.y, (PAIN_CFG.belowV + 8*f)*Math.min(3, mk)); b.velocity.x += dx/d*3; b.velocity.z += dz/d*3; b._onGround = false;
+      if (A.harm) { painHurt(P, (16*f + 8)*m, key); P.stun = Math.max(P.stun, .6); P.stars.visible = true; } } }
+  forEachObject(b => { const d = hdist(b.position, c); if (d > R + 1 || b.position.y - c.y > 8) return; if (b.wakeUp) b.wakeUp(); b.velocity.y += 26*mk*(.5 + .5*(1 - d/R)); spin(b, 6); if (b.tag === 'dummy') dummyHit(b, 20*m); });
+  for (const pr of propsNear(c, R).slice(0, Math.min(SHINRA_MAX_PROPS, Math.round(10*m)))) liftProp(pr, V3(rr(-1, 1), 20 + rr(0, 6), rr(-1, 1)));
+  kickCores((cp, core) => hdist(cp, c) < R + core.shell ? V3(0, 30*mk, 0) : null, true);
   const col = new THREE.Mesh(new THREE.CylinderGeometry(R*.8, R, 30, 40, 1, true), columnMat(true, 0xC9B8FF)); col.position.set(c.x, c.y + 15, c.z); col.userData.noRay = true; roundGroup.add(col);
   booms.push({t:0, parts:[col], custom(b){ col.material.uniforms.t.value = b.t*2; col.material.uniforms.a.value = Math.max(0, 1 - b.t/1.1); col.scale.set(1 + b.t*.3, 1, 1 + b.t*.3); return b.t > 1.1; }});
   for (let i = 0; i < 14; i++) { const m = pmesh('dod', rr(.12, .3), M3(pick([0x6E6872, 0x8A8590]))); m.position.set(c.x + rr(-R, R)*.6, c.y + .3, c.z + rr(-R, R)*.6); m.userData.noRay = true; roundGroup.add(m); fx.push({mesh:m, v:new THREE.Vector3(rr(-2, 2), rr(18, 30), rr(-2, 2)), r:new THREE.Vector3(rr(-6, 6), rr(-6, 6), 0), life:2.2}); }
@@ -5456,15 +5468,17 @@ function painOrbit(p, x){
   if (x && x.fire) { if (o && !o.fired) { o.fired = true; o.ft = 0; o.target = p ? p.clone() : null; sfx('shinra'); } return; }
   if (o && !o.fired) return;
   const rng = mulberry32(seedOf(pos) ^ 0x51), rocks = [];
-  for (let i = 0; i < 9; i++) {
-    const m = new THREE.Mesh(PAIN_ROCK, M3(ORBIT_COLS[i % 4])); m.scale.setScalar(.38 + rng()*.3); addOutline(m); m.userData.noRay = true;
+  for (let i = 0; i < 14; i++) {
+    const m = new THREE.Mesh(PAIN_ROCK, M3(ORBIT_COLS[i % 4])); m.scale.setScalar(i < 5 ? .9 + rng()*.7 : .38 + rng()*.35); addOutline(m); m.userData.noRay = true;
     const a = rng()*Math.PI*2, d = 2 + rng()*5; m.position.set(pos.x + Math.cos(a)*d, groundH(pos.x + Math.cos(a)*d, pos.z + Math.sin(a)*d), pos.z + Math.sin(a)*d); roundGroup.add(m);
-    rocks.push({m, a0:i/9*Math.PI*2, r:4.2 + rng()*.8, h:1.4 + rng()*1.1, rise:0, from:m.position.clone()});
+    rocks.push({m, a0:i/14*Math.PI*2, r:(i < 5 ? 6.5 : 4.2) + rng()*.8, h:(i < 5 ? 3 : 1.4) + rng()*1.1, rise:0, from:m.position.clone()});
   }
-  for (const pr of propsNear(pos, 10).slice(0, 3)) { const ob = liftProp(pr, V3(0, 4, 0)); if (!ob) continue; const m = ob.mesh; removeObj(ob); roundGroup.add(m); rocks.push({m, a0:rng()*Math.PI*2, r:5 + rng(), h:-.4, rise:0, from:m.position.clone(), prop:true}); }
-  PAIN.orbits[key] = {key, team, rocks, t:0, dur:12, fired:false, hitT:{}};
+  // loose debris and objects nearby join the orbit too
+  for (const ob of objs.filter(o => !o.dead && (o.kind === 'debris' || o.kind === 'item') && !isCarried(o) && o.body.mass < 5000 && hdist(o.body.position, pos) < 14).slice(0, 8)) { const m = ob.mesh; removeObj(ob); roundGroup.add(m); rocks.push({m, a0:rng()*Math.PI*2, r:5.5 + rng()*2, h:rng()*2, rise:0, from:m.position.clone(), prop:true}); }
+  for (const pr of propsNear(pos, 12).slice(0, 5)) { const ob = liftProp(pr, V3(0, 4, 0)); if (!ob) continue; const m = ob.mesh; removeObj(ob); roundGroup.add(m); rocks.push({m, a0:rng()*Math.PI*2, r:5 + rng(), h:-.4, rise:0, from:m.position.clone(), prop:true}); }
+  PAIN.orbits[key] = {key, team, rocks, t:0, dur:14, fired:false, hitT:{}};
   sfx('grav'); sfx('pain');
-  if (key === G.localKey) toast('🪐 Planetary Orbit! Press 2 again to fire the rocks at what you aim at.');
+  if (key === G.localKey) { G.targeting = 'p_orbit'; renderTray(); toast('🪐 Planetary Orbit! Aim the marker, then Click (or X) to hurl everything at it.'); }
 }
 function dropRock(rk, v){ fx.push({mesh:rk.m, v:v || V3(rr(-2, 2), 2, rr(-2, 2)), r:V3(rr(-3, 3), rr(-3, 3), 0), life:2.4}); rk.gone = true; }
 function updateOrbits(dt){
@@ -5615,32 +5629,10 @@ function runGravityJump(){
   smokePuffs(V3(at.x, at.y, at.z), .8, 4); sfx('jump2'); sfx('grav');
 }
 
-function makeRodMesh(){
-  const g = new THREE.Group(), mat = M3(0x17151C);
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(.035, .045, 1.5, 6).rotateX(Math.PI/2), mat); g.add(shaft);
-  const tip = new THREE.Mesh(new THREE.ConeGeometry(.06, .3, 6).rotateX(Math.PI/2), mat); tip.position.z = .9; g.add(tip);
-  for (const z of [-.45, -.15, .2]) { const r = new THREE.Mesh(new THREE.TorusGeometry(.06, .018, 4, 8), M3(0x2C2833)); r.position.z = z; g.add(r); }
-  addOutline(g); g.traverse(m => { m.userData.noRay = true; m.castShadow = false; });
-  return g;
-}
 
 function aimPoint(dist){
   const h = crosshairHit(); if (h) return h.point.clone();
   const d = new THREE.Vector3(); camera.getWorldDirection(d); return camera.position.clone().addScaledVector(d, dist || 80);
-}
-// c = seconds the throw was charged for (no upper limit)
-function fireRod(c){
-  if ((G.cd.p_rod || 0) > 0) return;
-  localCast('p_rod', aimPoint(80), {c:+(Math.max(0, c || 0)).toFixed(2)});
-}
-function painRod(p, x){
-  const {key, C, team, pos, yaw} = casterInfo(), f = V3(Math.sin(yaw), 0, Math.cos(yaw)), c = Math.max(0, +(x && x.c) || 0), m = chargeMul('p_rod', c);
-  const start = V3(pos.x + f.x*.8, pos.y + 1.55, pos.z + f.z*.8), dir = p ? p.clone().sub(start).normalize() : f;
-  const mesh = makeRodMesh(); mesh.position.copy(start); mesh.lookAt(start.clone().add(dir)); mesh.scale.setScalar(1 + Math.log2(1 + c)*.45); roundGroup.add(mesh);
-  if (c >= 1) { const glow = new THREE.Mesh(new THREE.CylinderGeometry(.09, .09, 1.6, 8).rotateX(Math.PI/2), bmat(0x9D6BFF, Math.min(.75, .25 + c*.08))); glow.userData.noRay = true; mesh.add(glow); }
-  // faster and harder the longer it was held: no cap
-  PAIN.rods.push({m:mesh, pos:start, v:dir.multiplyScalar(PAIN_CFG.rodSpeed*(1 + .5*c)), owner:key, team, t:0, dmg:PAIN_CFG.rodDmg*m, kb:4*(1 + .5*c), c});
-  if (C) C.pushPose = .25; sfx('rodThrow'); if (c >= 2) { sfx('dash'); shakeAt(start, Math.min(1.5, .2*c), 20); }
 }
 function stickRod(r, parent){
   r.done = true; if (parent) parent.attach(r.m);
@@ -5713,36 +5705,45 @@ function chargeStart(id, key){
   const P = localP(); if (!P || P.alive === false || P.stun > 0 || P.lockT > 0 || PAIN.charge) return;
   if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
   PAIN.charge = {id, key, t0:performance.now()/1000};
+  if (PAIN_SKILLS[id] && PAIN_SKILLS[id].kind === 'aimcharge') { G.targeting = id; G.armed = null; renderTray(); }   // the marker shows while charging
 }
 function chargeSecs(){ return PAIN.charge ? performance.now()/1000 - PAIN.charge.t0 : 0; }
 function chargeRelease(key){
   const ch = PAIN.charge; if (!ch || (key != null && ch.key !== key)) return;
   const c = +chargeSecs().toFixed(2); PAIN.charge = null;
-  if (ch.id === 'p_rod') fireRod(c); else localCast(ch.id, null, {c});
+  const d = PAIN_SKILLS[ch.id];
+  if (d && d.kind === 'aimcharge') { const pt = G.targetPoint ? G.targetPoint.clone() : null; G.targeting = null; marker.visible = false; TARGET_R[ch.id] = d.r; renderTray(); if (!pt) { toast(G.targetWhy || 'Aim at the ground.'); return; } localCast(ch.id, pt, {c}); return; }
+  if (d && d.kind === 'hold') { localCast('p_boulderx', null, {c}); return; }
+  localCast(ch.id, null, {c});
 }
 function painKeyDown(id, k){
   const d = PAIN_SKILLS[id], P = localP(); if (!d || !P || P.alive === false || P.stun > 0 || P.lockT > 0) return;
-  if (d.kind === 'charge') chargeStart(id, k);
-  else if (d.kind === 'aimhold') { if ((G.cd[id] || 0) > 0) { cdToast(id); return; } PAIN.aim = {id, key:k}; }
-  else useSpecial(id);
+  if (amDefender()) { cdToast2('🛡️ You defend: use your protection powers.'); return; }
+  if (d.ult && !ultReady(id)) return;
+  if (id === 'p_orbit' && PAIN.orbits[G.localKey] && !PAIN.orbits[G.localKey].fired) { localCast('p_orbit', G.targetPoint ? G.targetPoint.clone() : aimPoint(60), {fire:1}); G.targeting = null; marker.visible = false; renderTray(); return; }
+  if (d.kind === 'charge' || d.kind === 'aimcharge') chargeStart(id, k);
+  else if (d.kind === 'hold') { if ((G.cd[id] || 0) > 0) { cdToast(id); return; } if (BOULD[G.localKey] && BOULD[G.localKey].phase === 'air') { localCast('p_boulderx', boulderAim(), {drop:1}); return; } chargeStart(id, k); if (PAIN.charge) localCast(id, boulderAim()); }
+  else if (d.kind === 'aim') setTargeting(id);
+  else { if (G.spCd > 0) return; G.spCd = .15; if ((G.cd[id] || 0) > 0) { cdToast(id); return; } localCast(id, aimPoint(60)); }
 }
 // k = the released key, or null to drop everything (window lost focus)
 function painKeyUp(k){
-  if (PAIN.charge && (k == null || PAIN.charge.key === k)) { if (k == null) PAIN.charge = null; else chargeRelease(k); }
+  if (PAIN.charge && (k == null || PAIN.charge.key === k)) { if (k == null) { if (PAIN_SKILLS[PAIN.charge.id] && PAIN_SKILLS[PAIN.charge.id].kind === 'aimcharge') { G.targeting = null; marker.visible = false; } PAIN.charge = null; } else chargeRelease(k); }
   if (PAIN.aim && (k == null || PAIN.aim.key === k)) { const a = PAIN.aim; PAIN.aim = null; if (k != null) localCast(a.id, null, {tg:pickPullTarget()}); }
 }
-// clicks on the Skills bar
+// clicks on the Skills bar (no key to hold: charged powers go out at their base power)
 function painUse(id){
   const d = PAIN_SKILLS[id];
   if (d.kind === 'move') { toast(id === 'p_gdash' ? '💨 Gravity Dash: double-tap Shift while moving (works sideways and backward).' : '⤴️ Gravity Jump: press Space again in the air.'); return; }
-  if (id === 'p_orbit' && PAIN.orbits[G.localKey] && !PAIN.orbits[G.localKey].fired) { localCast('p_orbit', aimPoint(60), {fire:1}); return; }
+  if (d.kind === 'click') { toast('🫳 Telekinesis: hold Click on something to pick it up, hold Right-click to charge the throw.'); return; }
+  if (d.ult && !ultReady(id)) return;
+  if (id === 'p_orbit' && PAIN.orbits[G.localKey] && !PAIN.orbits[G.localKey].fired) { localCast('p_orbit', G.targetPoint ? G.targetPoint.clone() : aimPoint(60), {fire:1}); G.targeting = null; renderTray(); return; }
   if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
-  if (d.kind === 'aim') { setTargeting(id); return; }
+  if (d.kind === 'aim' || d.kind === 'aimcharge') { setTargeting(id); return; }
+  if (d.kind === 'hold') { toast('🪨 Earth Titan: hold C to raise a rock (bigger the longer you hold), release, steer it, Click to drop.'); return; }
   if (G.spCd > 0) return; G.spCd = .15;
-  if (id === 'p_rod') fireRod(0);
-  else if (id === 'p_pull') localCast(id, null, {tg:pickPullTarget()});
-  else if (d.kind === 'charge') localCast(id, null, {c:0});
-  else localCast(id, null);
+  if (d.kind === 'charge') localCast(id, null, {c:0});
+  else localCast(id, aimPoint(60));
 }
 
 /* ---------- charge meter and pull lock-on (local only) ---------- */
@@ -5782,10 +5783,10 @@ function updateChargeUI(){
     return;
   }
   const s = chargeSecs(), mul = chargeMul(ch.id, s), d = PAIN_SKILLS[ch.id];
-  if (ch.id === 'p_rod') {
-    const lvl = Math.floor(s), hue = (270 + lvl*40) % 360;
-    bar.style.width = (s % 1)*100 + '%'; bar.style.background = `linear-gradient(90deg, hsl(${hue},80%,45%), hsl(${hue + 30},90%,75%))`;
-    label.textContent = `🥢 ×${mul.toFixed(1)} power. Keep holding, no limit`;
+  if (d && d.kind === 'aimcharge') TARGET_R[ch.id] = gravR(ch.id, mul);
+  if (d && d.kind === 'hold') {
+    bar.style.width = Math.min(100, s/10*100) + '%'; bar.style.background = 'linear-gradient(90deg, #7E5433, #C9B8FF)';
+    label.textContent = `🪨 Rock ${Math.min(14, 1.4 + s*1.25).toFixed(1)} m. Keep holding to make it bigger, release to lift it`;
   } else {
     // every 2 s the bar fills and changes colour, like the rod's
     const lvl = Math.floor(s/2), hue = (260 + lvl*35) % 360;
@@ -5800,24 +5801,283 @@ function updateChargeUI(){
   }
 }
 
+/* ---------- NEW. Telekinesis (hold Click): pick something up; hold Right-click as well to charge the throw (no limit),
+   release to throw it at the crosshair. Let go of Click without charging to drop it.
+   Targets: enemies ('P'+id), props ('R'+index: the same on every screen), Chibaku cores ('K'+index) and loose physics
+   things / dummies / animals ('O'+position: each screen takes the nearest body there). Hidden casts p_grab / p_throw. */
+const TK = {holds:{}, mine:null, chargeT0:0, thrown:[]};
+function tkHoldPoint(key){
+  const P = chars[key]; if (!P) return null;
+  const yaw = key === G.localKey ? G.yaw : P.face, p = P.root.position;
+  return V3(p.x + Math.sin(yaw)*3.4, p.y + 2.9, p.z + Math.cos(yaw)*3.4);
+}
+// caster side: the thing nearest the crosshair, up to 40 m away
+function tkPick(){
+  const me = localP(); if (!me) return null;
+  const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd);
+  const mp = me.body.position; let best = null, bestA = .2;
+  const consider = (tg, p, lift) => { const d = Math.hypot(p.x - mp.x, p.z - mp.z); if (d > 40 || d < 1) return; const v = V3(p.x, p.y + (lift || .5), p.z).sub(camera.position).normalize(), a = Math.acos(clamp(v.dot(fwd), -1, 1)) - Math.min(.06, 1/d*.4); if (a < bestA) { bestA = a; best = tg; } };
+  for (const k in chars) { const P = chars[k]; if (P && k !== G.localKey && P.alive !== false && P.team !== me.team) consider('P' + k, P.body.position, 1); }
+  PAIN.cores.forEach((c, i) => { if (!c.done) consider('K' + i, c.g.position, 0); });
+  for (const o of objs) { if (o.dead || isCarried(o) || o.kind === 'egg' || !(o.body.mass > 0) || o.body.mass > 6000 || o.tkHeld) continue; const p = o.body.position; consider('O' + [p.x, p.y, p.z].map(v => +v.toFixed(1)).join(','), p, 0); }
+  PAIN.dummies.forEach(o => { if (o.dead || o.kind === 'dummy') return; const p = o.body.position; consider('O' + [p.x, p.y, p.z].map(v => +v.toFixed(1)).join(','), p, .3); });
+  props.forEach((pr, i) => { if (!pr.dead) consider('R' + i, V3(pr.x, pr.y, pr.z), pr.kind === 'tree' ? 1.5 : .6); });
+  return best;
+}
+function tkBodyAt(s){
+  const q = s.split(',').map(Number), at = V3(q[0], q[1], q[2]); let best = null, bd = 3.5;
+  for (const b of world.bodies) { if (b.mass === 0 || b.player || b._tk) continue; const d = Math.hypot(b.position.x - at.x, b.position.y - at.y, b.position.z - at.z); if (d < bd) { bd = d; best = b; } }
+  return best;
+}
+function tkDown(){
+  const me = localP(); if (!me || me.alive === false || me.stun > 0) return;
+  if (BOULD[G.localKey] && BOULD[G.localKey].phase === 'air') { localCast('p_boulderx', boulderAim(), {drop:1}); return; }
+  if (TK.holds[G.localKey]) return;
+  if ((G.cd.p_grab || 0) > 0) return;
+  const tg = tkPick(); if (!tg) { cdToast2('🫳 Nothing to grab there. Aim at an enemy, a rock, a tree, a crate, an animal…'); return; }
+  localCast('p_grab', null, {tg});
+}
+function tkUp(){ const h = TK.holds[G.localKey]; if (!h) return; localCast('p_throw', aimPoint(120), {c:TK.chargeT0 ? +(performance.now()/1000 - TK.chargeT0).toFixed(2) : -1}); TK.chargeT0 = 0; }
+function tkRight(down){
+  const h = TK.holds[G.localKey]; if (!h) return false;
+  if (down) { TK.chargeT0 = performance.now()/1000; return true; }
+  if (TK.chargeT0) { localCast('p_throw', aimPoint(120), {c:+(performance.now()/1000 - TK.chargeT0).toFixed(2)}); TK.chargeT0 = 0; }
+  return true;
+}
+function painGrab(x){
+  const {key, C, team} = casterInfo(), tg = x && typeof x.tg === 'string' ? x.tg : null; if (!tg) return;
+  tkRelease(key);
+  const h = {key, team, tg, t:0, kind:tg[0]};
+  if (h.kind === 'P') { h.pid = tg.slice(1); if (!chars[h.pid]) return; }
+  else if (h.kind === 'R') { const pr = props[+tg.slice(1)]; if (!pr) return; if (!pr.dead) { const o = liftProp(pr, V3(0, 6, 0)); if (o) h.body = o.body; } else return; }
+  else if (h.kind === 'K') { h.core = PAIN.cores[+tg.slice(1)]; if (!h.core || h.core.done) return; }
+  else { h.body = tkBodyAt(tg.slice(1)); if (!h.body) return; }
+  if (h.body) { h.body._tk = key; const o = bodyObj.get(h.body); if (o) o.tkHeld = true; if (h.body.wakeUp) h.body.wakeUp(); }
+  TK.holds[key] = h; if (key === G.localKey) TK.mine = h;
+  if (C) C.castPose = .4;
+  // a lens of folded space around the held thing, and a thread of it back to the hand
+  const pos = () => h.core ? h.core.g.position : h.body ? h.body.position : chars[h.pid] ? chars[h.pid].body.position : V3(0, -99, 0);
+  h.warp = SpaceWarp.add({pos:() => { const p = pos(); return V3(p.x, p.y + (h.kind === 'P' ? 1 : 0), p.z); }, alive:() => TK.holds[key] === h, R:() => h.kind === 'K' ? 7 : 2.4, s:() => .4});
+  sfx('grav');
+  if (key === G.localKey) toast('🫳 Got it. Hold Right-click to charge the throw (no limit), release to throw. Let go of Click to drop.');
+}
+// every physics step: held things float in front of their holder
+function tkForces(g){
+  for (const key in TK.holds) {
+    const h = TK.holds[key], hp = tkHoldPoint(key); if (!hp) { tkRelease(key); continue; }
+    h.t += 1/60; if (h.t > 14) { tkRelease(key); continue; }
+    const size = h.body && h.body.boundingRadius ? h.body.boundingRadius : 1; hp.y += Math.min(4, size*.6);
+    if (h.core) { const c = h.core; c.base.copy(hp).sub(c.off); c.base.y += c.shell; continue; }
+    if (h.kind === 'P') {
+      if (h.pid !== G.localKey) continue;
+      const A = bodyFor(key, h.team); if (!A || !A.harm) { tkRelease(key); continue; }
+      const b = A.P.body; b.force.y += g*b.mass; b._onGround = false; A.P.stun = Math.max(A.P.stun, .2); A.P.stars.visible = true;
+      b.velocity.set((hp.x - b.position.x)*6, (hp.y - 1 - b.position.y)*6, (hp.z - b.position.z)*6); continue;
+    }
+    const b = h.body; if (!b || !b.world) { tkRelease(key); continue; }
+    b.force.y += g*b.mass; b.velocity.set((hp.x - b.position.x)*7, (hp.y - b.position.y)*7, (hp.z - b.position.z)*7); b.angularVelocity.set(.6, 1.2, .4);
+  }
+}
+function tkRelease(key){
+  const h = TK.holds[key]; if (!h) return null;
+  delete TK.holds[key]; if (key === G.localKey) { TK.mine = null; TK.chargeT0 = 0; }
+  if (h.body) { delete h.body._tk; const o = bodyObj.get(h.body); if (o) o.tkHeld = false; }
+  return h;
+}
+function painThrow(p, x){
+  const {key, C, team} = casterInfo(), c = +(x && x.c), h = tkRelease(key); if (!h) return;
+  if (!(c >= 0)) { sfx('place'); return; }   // dropped
+  const m = 1 + c*.6, sp = Math.min(150, 26*(1 + c*.5)), from = h.core ? h.core.g.position.clone() : h.body ? V3(h.body.position.x, h.body.position.y, h.body.position.z) : tkHoldPoint(key);
+  const to = p ? p.clone() : from.clone().add(V3(Math.sin(G.yaw)*30, 0, Math.cos(G.yaw)*30)), dir = to.clone().sub(from).normalize();
+  if (C) C.pushPose = .5;
+  if (h.core) { h.core.vel.copy(dir.multiplyScalar(sp*.6)); }
+  else if (h.kind === 'P') {
+    if (h.pid === G.localKey) { const A = bodyFor(key, team); if (A && A.harm) { const b = A.P.body; b.velocity.set(dir.x*sp*.7, dir.y*sp*.7 + 3, dir.z*sp*.7); painHurt(A.P, 12*m, key); A.P.stun = Math.max(A.P.stun, .9); TK.thrown.push({b, owner:key, team, t:0, dmg:10*m, me:true}); } }
+  } else if (h.body && h.body.world) {
+    const b = h.body; b.velocity.set(dir.x*sp, dir.y*sp, dir.z*sp); spin(b, 6);
+    TK.thrown.push({b, owner:key, team, t:0, dmg:(10 + Math.min(40, Math.sqrt(b.mass)*1.5))*m, R:1.2 + Math.min(3, (b.boundingRadius || .6)), c});
+  }
+  warpPulse(from.clone(), 4 + Math.min(10, c*2), .4, .03); sfx('shinra'); if (c > 2) sfx('dash'); shakeAt(from, Math.min(1.2, .2 + c*.15), 30);
+}
+// thrown things hurt whoever they hit (victim side), and land hard
+function tkThrownFrame(dt){
+  for (const t of TK.thrown) {
+    t.t += dt; const b = t.b, sp = b.velocity.length();
+    if (t.t > 3 || !b.world) { t.done = true; continue; }
+    if (t.me) { if (b._onGround || sp < 3) { t.done = true; if (t.t > .2) { const P = b.player; if (P) painHurt(P, t.dmg*.6, t.owner); } } continue; }
+    if (sp < 4 && t.t > .3) { t.done = true; continue; }
+    const P = victimFor(t.owner, t.team);
+    if (P && !t.hitMe && P.body.position.distanceTo(b.position) < t.R + .6) { t.hitMe = true; const d = b.velocity.clone().normalize(); painHurt(P, t.dmg*Math.min(1.5, sp/30), t.owner); knock(P, d.x*Math.min(30, sp*.5), 6, d.z*Math.min(30, sp*.5), .7); sfx('bonk'); }
+    PAIN.dummies.forEach(dm => { if (!dm.dead && dm.body !== b && dm.body.position.distanceTo(b.position) < t.R + .8 && !(t.hit || (t.hit = new Set())).has(dm)) { t.hit.add(dm); dummyHit(dm.body, t.dmg*Math.min(1.5, sp/30)); } });
+    if (b.position.y - groundH(b.position.x, b.position.z) < t.R && b.velocity.y < -6 && !t.landed) { t.landed = true; if (t.c > 1.5) { radialPush(V3(b.position.x, b.position.y, b.position.z), 3 + t.c, 8 + t.c*2, 4, t.dmg*.4); dustRing(V3(b.position.x, 0, b.position.z), 2 + t.c*.5, 8); shakeAt(b.position, .5, 30); sfx('thud'); } }
+  }
+  TK.thrown = TK.thrown.filter(t => !t.done);
+  // the hold's thread of warped space, local hand to target
+  for (const key in TK.holds) { const h = TK.holds[key], P = chars[key]; if (!P || Math.random() > .5) continue; const a = V3(P.root.position.x, P.root.position.y + 1.4, P.root.position.z), z = h.core ? h.core.g.position : h.body ? h.body.position : chars[h.pid] ? chars[h.pid].body.position : null; if (!z) continue;
+    const q = a.clone().lerp(V3(z.x, z.y, z.z), Math.random()), m = pmesh('oct', rr(.04, .1), bmat(0xD9CCFF, .8)); m.position.copy(q); m.userData.noRay = true; roundGroup.add(m); fx.push({mesh:m, v:V3(0, .5, 0), r:V3(3, 3, 0), life:.3}); }
+}
+
+/* ---------- NEW. Levitation: everything around you floats up and hangs there for a while ---------- */
+function painLevitate(){
+  const {key, C, team, pos} = casterInfo(), R = 17, DUR = 6, c = V3(pos.x, pos.y, pos.z);
+  const lifted = new Map(); let t = 0;
+  for (const pr of propsNear(c, R*.85).slice(0, 14)) { const o = liftProp(pr, V3(0, 3 + rr(0, 2), 0)); if (o) lifted.set(o.body, rr(3, 8)); }
+  world.bodies.forEach(b => { if (b.mass === 0 || b.player || b._frozen || hdist(b.position, c) > R) return; lifted.set(b, rr(2.5, 7)); if (b.wakeUp) b.wakeUp(); });
+  kickCores(cp => hdist(cp, c) < R + 6 ? V3(0, 14, 0) : null);
+  const A = bodyFor(key, team), victim = A && A.harm && hdist(A.P.body.position, c) < R ? A.P : null;
+  if (victim) painHurt(victim, 8, key);
+  PAIN.fields.push({t:0, dur:DUR, apply(g){
+    const k = 1 - Math.max(0, (this.t - DUR + .8)/.8);   // the last moment it lets go
+    for (const [b, h] of lifted) { if (!b.world) { lifted.delete(b); continue; } const want = groundH(b.position.x, b.position.z) + h;
+      b.force.y += g*b.mass*k; b.velocity.y = lerp(b.velocity.y, (want - b.position.y)*1.4 + Math.sin(this.t*2 + h)*.5, .08*k); b.velocity.x *= .985; b.velocity.z *= .985; b.angularVelocity.y = lerp(b.angularVelocity.y, .8, .02); }
+    if (victim && victim.alive !== false) { const b = victim.body, want = groundH(b.position.x, b.position.z) + 5; b.force.y += g*b.mass*k; b.velocity.y = lerp(b.velocity.y, (want - b.position.y)*1.5, .1*k); b.velocity.x *= .9; b.velocity.z *= .9; b._onGround = false; victim.pinT = .2; }
+  }});
+  // a sphere of warped space that breathes while it holds
+  SpaceWarp.add({pos:() => V3(c.x, c.y + 3, c.z), alive:() => t < DUR, R:() => R*.55, s:() => .25 + Math.sin(t*3)*.08});
+  PAIN.fx.push({owner:key, update(dt){ t += dt; if (Math.random() < .5) { const a = Math.random()*Math.PI*2, d = Math.random()*R, m = pmesh('oct', rr(.04, .1), bmat(0xD9CCFF, .7)); m.position.set(c.x + Math.cos(a)*d, groundH(c.x + Math.cos(a)*d, c.z + Math.sin(a)*d) + .2, c.z + Math.sin(a)*d); m.userData.noRay = true; roundGroup.add(m); fx.push({mesh:m, v:V3(0, rr(1, 3), 0), r:V3(1, 1, 0), life:1.2}); } return t < DUR; }});
+  warpSphere(c, R, .6); shockRing(c, R, .7, 0xC9B8FF); warpPulse(V3(c.x, c.y + 1, c.z), R, .6, .04);
+  if (C) C.castPose = .6; sfx('grav'); sfx('holy');
+  if (key === G.localKey) toast('🎈 Everything around you is weightless for a few seconds.');
+}
+
+/* ---------- NEW. Gravity Vortex: everything near you is dragged into orbit around you, a storm of folded space ---------- */
+function painVortex(){
+  const {key, C, team} = casterInfo(), R = 21, DUR = 7; let t = 0;
+  const centre = () => { const P = chars[key]; return P ? V3(P.root.position.x, P.root.position.y, P.root.position.z) : null; };
+  const uproot = propsNear(centre(), R*.8).slice(0, 16); let ui = 0;
+  PAIN.fields.push({t:0, dur:DUR, apply(g){
+    const c = centre(); if (!c) { this.done = true; return; }
+    for (const b of world.bodies) {
+      if (b.mass === 0 || b.player || b._frozen || b._tk) continue;
+      const dx = b.position.x - c.x, dz = b.position.z - c.z, d = Math.hypot(dx, dz) || .01; if (d > R) continue;
+      if (b.sleepState === CANNON.Body.SLEEPING) b.wakeUp();
+      const ring = 5 + (b.id % 7), h = c.y + 2 + (b.id % 5)*1.3, tx = -dz/d, tz = dx/d, sp = 16 + (R - d)*.6;
+      b.force.y += g*b.mass;
+      b.velocity.x = lerp(b.velocity.x, tx*sp + (ring - d)*-dx/d*-1.6, .12); b.velocity.z = lerp(b.velocity.z, tz*sp + (ring - d)*-dz/d*-1.6, .12); b.velocity.y = lerp(b.velocity.y, (h - b.position.y)*2, .1);
+      if (b.tag === 'dummy' && Math.random() < .05) dummyHit(b, 4);
+    }
+    const A = bodyFor(key, team); if (A && A.harm) { const b = A.P.body, dx = b.position.x - c.x, dz = b.position.z - c.z, d = Math.hypot(dx, dz) || .01;
+      if (d < R) { const tx = -dz/d, tz = dx/d; b.force.y += g*b.mass*.9; b.velocity.x = lerp(b.velocity.x, tx*18 + (7 - d)*dx/d*1.5, .1); b.velocity.z = lerp(b.velocity.z, tz*18 + (7 - d)*dz/d*1.5, .1); b.velocity.y = lerp(b.velocity.y, (c.y + 4 - b.position.y)*2, .08); b._onGround = false; A.P.stun = Math.max(A.P.stun, .2); A.P.stars.visible = true; painHurt(A.P, 7/60, key); } }
+  }});
+  kickCores(cp => { const c = centre(); if (!c) return null; const d = hdist(cp, c); return d < R + 8 ? V3(-(cp.z - c.z), 0, cp.x - c.x).normalize().multiplyScalar(10) : null; });
+  PAIN.fx.push({owner:key, cancel(){ t = DUR; }, update(dt){
+    t += dt; const c = centre(); if (!c) return false;
+    while (ui < uproot.length && ui < t*4) { const pr = uproot[ui++]; liftProp(pr, V3(0, 8, 0)); }
+    if (Math.random() < .25) warpPulse(V3(c.x, c.y + 3, c.z), R*.8, .5, .03);
+    return t < DUR;
+  }});
+  SpaceWarp.add({pos:() => { const c = centre() || V3(0, -99, 0); return V3(c.x, c.y + 3, c.z); }, alive:() => t < DUR, R:() => 9 + Math.sin(t*4)*1.5, s:() => .55});
+  if (C) C.castPose = 1; sfx('hole'); sfx('wind'); sfx('pain');
+  if (key === G.localKey) toast('🌀 Gravity vortex: everything around you is caught in your orbit.');
+}
+
+/* ---------- NEW. Earth Titan (hold C): a rock tears out of the ground at the marker, bigger the longer you hold.
+   Release: it rises high and follows your marker; Click drops it. The caster shares the marker in its state ('pb'). */
+const BOULD = {};
+function boulderAim(){ const h = crosshairHit(); return h && h.point ? h.point.clone() : aimPoint(60); }
+function painBoulder(p){
+  const {key, C} = casterInfo(); if (!p) return;
+  const old = BOULD[key]; if (old) boulderEnd(old);
+  const g = new THREE.Group(); g.userData.noRay = true;
+  const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(1, 1), M3(0x6E6672)); g.add(rock);
+  for (let i = 0; i < 7; i++) { const s = new THREE.Mesh(PAIN_ROCK, M3(pick([0x5B5560, 0x4A4550, 0x7A6E62]))); s.scale.setScalar(rr(.35, .55)); s.position.set(rr(-.8, .8), rr(-.8, .8), rr(-.8, .8)).setLength(.85); g.add(s); }
+  addOutline(g); g.traverse(m => m.userData.noRay = true);
+  const gy = groundH(p.x, p.z); g.position.set(p.x, gy - 1, p.z); roundGroup.add(g);
+  const B = BOULD[key] = {key, team:C ? C.team : null, g, p:V3(p.x, gy, p.z), R:1.2, phase:'rise', t:0, tgt:null};
+  SpaceWarp.add({pos:() => B.g.position, alive:() => BOULD[key] === B && B.phase !== 'done', R:() => B.R*1.8 + 2, s:() => .35});
+  if (C) C.castPose = .6; sfx('rumble'); sfx('drill');
+}
+function painBoulderX(p, x){
+  const {key} = casterInfo(), B = BOULD[key]; if (!B) return;
+  if (x && x.drop) { if (B.phase === 'air') { B.phase = 'fall'; B.t = 0; B.tgt = p ? V3(p.x, groundH(p.x, p.z), p.z) : B.tgt; B.ring = warnRing(B.tgt, B.R*2.2); sfx('whistle'); } return; }
+  const c = Math.max(0, +(x && x.c) || 0); B.R = Math.min(14, 1.4 + c*1.25); B.phase = 'air'; B.t = 0; B.y0 = B.g.position.y; B.tgt = B.p.clone();
+  sfx('shinra'); dustRing(B.p, B.R, 10); shakeAt(B.p, .6, 40);
+  if (key === G.localKey) toast('🪨 Steer it with your marker, Click to bring it down.');
+}
+function boulderNet(id, pb){ const B = BOULD[id]; if (B && Array.isArray(pb) && B.phase === 'air') B.tgt = V3(pb[0], groundH(pb[0], pb[1]), pb[1]); }
+function boulderState(){ const B = BOULD[G.localKey]; return B && B.phase === 'air' && B.tgt ? [+B.tgt.x.toFixed(1), +B.tgt.z.toFixed(1)] : null; }
+function boulderEnd(B){ B.phase = 'done'; if (B.g.parent) roundGroup.remove(B.g); if (B.ring && B.ring.parent) roundGroup.remove(B.ring); if (BOULD[B.key] === B) delete BOULD[B.key]; }
+function boulderFrame(dt){
+  for (const key in BOULD) {
+    const B = BOULD[key], g = B.g; B.t += dt;
+    if (B.phase === 'rise') {
+      // grows while the key is held (everyone sees it grow until the release arrives)
+      const s = Math.min(14, 1.4 + B.t*1.25); B.R = s; g.scale.setScalar(s); g.position.y = B.p.y - s*.4 + Math.min(1.5, B.t*.6); g.rotation.y += dt*.4;
+      if (Math.random() < .6) { const a = Math.random()*Math.PI*2, q = V3(B.p.x + Math.cos(a)*s, 0, B.p.z + Math.sin(a)*s); q.y = groundH(q.x, q.z) + .2; puff(q, pick([0x7E5433, 0x9A8A70]), .4); }
+      shakeAt(B.p, Math.min(.5, .05*s), 30);
+      if (B.t > 20) boulderEnd(B);
+      continue;
+    }
+    if (B.phase === 'air') {
+      g.scale.setScalar(B.R); g.rotation.y += dt*.3; g.rotation.x += dt*.15;
+      if (key === G.localKey) { const a = boulderAim(); B.tgt = V3(a.x, groundH(a.x, a.z), a.z); if (!B.ring) B.ring = warnRing(B.tgt, B.R*2.2, 0xC9B8FF); B.ring.position.set(B.tgt.x, B.tgt.y + .1, B.tgt.z); B.ring.material.opacity = .4 + Math.sin(B.t*8)*.3; }
+      const want = V3(B.tgt.x, groundH(B.tgt.x, B.tgt.z) + 38 + B.R, B.tgt.z), cur = g.position, k = Math.min(1, dt*(B.t < 1.2 ? 1.6 : 1.2));
+      cur.x += (want.x - cur.x)*k; cur.z += (want.z - cur.z)*k; cur.y += (want.y - cur.y)*Math.min(1, dt*1.8);
+      if (B.t > 16 && key === G.localKey) localCast('p_boulderx', B.tgt.clone(), {drop:1});
+      if (B.t > 25) boulderEnd(B);
+      continue;
+    }
+    if (B.phase === 'fall') {
+      const cur = g.position, tgt = B.tgt; cur.x += (tgt.x - cur.x)*Math.min(1, dt*4); cur.z += (tgt.z - cur.z)*Math.min(1, dt*4); cur.y -= dt*(30 + B.t*80); g.rotation.x += dt*2;
+      if (B.ring) B.ring.material.opacity = .5 + Math.sin(B.t*20)*.3;
+      if (cur.y - B.R*.6 <= groundH(cur.x, cur.z)) boulderImpact(B);
+    }
+  }
+}
+function boulderImpact(B){
+  const at = V3(B.g.position.x, groundH(B.g.position.x, B.g.position.z), B.g.position.z), R = B.R*2.2 + 3, key = B.key, team = B.team;
+  boulderEnd(B);
+  const P = victimFor(key, team);
+  if (P) { const d = hdist(P.body.position, at); if (d < B.R*1.1) painHurt(P, 999, key); else if (d < R) { const f = 1 - d/R, away = V3(P.body.position.x - at.x, 0, P.body.position.z - at.z).normalize(); painHurt(P, 25 + 50*f*Math.min(2, B.R/5), key); knock(P, away.x*24*f, 9*f + 4, away.z*24*f, .8); } }
+  PAIN.dummies.forEach(dm => { if (!dm.dead) { const d = hdist(dm.body.position, at); if (d < R) dummyHit(dm.body, d < B.R*1.1 ? 999 : 40); } });
+  radialPush(V3(at.x, at.y + 1, at.z), R + 4, 26, 10, 30); damageProps(V3(at.x, at.y + 1, at.z), R, 600); summonsTakeArea(V3(at.x, at.y + 1, at.z), R, 60, key, team);
+  kickCores(cp => hdist(cp, at) < R + 8 ? cp.clone().sub(at).setY(0).normalize().multiplyScalar(18).setY(8) : null);
+  for (let i = 0; i < 16; i++) { const m = pmesh('dod', rr(.3, .9)*Math.min(3, B.R/3), M3(pick([0x5B5560, 0x4A4550, 0x6E6672, 0x7A6E62]))); m.position.set(at.x, at.y + 1, at.z); m.userData.noRay = true; roundGroup.add(m); fx.push({mesh:m, v:V3(rr(-10, 10), rr(6, 16), rr(-10, 10)), r:V3(rr(-6, 6), rr(-6, 6), 0), life:2.4}); }
+  boomVisual(V3(at.x, at.y + 1, at.z), false, Math.min(2.2, .4 + B.R*.15), {ball:0x6E6672, core:0xC9B8FF, ring:0xD9CCFF});
+  shockRing(at, R*1.3, .8); dustRing(at, R*.6, 14); dustRing(at, R, 18); warpPulse(V3(at.x, at.y + 2, at.z), R*1.5, .8, .06);
+  flash(Math.min(.6, .1 + B.R*.04)); shakeAt(at, Math.min(3, .6 + B.R*.18), 80 + R*2); sfx('boom'); sfx('thud'); sfx('rumble');
+}
+
+/* ---------- Chibaku cores that touch merge into one bigger mass ---------- */
+function coresMerge(){
+  const list = PAIN.cores.filter(c => !c.done && !c.falling);
+  for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+    const a = list[i], b = list[j]; if (a.done || b.done) continue;
+    if (a.g.position.distanceTo(b.g.position) > (a.shell + b.shell)*.85) continue;
+    const big = a.shell >= b.shell ? a : b, small = big === a ? b : a;
+    big.shell = Math.min(14, Math.cbrt(big.shell**3 + small.shell**3));
+    big.vel.add(small.vel.multiplyScalar(.5));
+    const rng = mulberry32(seedOf(big.g.position)); for (let k = 0; k < Math.min(small.n, 60); k++) addChunk(big, rng, 1.3);
+    big.g.updateMatrixWorld(); const wp = new THREE.Vector3();
+    for (const m of small.stuck) { if (big.stuck.length >= big.maxStuck + 20) break; m.getWorldPosition(wp); big.g.attach(m); m.position.setLength(big.shell*rr(.75, 1)); big.stuck.push(m); }
+    small.stuck = [];
+    small.done = true; roundGroup.remove(small.g); PAIN.cores = PAIN.cores.filter(c => c !== small);
+    warpPulse(big.g.position.clone(), big.shell*4, .9, .07); shockRing(V3(big.g.position.x, groundH(big.g.position.x, big.g.position.z), big.g.position.z), big.shell*4, .8); flash(.3); sfx('boom'); sfx('hole'); shakeAt(big.g.position, 1.5, 90);
+  }
+}
+
 /* ---------- dispatch, per-frame update, forces, cancellation ---------- */
 function runPain(id, p, x){
   const {C} = casterInfo();
   if (id === 'p_gdash') { runGravityDash(x); return; }
   if (id === 'p_gjump') { runGravityJump(); return; }
-  if (id === 'p_rod') { painRod(p, x); return; }
+  if (id === 'p_grab') { painGrab(x); return; }
+  if (id === 'p_throw') { painThrow(p, x); return; }
+  if (id === 'p_boulderx') { painBoulderX(p, x); return; }
+  if (PAIN_SKILLS[id] && PAIN_SKILLS[id].ult) { G.ultUsed = G.ultUsed || {}; if (casterInfo().key === G.localKey) { G.ultUsed[id] = true; renderTray(); } }
   const fire = id === 'p_orbit' && x && x.fire;
   if (!fire) painCastFX(C);
-  if (id === 'p_push') painPush();
-  else if (id === 'p_pull') painPull(x);
+  if (id === 'p_pull') painPull(x);
   else if (id === 'p_shinra') painShinraFront(x);
   else if (id === 'p_shinra360') painShinra(x);
-  else if (id === 'p_above' && p) painAbove(p);
-  else if (id === 'p_below' && p) painBelow(p);
-  else if (id === 'p_chibaku' && p) painChibaku(p);
+  else if (id === 'p_above' && p) painAbove(p, x);
+  else if (id === 'p_below' && p) painBelow(p, x);
   else if (id === 'p_cata' && p) painCatastrophic(p);
   else if (id === 'p_orbit') painOrbit(p, x);
   else if (id === 'p_almighty') painAlmighty();
+  else if (id === 'p_levitate') painLevitate();
+  else if (id === 'p_vortex') painVortex();
+  else if (id === 'p_boulder') painBoulder(p);
 }
 // called every physics step from applyForces
 function applyPainForces(){
@@ -5830,6 +6090,7 @@ function applyPainForces(){
     else if (me.floatT > 0) b.force.y += g*b.mass*.72;
   }
   for (const f of PAIN.fields) if (!f.done && f.apply) f.apply(g);
+  tkForces(g);
 }
 function painFrame(dt){
   const me = localP();
@@ -5839,17 +6100,19 @@ function painFrame(dt){
   for (const f of PAIN.fields) { if (f.done || f.dur == null) continue; f.t += dt; if (f.t > f.dur) f.done = true; }
   PAIN.fields = PAIN.fields.filter(f => !f.done);
   PAIN.fx = PAIN.fx.filter(e => e.update(dt) !== false);
-  updateRods(dt); updateOrbits(dt); updateShots(dt); regrowProps(); updateDummies(dt); updateChargeUI();
+  updateRods(dt); updateOrbits(dt); updateShots(dt); regrowProps(); updateDummies(dt); updateChargeUI(); tkThrownFrame(dt); boulderFrame(dt); coresMerge();
+  if (G.targeting === 'p_orbit' && !(PAIN.orbits[G.localKey] && !PAIN.orbits[G.localKey].fired)) { G.targeting = null; marker.visible = false; renderTray(); }
 }
 // a player was knocked out: their ongoing channelled abilities stop on every screen
 function painOwnerDied(id){
   PAIN.fx.forEach(e => { if (e.owner === id && e.cancel) e.cancel(); });
+  tkRelease(id); if (BOULD[id]) boulderEnd(BOULD[id]);
   if (id === G.localKey) { PAIN.charge = null; PAIN.aim = null; const P = localP(); if (P) { P.fly = null; P.warp = null; P.lockT = 0; P.floatT = 0; } }
 }
 function painHelp(){
-  return '<b>WASD</b> move, <b>Shift ×2</b> warp dash (32 m), <b>Space ×2</b> gravity jump · hold <b>Click</b>/<b>1</b> to charge a chakra rod (no limit)<br>' +
-    '<b>F</b> gravity push · hold <b>Q</b> to aim a pull · hold <b>R</b> Shinra Tensei (front) · hold <b>T</b> Shinra Tensei 360° · <b>V</b>/<b>B</b> gravity from above/below<br>' +
-    '<b>C</b> Chibaku Tensei · <b>X</b> Catastrophic Chibaku · <b>2</b> Planetary Orbit (again to fire) · <b>Z</b> Giant Push';
+  return '<b>Click</b> (hold) telekinesis: pick up anything, hold <b>Right-click</b> to charge the throw · <b>Shift ×2</b> warp dash · <b>Space ×2</b> gravity jump<br>' +
+    'hold <b>1</b>/<b>2</b> gravity from below/above (aim, release) · hold <b>R</b>/<b>T</b> Shinra Tensei front/360° · <b>F</b> levitation · hold <b>Q</b> pull everything<br>' +
+    '<b>X</b> planetary orbit (Click or X again to hurl) · hold <b>C</b> Earth Titan rock (release, steer, Click to drop) · <b>V</b> gravity vortex · <b>B</b> ULT Almighty Push · <b>N</b> ULT Catastrophic Chibaku';
 }
 
 /* ---------- host-side cast validation (both modes) ----------
@@ -5905,7 +6168,7 @@ function castOK(c, m){
    any class, so players can swap freely without telling anyone. */
 const CLASS_IDS = ['native', 'pain', 'bomber', 'sword', 'summon', 'necro'];
 // in Pain mode the default kit already is Pain, so the class is skipped there
-const classCycle = () => CLASS_IDS.filter(c => !(c === 'pain' && isPain()));
+const classCycle = () => CLASS_IDS.filter(c => !(c === 'pain' && isPain()) && !(G.mode === 'egg' && (c === 'native' || c === 'summon')));   // Alpha Mode: no Chaos or Summoner for now
 function classInfo(c){ return c === 'pain' ? {name:'Pain', e:'🌑'} : c === 'bomber' ? {name:'Bomber', e:'💣'} : c === 'sword' ? {name:'Swordsman', e:'⚔️'} : c === 'summon' ? {name:'Summoner', e:'🐾'} : c === 'necro' ? {name:'Necromancer', e:'💀'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
 function modeTable(){ return isPain() ? PAIN_SKILLS : SPECIALS; }
 G.cls = (() => { try { const c = localStorage.getItem('ca-cls'); return c === 'pain' || c === 'bomber' || c === 'sword' || c === 'summon' || c === 'necro' ? c : 'native'; } catch (e) { return 'native'; } })();
@@ -9949,7 +10212,7 @@ function kiPop(o){
 }
 
 /* remote players: smooth movement from the network */
-function applyState(m){ const P = chars[m.id]; if (!P || !P.remote) return; P.net = m; P.netT = performance.now()/1000; if (m.gm) guidedNet(m.id, m.gm); }
+function applyState(m){ const P = chars[m.id]; if (!P || !P.remote) return; P.net = m; P.netT = performance.now()/1000; if (m.gm) guidedNet(m.id, m.gm); if (m.pb) boulderNet(m.id, m.pb); }
 function updateRemotes(dt){
   for (const k in chars) {
     const P = chars[k]; if (!P || !P.remote || !P.net) continue;
@@ -9973,8 +10236,8 @@ const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').s
 function netSend(m){ if (!NET.peer) return; if (NET.host) netBroadcast(m); else if (NET.hostConn && NET.hostConn.open) NET.hostConn.send(m); }
 function netBroadcast(m, except){ NET.conns.forEach(c => { if (c.open && c !== except) c.send(m); }); }
 function lobbyList(){ return Object.values(NET.players); }
-const normMode = m => m === 'pain' || m === 'egg' ? m : 'chaos';
-const MODE_NAME = {egg:'🥚 Egg', chaos:'🌀 Chaos', pain:'🌑 Pain'};
+const normMode = m => m === 'chaos' ? 'chaos' : 'egg';   // Pain and Swarm modes were removed (2026-10-06); 'egg' is shown as Alpha Mode
+const MODE_NAME = {egg:'🥚 Alpha Mode', chaos:'🌀 Chaos'};
 function broadcastLobby(){ netBroadcast({t:'lobby', players:lobbyList(), host:NET.myId, mode:NET.mode, cd:NET.cdOn ? 1 : 0}); renderLobby(); }
 /* STUN lets two browsers find a direct route to each other. On strict networks (mobile data, school/work Wi-Fi,
    some VPNs) there is none. PeerJS's free TURN relays are gone (their hostnames no longer resolve), so when the
@@ -10218,11 +10481,11 @@ function netTick(dt){
   if (!NET.peer || !G.pvp || !(G.phase === 'attack' || G.phase === 'build')) return;
   NET.sendT -= dt; if (NET.sendT > 0) return; NET.sendT = 1/15;
   const P = localP(); if (!P) return; const b = P.body;
-  netSend({t:'st', id:G.localKey, x:+b.position.x.toFixed(2), y:+b.position.y.toFixed(2), z:+b.position.z.toFixed(2), f:+P.face.toFixed(2), vx:+b.velocity.x.toFixed(1), vz:+b.velocity.z.toFixed(1), fl:(P.naruto ? 1 : 0) | (P.grounded ? 2 : 0) | (P.dashT > 0 ? 4 : 0) | (P.stun > 0 ? 8 : 0) | (G.cls === 'sword' ? 16 : 0) | (G.hiddenUntil > G.t ? 32 : 0), hp:Math.round(P.hp), al:P.alive === false ? 0 : 1, ...(BX.guided[G.localKey] ? {gm:guidedState()} : {})});
+  netSend({t:'st', id:G.localKey, x:+b.position.x.toFixed(2), y:+b.position.y.toFixed(2), z:+b.position.z.toFixed(2), f:+P.face.toFixed(2), vx:+b.velocity.x.toFixed(1), vz:+b.velocity.z.toFixed(1), fl:(P.naruto ? 1 : 0) | (P.grounded ? 2 : 0) | (P.dashT > 0 ? 4 : 0) | (P.stun > 0 ? 8 : 0) | (G.cls === 'sword' ? 16 : 0) | (G.hiddenUntil > G.t ? 32 : 0), hp:Math.round(P.hp), al:P.alive === false ? 0 : 1, ...(BX.guided[G.localKey] ? {gm:guidedState()} : {}), ...(BOULD[G.localKey] && BOULD[G.localKey].phase === 'air' ? {pb:boulderState()} : {})});
 }
 
 /* ---------- menus and HUD ---------- */
-const ME = {name:'', team:'blue', look:Math.floor(Math.random()*LOOK_COUNT), mode:(() => { try { const m = localStorage.getItem('ca-mode2') || 'egg'; return m === 'swarm' ? 'swarm' : normMode(m); } catch (e) { return 'egg'; } })(),
+const ME = {name:'', team:'blue', look:Math.floor(Math.random()*LOOK_COUNT), mode:(() => { try { const m = localStorage.getItem('ca-mode2') || 'egg'; return normMode(m); } catch (e) { return 'egg'; } })(),
   cdOn:(() => { try { return localStorage.getItem('ca-cd') === 'on'; } catch (e) { return false; } })()};
 function myInfo(){ ME.name = clean(($('nameIn') && $('nameIn').value) || ME.name || 'Player'); try { localStorage.setItem('ca-name', ME.name); } catch (e) {} return {id:null, name:ME.name, team:ME.team, look:ME.look}; }
 function lobbyMsg(t){ const e = $('lobbyMsg'); if (e) e.textContent = t; }
@@ -10235,7 +10498,7 @@ function showPvPTitle(){
     <div class="rows" style="grid-template-columns:1fr 1fr;align-items:center">
       <label style="grid-column:1/-1;text-align:left;font-size:14px">Your name<br><input id="nameIn" maxlength="14" value="${clean(saved) === 'Player' && !saved ? '' : clean(saved)}" placeholder="Player" style="width:100%;margin-top:4px;padding:10px 12px;border:3px solid var(--edge);border-radius:12px;font:inherit;background:var(--panel);color:var(--text)"></label>
       <button class="btn" id="tBlue" style="background:var(--blue);color:#fff">Blue team</button><button class="btn" id="tRed" style="background:var(--red);color:#fff">Red team</button>
-      <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="btn" id="mEgg" style="background:#FFF3DC;color:#3B2A1A">🥚 Egg mode</button><button class="btn" id="mChaos">🌀 Chaos mode</button><button class="btn" id="mPain" style="background:#2A2236;color:#E6DAFF">🌑 Pain mode</button><button class="btn" id="mSwarm" style="background:#3B6B2E;color:#F0FFE0">👾 Swarm mode</button></div>
+      <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="btn" id="mEgg" style="background:#FFF3DC;color:#3B2A1A">🥚 Alpha Mode</button><button class="btn" id="mChaos">🌀 Chaos mode</button></div>
       <p class="muted" id="modeDesc" style="grid-column:1/-1;margin:0;font-size:14px"></p>
       <button class="btn" id="cdB"></button><button class="btn" id="pixB"></button>
     </div>
@@ -10254,15 +10517,15 @@ function showPvPTitle(){
   $('tBlue').onclick = () => setTeam('blue'); $('tRed').onclick = () => setTeam('red');
   // game mode: the host's choice is used for the match; practice uses yours
   const setMode = m => { ME.mode = m; try { localStorage.setItem('ca-mode2', m); } catch (e) {}
-    for (const [id, k] of [['mEgg','egg'],['mChaos','chaos'],['mPain','pain'],['mSwarm','swarm']]) $(id).style.outline = m === k ? '4px solid var(--yolk)' : 'none';
+    for (const [id, k] of [['mEgg','egg'],['mChaos','chaos']]) $(id).style.outline = m === k ? '4px solid var(--yolk)' : 'none';
     $('hostB').disabled = m === 'swarm' || !online; $('hostB').title = m === 'swarm' ? 'Swarm mode is single-player: use Practice alone' : '';
-    $('modeDesc').textContent = m === 'egg' ? `Egg: one player defends the egg with 19 protection powers and gets ${EGG_BUILD} seconds to build. Everyone else gets ${EGG_ATK} seconds and 31 powers to break it. Everyone takes a turn defending.`
+    $('modeDesc').textContent = m === 'egg' ? `Alpha Mode: one player defends the egg with 19 protection powers and gets ${EGG_BUILD} seconds to build. Everyone else gets ${EGG_ATK} seconds and 31 powers to break it. Everyone takes a turn defending.`
       : m === 'swarm' ? 'Swarm (single-player): spawn 5 to 100 enemies that chase you, then try every class’s powers on them. Use Practice alone.'
       : m === 'pain' ? 'Pain: gravity powers. Push, pull, Shinra Tensei, Chibaku Tensei and more. The map can’t be destroyed.' : 'Chaos: 31 ridiculous powers. Nukes, black holes, giant cows.';
     if ($('cdB')) setCd(ME.cdOn); };
   function setCd(on){ ME.cdOn = on; try { localStorage.setItem('ca-cd', on ? 'on' : 'off'); } catch (e) {} $('cdB').disabled = false; $('cdB').textContent = on ? '⏱️ Cooldowns: on' : '⏱️ Cooldowns: off (spam everything)'; }
   setMode(ME.mode); setCd(ME.cdOn); $('cdB').onclick = () => setCd(!ME.cdOn);
-  $('mEgg').onclick = () => setMode('egg'); $('mChaos').onclick = () => setMode('chaos'); $('mPain').onclick = () => setMode('pain'); $('mSwarm').onclick = () => setMode('swarm');
+  $('mEgg').onclick = () => setMode('egg'); $('mChaos').onclick = () => setMode('chaos');
   $('pixB').textContent = PIXEL.on ? '🟪 Pixel look: on' : '🟪 Pixel look: off'; $('pixB').title = 'Switching reloads the game';
   $('pixB').onclick = () => { try { localStorage.setItem('ca-pixel2', PIXEL.on ? 'off' : 'on'); } catch (e) {} location.reload(); };
   $('hostB').onclick = () => { if (ME.mode === 'swarm') return; ensureAudio(); hostGame($('codeIn').value); };
@@ -10498,10 +10761,10 @@ function actionDown(){
   if (P.carry) { dropCarry(P, true); G.skipUp = true; return; }
   if (G.phase === 'attack' && G.targeting) { castAt(); G.skipUp = true; return; }
   if (G.phase === 'build') { if (!G.pvp || amDefender()) placeItem(); }
-  else if (G.phase === 'attack' && G.pvp) { if (G.cls === 'bomber') fireBazooka(); else if (G.cls === 'sword') swordSwing(); else if (G.cls === 'summon') summonCommand(); else if (G.cls === 'necro') fireSkull(); else if (painKit()) chargeStart('p_rod', 'mouse'); else fireKi(); }
+  else if (G.phase === 'attack' && G.pvp) { if (G.cls === 'bomber') fireBazooka(); else if (G.cls === 'sword') swordSwing(); else if (G.cls === 'summon') summonCommand(); else if (G.cls === 'necro') fireSkull(); else if (painKit()) tkDown(); else fireKi(); }
   else if (G.phase === 'attack') { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('Pick a skill first: press its key or tap it in the Skills bar.'); } }
 }
-function actionUp(){ if (painKit() || PAIN.charge) chargeRelease('mouse'); if (G.skipUp) { G.skipUp = false; return; } if (G.phase === 'attack' && G.charging) fire(); }
+function actionUp(){ if (painKit()) tkUp(); if (G.skipUp) { G.skipUp = false; return; } if (G.phase === 'attack' && G.charging) fire(); }
 
 let rdrag = null;
 const touches = {stick:null, look:null};
@@ -10517,7 +10780,7 @@ canvas.addEventListener('pointerdown', e => {
     return;
   }
   if (!inPlay()) return;
-  if (e.button === 2) { if (G.targeting) { G.targeting = null; renderTray(); toast('Skill put away.'); } rdrag = {x:e.clientX, y:e.clientY}; return; }
+  if (e.button === 2) { if (G.phase === 'attack' && painKit() && tkRight(true)) return; if (G.targeting) { G.targeting = null; renderTray(); toast('Skill put away.'); } rdrag = {x:e.clientX, y:e.clientY}; return; }
   if (e.button !== 0) return;
   if (!G.locked) { requestLock(); if (!G.fallback) return; }   // fallback mode still retries the lock on every click
   actionDown();
@@ -10543,7 +10806,7 @@ function endTouch(e){
 }
 canvas.addEventListener('pointerup', e => {
   if (e.pointerType === 'touch') { endTouch(e); return; }
-  if (e.button === 2) { rdrag = null; return; }
+  if (e.button === 2) { rdrag = null; if (painKit()) tkRight(false); return; }
   if (e.button === 0 && (G.locked || G.fallback)) actionUp();
 });
 canvas.addEventListener('pointercancel', endTouch);
@@ -10750,7 +11013,7 @@ function frame(now){
     // attackers can't enter the ring
     if (act && ((G.phase === 'attack' && !G.pvp) || (eggOn() && !amDefender() && (G.phase === 'attack' || G.phase === 'build')))) {
       const b = act.body, d = Math.hypot(b.position.x, b.position.z);
-      if (d < 12.4 && d > .01) { const nx = b.position.x/d, nz = b.position.z/d; b.position.x = nx*12.4; b.position.z = nz*12.4; const vr = b.velocity.x*nx + b.velocity.z*nz; if (vr < 0) { b.velocity.x -= vr*nx*1.6; b.velocity.z -= vr*nz*1.6; } if (!G.ringWarn || G.t - G.ringWarn > 3) { G.ringWarn = G.t; toast('No entry for attackers. Launch things over the ring.'); } }
+      if (d < 12.4 && d > .01) { const nx = b.position.x/d, nz = b.position.z/d; b.position.x = nx*12.4; b.position.z = nz*12.4; const vr = b.velocity.x*nx + b.velocity.z*nz; if (vr < 0) { b.velocity.x -= vr*nx*1.6; b.velocity.z -= vr*nz*1.6; } if (G.pvp) bootKick(act, nx, nz); else if (!G.ringWarn || G.t - G.ringWarn > 3) { G.ringWarn = G.t; toast('No entry for attackers. Launch things over the ring.'); } }
     }
     if (G.freeze > 0) freezeNew();
     applyForces(); world.step(FIXED * G.timeScale); domeStep(); acc -= FIXED; n++;
