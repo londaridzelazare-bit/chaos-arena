@@ -190,6 +190,13 @@ ULTs B dragons (then af_dragonsx), N sun (then af_sunx), M whiteout (avWhiten + 
 `fireLine`, `fireBoom` (victim-side, igniteAt, damageProps, eggHit); surfaces `avZone` (groundPatch + groundFireMat, lava
 cools, max 70). Sustained aim crosses the network in the state message `av` [yaw, pitch] (`avAimState` → P.netAv).
 Never name an x field s/p/o/y/ts/id/t: localCast spreads x over the cast message.
+Genos rework 2026-10-08 (user): 1 Fireball kind 'clickcharge' (1 selects = G.targeting, hold Click = AV.charge key 'mouse');
+2 Flamethrower ~10x (AVN.flame stages 1 hand / 2 hands / 3 mouth with hands back, `avMouth`); 3 Skyfall kind 'aim' cd 0,
+every Click `avSkyShot` fires one at once (5 per use, local 18 s cd); 5 Cannon full charge (`cannonFull`, 5 s) = white
+incineration (ch.white, W 16; `avatarAnim` whitens the body while charging full or firing white); pillar/lava rate 2;
+breakdance removed; orbs 7 (10, R 12, no chain, the owner triggers them too); lava 8; ULT M Fire Stand Rush (`afStand`,
+channel, stand ahead-right of the caster, 10-20 punches/s pin, final punch); ULT Z Supernova (`afNova`: 8 turning jets,
+mini fireballs `avMiniBall` (fireBoom quiet), final blast). Whiteout and Black Flame were removed.
 Camera (2026-10-06): PITCH_MAX 1.38 (look almost straight up; the boom shortens as you look up), obstacle pull-in eases
 (2e-6/s instead of a one-frame snap), the ground lift eases (`CAM.lift`) with a hard floor at ground + .25.
 Performance (2026-10-06): all `fx` particles draw through shared InstancedMeshes (`fxInstAdd`, one per geometry +
