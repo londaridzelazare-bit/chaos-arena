@@ -163,12 +163,19 @@ Pain update 2026-10-08 (supersedes the bits above where they disagree):
   bodies and hurt the victim); `impactFrame` = owned (`b._own/_ownTeam/_ownT`, stamped by forEachObject, liftProp, fields)
   fast bodies hurt the local victim/dummies by mass^(1/3) × relative speed and crack props/slabs (`slabTouch` OBB).
 - Pull Everything: a sustained field (acceleration, so heavy things come too) toward a point 5 m ahead, stronger near it.
-- V Gravity Vortex `kind:'vcharge'`: hold to charge, `vortexAimFrame` arc dots + landing area, release → `vortexCast`
+- (superseded, see below) V Gravity Vortex `kind:'vcharge'`: hold to charge, `vortexAimFrame` arc dots + landing area, release → `vortexCast`
   {c, st, v} (NOT `s`: cast messages spread x over their own `s` = skill id), the orb flies the same arc on every screen,
   `vortexOpen` at the landing point, `vortexR(m)`; V/Click hurls.
 - Almighty Push: no orb; space drawn in, then a `bubbleMat` sphere whose ground intersection is the front (wr = R·k,
   h = H(1-k)^1.5, rs = hypot(wr, h)); everything inside wr gets radial speed ≥ 1.2 × front speed.
 - painFrame runs PAIN.fx so an effect may push a new effect while updating (they used to be dropped).
+Pain pass 2026-10-08 (user feedback): visuals are ONLY screen-space bending: `gravWave` makes no meshes (warpPulse /
+  warpPulseIn / warpPulseV), no warpMaterial walls/spheres/discs, no dust/smoke/shock rings in Shinra, Up/Down, Bansho,
+  Levitation, Pull, Almighty; `painCastFX` is a small warpPulse. (warpRing/warpStack/waveMat remain defined, unused.)
+- Falling Circuit: nobody rides it any more; the caster's screen sees anyone (enemy or the caster, the caster only after
+  placing) touch the path and sends `p_circx` {at:[x,y,z], who}: `circuitBreak(key, at)` hurls every rider at that spot.
+- Gravity Vortex is the old one again (kind 'now', centred on the caster, V/Click hurls at the crosshair).
+- Slabs ignore impact hits for 1.5 s after landing (their own whack throws rubble at them) and need > 18 m/s hits.
 Camera (2026-10-06): PITCH_MAX 1.38 (look almost straight up; the boom shortens as you look up), obstacle pull-in eases
 (2e-6/s instead of a one-frame snap), the ground lift eases (`CAM.lift`) with a hard floor at ground + .25.
 Performance (2026-10-06): all `fx` particles draw through shared InstancedMeshes (`fxInstAdd`, one per geometry +
