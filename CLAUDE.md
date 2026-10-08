@@ -197,6 +197,10 @@ incineration (ch.white, W 16; `avatarAnim` whitens the body while charging full 
 breakdance removed; orbs 7 (10, R 12, no chain, the owner triggers them too); lava 8; ULT M Fire Stand Rush (`afStand`,
 channel, stand ahead-right of the caster, 10-20 punches/s pin, final punch); ULT Z Supernova (`afNova`: 8 turning jets,
 mini fireballs `avMiniBall` (fireBoom quiet), final blast). Whiteout and Black Flame were removed.
+Genos burn pass: AV_PUSH .1 (every fire shove is 10%), AV_DIRECT .3: `avHitP` = 30% now + 70% into P.burnPool, `avHitDummy`
+the same via AV.dburn; `burnPoolFrame` drains pools (12%/0.25 s, min 1.5); a pool replaces the plain burnT tick. Fireball
+and Flamethrower are both kind 'clickcharge' (key selects, hold Click charges; Click while pouring stops the flame); the
+targeting marker is hidden for them (updateTargeting). Pillar no longer launches or uproots.
 Camera (2026-10-06): PITCH_MAX 1.38 (look almost straight up; the boom shortens as you look up), obstacle pull-in eases
 (2e-6/s instead of a one-frame snap), the ground lift eases (`CAM.lift`) with a hard floor at ground + .25.
 Performance (2026-10-06): all `fx` particles draw through shared InstancedMeshes (`fxInstAdd`, one per geometry +
