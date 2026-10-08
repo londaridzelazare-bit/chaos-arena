@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-08.4';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-08.5';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -5242,7 +5242,7 @@ function cdFor(id){ { const d = skillDef(id); if (d && d.fixed) return d.cd; if 
   if (BOMBER[id]) return BOMBER[id].cd; if (SWORD[id]) return SWORD[id].cd; if (typeof AVATAR !== 'undefined' && AVATAR[id]) return AVATAR[id].cd; if (SUMMON[id]) return SUMMON[id].cd; if (NECRO_SK[id]) return NECRO_SK[id].cd; if (GUARD[id]) return GUARD[id].cd; return (PAIN_SKILLS[id] && PAIN_SKILLS[id].cd) || CD[id] || 3; }
 function painReset(){
   PAIN.lev = {}; PAIN.vortex = {}; PAIN.shield = {}; PAIN.holdKeys = {}; PAIN.links = {}; PAIN.circ = {}; PAIN.wring = {}; PAIN.zeroG = null; zeroGStars(false); quakeStop(true);
-  PAIN.gravAreas = []; PAIN.slabs = []; PAIN.circBuild = false;
+  PAIN.gravAreas = []; PAIN.slabs = []; PAIN.circBuild = false; PAIN.circShot = null;
   if (typeof TK !== 'undefined') { TK.holds = {}; TK.mine = null; TK.thrown = []; for (const k in BOULD) delete BOULD[k]; }
   PAIN.fx = []; PAIN.fields = []; PAIN.rods = []; PAIN.stuckRods = []; PAIN.regrow = []; PAIN.dummies = [];
   PAIN.cores = []; PAIN.orbits = {}; PAIN.shots = []; PAIN.charge = null; PAIN.aim = null; G.camZoomTgt = 1; if (PAIN.gRing) PAIN.gRing.visible = false;
@@ -6316,7 +6316,7 @@ function painKeyDown(id, k){
   const d = PAIN_SKILLS[id], P = localP(); if (!d || !P || P.alive === false || P.stun > 0 || P.lockT > 0) return;
   if (amDefender()) { cdToast2('🛡️ You defend: use your protection powers.'); return; }
   if (d.kind !== 'circ' && PAIN.circBuild) PAIN.circBuild = false;   // another power: placing stops (the circuit itself stays)
-  if (d.kind === 'circ') { circuitKey(); return; }
+  if (d.kind === 'circ') { circuitKey(true); return; }
   if (d.ult && !ultReady(id)) return;
   if (id === 'p_orbit' && PAIN.orbits[G.localKey] && !PAIN.orbits[G.localKey].fired) { localCast('p_orbit', G.targetPoint ? G.targetPoint.clone() : aimPoint(60), {fire:1}); G.targeting = null; marker.visible = false; renderTray(); return; }
   if (id === 'p_vortex' && PAIN.vortex[G.localKey] && !PAIN.vortex[G.localKey].fired) { localCast('p_vortex', G.targetPoint ? G.targetPoint.clone() : aimPoint(120), {fire:1}); G.targeting = null; marker.visible = false; renderTray(); return; }
@@ -6330,6 +6330,7 @@ function painKeyDown(id, k){
 }
 // k = the released key, or null to drop everything (window lost focus)
 function painKeyUp(k){
+  if (PAIN.circShot && (k == null || k === 'g')) { const c = +(performance.now()/1000 - PAIN.circShot.t0).toFixed(2); PAIN.circShot = null; if (k != null && PAIN.circ[G.localKey] && !PAIN.circ[G.localKey].done) { localCast('p_circx', null, {c}); toast(`➰ Falling Circuit fired ×${circMul(c).toFixed(1)}.`); } }
   if (PAIN.charge && (k == null || PAIN.charge.key === k)) { if (k == null) { if (PAIN_SKILLS[PAIN.charge.id] && PAIN_SKILLS[PAIN.charge.id].kind === 'aimcharge') { G.targeting = null; marker.visible = false; } PAIN.charge = null; } else chargeRelease(k); }
   if (PAIN.aim && (k == null || PAIN.aim.key === k)) { const a = PAIN.aim; PAIN.aim = null; if (k != null) localCast(a.id, null, {tg:pickPullTarget()}); }
   for (const hk in PAIN.holdKeys) { if (k != null && hk !== k) continue; const hid = PAIN.holdKeys[hk]; delete PAIN.holdKeys[hk]; if ((hid === 'p_levitate' ? PAIN.lev : PAIN.shield)[G.localKey]) localCast(hid + 'x', null, {}); }   // letting go ends Levitation / the Gravity Shield
@@ -6383,7 +6384,9 @@ function updateChargeUI(){
   if (!aim) hideAimFX();
   if (!(ch && PAIN_SKILLS[ch.id] && PAIN_SKILLS[ch.id].kind === 'aimcharge')) { if (PAIN.gRing) PAIN.gRing.visible = false; if (PAIN.gRingOn) { PAIN.gRingOn = false; mkRing.visible = mkDisc.visible = mkRunes.visible = true; G.camZoomTgt = 1; } }
   if (!ch && !aim) {
-    if (PAIN.circBuild && painKit()) { const C = PAIN.circ[G.localKey]; chargeUI.style.display = 'block'; chargeUI.querySelector('i').style.width = ((C ? C.pts.length : 0)/CIRC_MAX*100) + '%'; chargeUI.querySelector('i').style.background = '#C9B8FF';
+    if (PAIN.circShot && painKit()) { const c = performance.now()/1000 - PAIN.circShot.t0, m = circMul(c); chargeUI.style.display = 'block'; chargeUI.querySelector('i').style.width = ((m - 1)/5*100) + '%'; chargeUI.querySelector('i').style.background = `linear-gradient(90deg, #9D6BFF, hsl(${280 - (m - 1)*40},90%,${70 + (m - 1)*5}%))`;
+      chargeUI.querySelector('span').textContent = m >= 6 ? '➰ Circuit shot ×6 MAX: release G to fire everything out' : `➰ Circuit shot ×${m.toFixed(1)}: keep holding G, release to fire everything out`; }
+    else if (PAIN.circBuild && painKit()) { const C = PAIN.circ[G.localKey]; chargeUI.style.display = 'block'; chargeUI.querySelector('i').style.width = ((C ? C.pts.length : 0)/CIRC_MAX*100) + '%'; chargeUI.querySelector('i').style.background = '#C9B8FF';
       chargeUI.querySelector('span').textContent = `➰ Placing the circuit (${C ? C.pts.length : 0}/${CIRC_MAX}): Click marks a point, the first point closes the loop, Right-click finishes, G turns it off`; }
     else chargeUI.style.display = 'none';
     if (PAIN.handOrb) { PAIN.handOrb.parent && PAIN.handOrb.parent.remove(PAIN.handOrb); PAIN.handOrb = null; } return; }
@@ -6713,10 +6716,11 @@ const CIRC_MAX = 8, CIRC_GRAB = 1.9, CIRC_ACC = 14;
 function circuitAim(){ const h = crosshairHit(); if (h && h.point && h.point.distanceTo(camera.position) < 55) return h.point.clone().add(V3(0, 1.6, 0)); const v = new THREE.Vector3(); camera.getWorldDirection(v); return camera.position.clone().addScaledVector(v, 25); }
 // G is a toggle: on starts a circuit (its first point at the crosshair; Click marks the rest), on an active one turns it off.
 // Nothing else ends it: letting go of keys, other powers, other targets, time.
-function circuitKey(){
+const circMul = c => Math.min(6, 1 + Math.max(0, +c || 0));   // the shot: x1 → x6 at 5 s of holding G
+function circuitKey(held){
   const P = localP(); if (!P || P.alive === false || P.stun > 0) return;
   const C = PAIN.circ[G.localKey];
-  if (C && !C.done) { PAIN.circBuild = false; localCast('p_circx', null, {}); toast('➰ Falling Circuit off.'); return; }
+  if (C && !C.done) { PAIN.circBuild = false; if (held) { if (!PAIN.circShot) PAIN.circShot = {t0:performance.now()/1000}; return; } localCast('p_circx', null, {c:0}); toast('➰ Falling Circuit off.'); return; }
   if ((G.cd.p_circ || 0) > 0) return;
   PAIN.circBuild = true; localCast('p_circ', circuitAim(), {});
 }
@@ -6779,21 +6783,22 @@ function circuitCapture(C){
     if (circuitTouch(C, q, CIRC_GRAB)) { C.sent = true; localCast('p_circx', null, {at:[+q.x.toFixed(2), +q.y.toFixed(2), +q.z.toFixed(2)], who:k}); if (k !== G.localKey) toast(`➰ ${P.name || 'Someone'} stepped into the circuit!`); else toast('➰ You stepped into your circuit: it breaks onto you!'); break; }
   }
 }
-function circuitBreak(key, at){
+function circuitBreak(key, at, c){
   const C = PAIN.circ[key]; if (!C || C.done) return;
-  const tg = Array.isArray(at) ? V3(+at[0], +at[1], +at[2]) : null;
-  for (const it of C.items) circuitLaunch(C, it, tg);
+  const tg = Array.isArray(at) ? V3(+at[0], +at[1], +at[2]) : null, m = circMul(c);
+  for (const it of C.items) circuitLaunch(C, it, tg, m);
+  if (m > 1.5 && C.pts.length) { gravWave(C.pts[0], 8 + m*4, {k:m*1.5, dur:.5}); shakeAt(C.pts[0], Math.min(2.5, .4 + m*.3), 80); if (m > 3) sfx('boom'); }
   if (tg) { gravWave(tg, 10, {k:3, dur:.5}); sfx('boom'); }
   sfx('shinra'); sfx('dash'); if (C.pts.length) warpPulse(C.pts[0], 10, .5, .06);
   circuitEnd(C);
 }
-function circuitLaunch(C, it, tg){
-  if (it.gone) return; it.gone = true;
-  const sg = C.segs[it.seg] || C.segs[C.segs.length - 1], sp = it.speed, out = Math.min(sp, 160);   // physics can't take more than this; the hit still counts the full speed
+function circuitLaunch(C, it, tg, m){
+  if (it.gone) return; it.gone = true; m = m || 1;
+  const sg = C.segs[it.seg] || C.segs[C.segs.length - 1], sp = it.speed*m, out = Math.min(sp, 250);   // a charged shot multiplies the speed (and so the hit)   // physics can't take more than this; the hit still counts the full speed
   const bp = it.player ? it.player.body.position : it.body.position, d = tg ? V3(tg.x - bp.x, tg.y - bp.y, tg.z - bp.z).normalize() : sg ? sg.d : V3(0, 1, 0);   // at whoever broke it, or on along the path
   if (it.player) { const P = it.player; painHurt(P, Math.min(150, 10 + sp*.3), C.key); knock(P, d.x*Math.min(60, out*.6), 8 + Math.max(0, d.y)*Math.min(40, out*.4), d.z*Math.min(60, out*.6), 1.1); return; }
   const b = it.body; delete b._circ; b.collisionResponse = true; if (!b.world) return; if (b.wakeUp) b.wakeUp(); b.velocity.set(d.x*out, d.y*out + (tg ? 0 : 4), d.z*out); spin(b, 6); b._own = C.key; b._ownTeam = C.team; b._ownT = G.t;
-  TK.thrown.push({b, owner:C.key, team:C.team, t:0, dmg:Math.min(160, 10 + sp*.4), R:1.6, m:Math.min(20, 1 + sp/20), prev:V3(b.position.x, b.position.y, b.position.z)});
+  TK.thrown.push({b, owner:C.key, team:C.team, t:0, dmg:Math.min(160*m, 10 + sp*.4), R:1.6, m:Math.min(20, 1 + sp/20), prev:V3(b.position.x, b.position.y, b.position.z)});
 }
 function circuitEnd(C){
   if (C.done) return; C.done = true;
@@ -6824,7 +6829,9 @@ function circuitFrameStart(C){
     C.t += dt; circuitCapture(C);
     const top = C.items.reduce((m, it) => Math.max(m, it.speed), 0);
     C.nodes.forEach((nd, i) => { nd.userData.ring.rotation.x += dt*(2 + i + top*.05); nd.userData.ring.rotation.y += dt*1.5; nd.scale.setScalar(1 + Math.sin(C.t*6 + i)*.1); });
-    C.lines.forEach(m => { m.material.opacity = C.items.length ? .55 + Math.sin(C.t*(8 + top*.1))*.3 : .55; m.scale.x = m.scale.y = 1 + Math.min(3, top/60); });
+    const own = chars[C.key], chg = C.key === G.localKey ? (PAIN.circShot ? performance.now()/1000 - PAIN.circShot.t0 : 0) : own && own.netCh && own.netCh[0] === 'p_circx' && G.t - (own.netChT || 0) < 1 ? own.netCh[1] : 0, cm = circMul(chg);
+    C.lines.forEach(m => { m.material.opacity = C.items.length ? .55 + Math.sin(C.t*(8 + top*.1 + cm*6))*.3 : .55; m.scale.x = m.scale.y = (1 + Math.min(3, top/60))*(1 + (cm - 1)*.6); });
+    if (cm > 1.2 && Math.random() < .3) { const i = Math.floor(Math.random()*C.pts.length); warpPulse(C.pts[i].clone(), 2 + cm*1.5, .3, .02*cm); }
     // riders hit what they pass: you (on your screen) and the training dummies
     const P = victimFor(C.key, C.team);
     for (const it of C.items) { it.hitT -= dt; const q = it.player ? it.player.body.position : it.body.position;
@@ -7463,7 +7470,7 @@ function runPain(id, p, x){
   if (id === 'p_shieldx') { const S = PAIN.shield[casterInfo().key]; if (S) S.end = true; return; }
   if (id === 'p_linkx') { painLinkHurl(p); return; }
   if (id === 'p_circgo') return;
-  if (id === 'p_circx') { circuitBreak(casterInfo().key, x && x.at); return; }
+  if (id === 'p_circx') { circuitBreak(casterInfo().key, x && x.at, x && x.c); return; }
   if (id === 'p_wringx') { wringRelease(casterInfo().key); return; }
   if (!fire) painCastFX(C);
   if (id === 'p_pull') painPull(x);
@@ -7516,12 +7523,12 @@ function painFrame(dt){
 function painOwnerDied(id){
   PAIN.fx.forEach(e => { if (e.owner === id && e.cancel) e.cancel(); });
   tkRelease(id); if (BOULD[id]) boulderEnd(BOULD[id]); if (PAIN.lev[id]) PAIN.lev[id].end = true; if (PAIN.vortex[id]) PAIN.vortex[id].done = true; if (PAIN.shield[id]) PAIN.shield[id].end = true; if (PAIN.links && PAIN.links[id]) linkEnd(PAIN.links[id]); if (PAIN.circ[id]) circuitEnd(PAIN.circ[id]); if (PAIN.wring[id] && !PAIN.wring[id].released) wringRelease(id);
-  if (id === G.localKey) { PAIN.charge = null; PAIN.aim = null; PAIN.circBuild = false; const P = localP(); if (P) { P.fly = null; P.warp = null; P.lockT = 0; P.floatT = 0; } }
+  if (id === G.localKey) { PAIN.charge = null; PAIN.aim = null; PAIN.circBuild = false; PAIN.circShot = null; const P = localP(); if (P) { P.fly = null; P.warp = null; P.lockT = 0; P.floatT = 0; } }
 }
 function painHelp(){
   return '<b>Right-click</b> telekinesis: pick up anything, hold <b>Click</b> to charge the throw (up to ×20 at 10 s) · <b>Shift ×2</b> warp dash · <b>Space ×2</b> gravity jump<br>' +
     '<b>1</b>/<b>2</b> gravity from below/above (shows the ring; hold Click to charge, release; one meeting the other collapses space into a blast) · hold <b>R</b> Shinra Tensei where you look · hold <b>T</b> Shinra Tensei all around · hold <b>F</b> levitation · hold <b>Q</b> pull everything<br>' +
-    '<b>X</b> gravity link: lock onto a rock, a tree, a crate, a Chibaku core or a Bansho Ten’in rock, aim, X (or Click) hurls it along the link · <b>C</b> Bansho Ten’in: every press sends another rock into the sky (hold for bigger), Click rains them all on the ring · <b>V</b> gravity vortex: everything around you levitates into orbit (V again or Click hurls it all where you point) · <b>G</b> falling circuit ON/OFF: Click marks points in the air (back on the first closes the loop, Right-click finishes); anything touching it rides it and keeps speeding up; when someone steps into it, it breaks and everything flies at them; G turns it off · <b>B</b> ULT Almighty Push · <b>N</b> ULT Catastrophic Chibaku · <b>H</b> rock slab: torn out, lifted and swung down on the target; it stays until broken · <b>M</b> ULT Earth Shockwave · <b>Z</b> ULT Zero Gravity (30 s: everything floats, you fly: WASD where you look, Space up; X throws things)';
+    '<b>X</b> gravity link: lock onto a rock, a tree, a crate, a Chibaku core or a Bansho Ten’in rock, aim, X (or Click) hurls it along the link · <b>C</b> Bansho Ten’in: every press sends another rock into the sky (hold for bigger), Click rains them all on the ring · <b>V</b> gravity vortex: everything around you levitates into orbit (V again or Click hurls it all where you point) · <b>G</b> falling circuit ON / hold G to charge the shot and release to fire it OFF: Click marks points in the air (back on the first closes the loop, Right-click finishes); anything touching it rides it and keeps speeding up; when someone steps into it, it breaks and everything flies at them; G turns it off · <b>B</b> ULT Almighty Push · <b>N</b> ULT Catastrophic Chibaku · <b>H</b> rock slab: torn out, lifted and swung down on the target; it stays until broken · <b>M</b> ULT Earth Shockwave · <b>Z</b> ULT Zero Gravity (30 s: everything floats, you fly: WASD where you look, Space up; X throws things)';
 }
 
 /* ---------- host-side cast validation (both modes) ----------
@@ -13476,6 +13483,7 @@ function applyState(m){ const P = chars[m.id]; if (!P || !P.remote) return; P.ne
 // what the local player is charging right now: [power id, seconds], for everyone else to see
 function chargeState(){
   const now = performance.now()/1000;
+  if (PAIN.circShot) return ['p_circx', +(now - PAIN.circShot.t0).toFixed(1)];
   if (PAIN.charge) return [PAIN.charge.id, +(now - PAIN.charge.t0).toFixed(1)];
   if (SW.charge) return [SW.charge.id, +(now - SW.charge.t0).toFixed(1)];
   if (TK.chargeT0 && TK.mine) return ['p_throw', +(now - TK.chargeT0).toFixed(1)];

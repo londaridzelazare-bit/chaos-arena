@@ -176,6 +176,8 @@ Pain pass 2026-10-08 (user feedback): visuals are ONLY screen-space bending: `gr
   placing) touch the path and sends `p_circx` {at:[x,y,z], who}: `circuitBreak(key, at)` hurls every rider at that spot.
 - Gravity Vortex is the old one again (kind 'now', centred on the caster, V/Click hurls at the crosshair).
 - Slabs ignore impact hits for 1.5 s after landing (their own whack throws rubble at them) and need > 18 m/s hits.
+- Falling Circuit shot: G on an active circuit starts `PAIN.circShot`; releasing G sends `p_circx` {c}; `circMul(c)` = x1..x6 at
+  5 s multiplies the riders' launch speed (cap 250) and damage; state 'ch' = ['p_circx', s] so every screen sees it strain.
 
 GENOS (class id 'avatar', 2026-10-08; fire only, AV_ELEMS kept as a one-entry table): module "GENOS" before SWORDSMAN.
 Table AVATAR (af_* ids), state AV {charge, chan, zones, orbs, marks, dragons, suns, fx}, `runAvatar` dispatch, `avatarFrame`
