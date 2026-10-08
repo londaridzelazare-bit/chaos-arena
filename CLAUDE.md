@@ -356,6 +356,21 @@ marker (carriers first), then `comboFuse` adds every element to every new carrie
 too). `#comboBar` shows [icon] + [icon] + ?, the combo name and "Can combine"; `.combo-ok` pulses on the
 Skills bar. Test: scratch `combo.mjs` (real key presses).
 
+## Balloon Defense (G.mode 'td', added 2026-10-08; Chaos left the menu)
+Bloons-style co-op in the BALLOON DEFENSE module (just before EGG MODE). Title: Alpha Mode or Balloon Defense (`mTD`);
+`normMode` maps old 'chaos' to 'td' (the Chaos code is still there, only unreachable from the menu; tests can call
+`startMatch(seed, [me], null, 'chaos')`). A fixed spiral path `TD_PTS` (Catmull-Rom, `tdBuildPath` in genTerrain: `TD.px/pz`
+every .5 m, `TD.pd` vertex distance -> flat sandy path with a stone edge in terrainColor, props kept off it in buildRound's
+`free`). Balloons `TDT` (red..pink, black/white, zebra, rainbow, ceramic, MOAB, BFB; hp per layer, children, `rbe` = lives
+lost on a leak), 20 rounds `TD_WAVES` (+4.5% hp, +1.2% speed per round), 200 lives. Host-authoritative: the host moves and
+damages balloons (`tdFrame`, `tdHit`) and sends `td` snapshots (~8 Hz; clients glide between them and pop FX on changes);
+any player starts a round with Enter / the button (`tdgo`). Hits: `summonsTakeArea`/`summonsTakeCone` call
+`tdTakeArea`/`tdTakeCone`; balloons are in `bEnemies` (bombs collide with a proximity fuse), crosshair rays hit them
+(`rayTargets`), plus Pain hooks (gravity rings `tdTakeColumn`, vortex, levitation, Almighty Push/quake `tdTakeRing`,
+circuit riders) and `tdFastHits` (any body over 11 m/s). Drawing: instanced glossy outlined balloons (`tdMeshes`/`tdDraw`),
+blimps as merged meshes with health bars, confetti pops (`tdPopFX`), a start gate and flags (`tdScenery`), HUD `#tdHud`.
+Only Pain, Bomber, Swordsman; everyone is team blue; the egg is static and only balloons crack it (`G.tdBreak`).
+
 ## Defender kit (Alpha Mode) — rebuilt 2026-10-06
 
 Roles (2026-10-06): up to `MAX_DEFS` (2) players defend at once (`G.egg.defs`, `isDef(id)`, `defIds()`; `G.egg.def` is
