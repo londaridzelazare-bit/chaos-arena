@@ -144,6 +144,31 @@ Bezier plunge, `pillarImpact` = bBoom + radialPush + rubble). M ULT Earth Shockw
 real terrain waves in QUAKE_R 60 m (terrH + mesh + heightfield, physics refreshed every 2nd frame after widening
 hfShape min/max once; crests lighter, troughs darker via vertex colours), 4 pulses at QUAKE_V 21 m/s, props ride the
 swell, bodies/victims are thrown as each crest passes, caster held still; `quakeStop` restores heights, colours and props.
+Pain update 2026-10-08 (supersedes the bits above where they disagree):
+- Shared look `gravWave(p, R, {dir:'out'|'in'|'down'|'up', k, dur, H})` = Chibaku's impact (warpPulse + `warpRing`
+  waveMat ground ripple + dark shockRing); `warpPulseIn` (closing ring, negative amp), `warpPulseV` (SpaceWarp `vert`
+  ±1 band sweeping a column), `warpStack` (warp discs moving through a column), `bubbleMat` (fresnel bubble). SpaceWarp
+  now has 6 slots (newest first), signed rings, negative lens = compression. Up/Down use vertical warps (no columnMat),
+  Shinra uses gravWave + a travelling compression lens (no dust), Pull is inward.
+- Telekinesis ×20: `tkMul(c)` = 1 + 1.9c (max 20 at 10 s), `tkSpeed` 26 → 254 m/s, dmg cap 1500, hits checked along
+  the step (`t.prev`, segDist), landing blow scales with m; `groundClamp()` (per physics step) stops fast bodies tunnelling.
+- Up meets Down: `PAIN.gravAreas` + `gravAreaAdd`; overlapping opposite casts cancel and `gravClash` (0.65 s squeeze,
+  knot + negative lens) → `gravClashBlast` (outward push, damage, props, cores).
+- Falling Circuit: G toggles (on = first point + `PAIN.circBuild`, Click places points via `circuitClick` in actionDown,
+  Right-click / any other power key stops placing, first point closes); only G (`p_circx`) or death ends it. No 90 s end.
+- H Rock Slab (`painSlab` → `slabImpact`): extraction, carry, wind-up, pivot swing (`orient(th)` about axis ⟂ dir); then
+  a CANNON box (SLAB_MASS 4800, kind 'slab', `PAIN.slabs`, hp 900) that never despawns; `damageProps` → `slabsTake`,
+  heavy hits → `slabHurt`, `slabBreak` = rubble. Replaced the Spiraling Stone Pillars.
+- `coresCollide` replaced coresMerge (separation by shell³ mass, restitution .35, `coreClash` FX/damage; fast cores shove
+  bodies and hurt the victim); `impactFrame` = owned (`b._own/_ownTeam/_ownT`, stamped by forEachObject, liftProp, fields)
+  fast bodies hurt the local victim/dummies by mass^(1/3) × relative speed and crack props/slabs (`slabTouch` OBB).
+- Pull Everything: a sustained field (acceleration, so heavy things come too) toward a point 5 m ahead, stronger near it.
+- V Gravity Vortex `kind:'vcharge'`: hold to charge, `vortexAimFrame` arc dots + landing area, release → `vortexCast`
+  {c, st, v} (NOT `s`: cast messages spread x over their own `s` = skill id), the orb flies the same arc on every screen,
+  `vortexOpen` at the landing point, `vortexR(m)`; V/Click hurls.
+- Almighty Push: no orb; space drawn in, then a `bubbleMat` sphere whose ground intersection is the front (wr = R·k,
+  h = H(1-k)^1.5, rs = hypot(wr, h)); everything inside wr gets radial speed ≥ 1.2 × front speed.
+- painFrame runs PAIN.fx so an effect may push a new effect while updating (they used to be dropped).
 Camera (2026-10-06): PITCH_MAX 1.38 (look almost straight up; the boom shortens as you look up), obstacle pull-in eases
 (2e-6/s instead of a one-frame snap), the ground lift eases (`CAM.lift`) with a hard floor at ground + .25.
 Performance (2026-10-06): all `fx` particles draw through shared InstancedMeshes (`fxInstAdd`, one per geometry +
