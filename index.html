@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-08.3';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-08.4';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -390,7 +390,8 @@ const SFX = {
   roar(){ tone('sawtooth',110,70,.9,.18); noise(.8,.5,500,'bandpass'); },
   howl(){ tone('sine',380,620,.6,.12); tone('sine',620,420,.9,.12,.6); },
   hiss(){ noise(.6,.35,5000,'highpass'); },
-  screech(){ tone('sawtooth',1800,2600,.25,.07); tone('square',2600,1400,.2,.04,.2); }
+  screech(){ tone('sawtooth',1800,2600,.25,.07); tone('square',2600,1400,.2,.04,.2); },
+  whipcrack(){ noise(.05,.95,6500,'highpass'); tone('square',3000,600,.04,.14); noise(.3,.3,2200,'bandpass'); }
 };
 function sfx(n){
   if (muted || !actx) return;
@@ -972,7 +973,7 @@ function animatePlayer(P, dt, isActive){
   const acting = P.castPose > 0 || P.punchPose > 0 || P.pushPose > 0;
   let target = P.face;
   // charging keeps the arms up, but walking sideways or backward still turns you the way you walk
-  const charging = isActive && (PAIN.charge || (typeof SW !== 'undefined' && SW.charge) || (typeof TK !== 'undefined' && TK.mine));
+  const charging = isActive && (PAIN.charge || (typeof SW !== 'undefined' && SW.charge) || (typeof TK !== 'undefined' && TK.mine) || (typeof AV !== 'undefined' && AV.charge));
   if (isActive && acting && !(charging && P.moving)) target = G.yaw;
   else if (isActive && P.moveFace != null && P.moving) target = P.moveFace;
   else if (!isActive) target = P.remote ? (P.netFace ?? P.face) : Math.atan2(-b.position.x, -b.position.z);
@@ -1016,7 +1017,7 @@ function animatePlayer(P, dt, isActive){
   } else P.head.rotation.x *= .8;
   if (isActive) updateDashFX(P, dt);
   if (P.dashEndFx) { P.dashEndFx = false; dashArrive(P); }
-  swordAnim(P, dt);
+  swordAnim(P, dt); avatarAnim(P, dt);
   if (P.flipT > 0) { P.flipT = Math.max(0, P.flipT - dt); P.rig.rotation.x = (1 - P.flipT/.45)*Math.PI*2; if (P.flipT === 0) P.rig.rotation.x = 0; }
   P.mark.visible = isActive; P.mark.position.y = 2.45 + Math.sin(G.t*4)*.08;
   if (P.carry) {
@@ -1676,6 +1677,7 @@ function useSpecial(id){
   if (BOMBER[id]) { bomberUse(id); return; }
   if (SUMMON[id]) { summonUse(id); return; }
   if (NECRO_SK[id]) { necroUse(id); return; }
+  if (typeof AVATAR !== 'undefined' && AVATAR[id]) { avatarUse(id); return; }
   if (SWORD[id]) { if (SWORD[id].kind === 'charge') { if ((G.cd[id] || 0) > 0) { cdToast(id); return; } localCast(id, aimPoint(80), {c:0}); return; } swordUse(id); return; }
   if (G.phase !== 'attack' || !G.specials || !G.specials[id] || G.atkTime <= 0) return;
   const P = chars[attacker()]; if (!P || P.stun > 0 || P.lockT > 0) return;
@@ -2259,6 +2261,7 @@ function castAt(){
   const id = G.targeting;
   if (!G.targetPoint) { toast(G.targetWhy || 'Aim at the ground.'); return; }
   if (PAIN.charge && PAIN.charge.id === id) return;   // an aimed charge fires when its key is released
+  if (id === 'af_sky') { avSkyMark(G.targetPoint); return; }   // Skyfall: Click marks, 3 calls them down
   if (id === 'p_orbit' || id === 'p_vortex') { localCast(id, G.targetPoint.clone(), {fire:1}); G.targeting = null; marker.visible = false; renderTray(); return; }
   if (id === 's_cut') { if ((G.cd.s_cut || 0) > 0) { cdToast(id); return; } localCast('s_cut', G.targetPoint.clone(), {m:SW.cutMode}); G.targeting = null; renderTray(); return; }
   if (G.spCd > 0) return; G.spCd = .22;
@@ -4546,7 +4549,7 @@ function hurt(P, dmg){
   updateHud();
 }
 function die(P){
-  painOwnerDied(G.localKey); bomberOwnerDied(G.localKey); swordOwnerDied(G.localKey); summonOwnerDied(G.localKey); necroOwnerDied(G.localKey); P.held = null; P.hypno = null; P.slowT = P.pinT = 0;
+  painOwnerDied(G.localKey); bomberOwnerDied(G.localKey); swordOwnerDied(G.localKey); avatarOwnerDied(G.localKey); summonOwnerDied(G.localKey); necroOwnerDied(G.localKey); P.held = null; P.hypno = null; P.slowT = P.pinT = 0;
   P.alive = false; P.deadT = 4; P.root.visible = false; if (P.carry) P.carry = null;
   const b = P.body; b.type = CANNON.Body.KINEMATIC; b.mass = 0; b.updateMassProperties(); b.velocity.set(0,0,0); b.collisionFilterMask = 0;
   sfx('splat'); G.shake = reduceMotion ? 0 : .8;
@@ -4622,7 +4625,7 @@ function startMatch(seed, list, score, mode, cdOn, eg){
   G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' || mode === 'swarm' || mode === 'td' ? mode : mode === 'chaos' ? 'td' : 'chaos'; G.cdOn = !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
   if (G.mode === 'egg' && !eg) eg = {def:G.localKey, round:1, total:1, pts:{}};
   buildRound(seed);
-  painReset(); painAmbience(); barReset(); bomberReset(); swordReset(); summonReset(); necroReset(); ultReset();
+  painReset(); painAmbience(); barReset(); bomberReset(); swordReset(); avatarReset(); summonReset(); necroReset(); ultReset();
   if (!classCycle().includes(G.cls)) G.cls = classCycle()[0];   // a class hidden in this mode
   fortReset();
   if (G.mode !== 'egg' && G.mode !== 'td') {   // Egg mode and Balloon Defense keep the egg and its pedestal
@@ -5232,11 +5235,11 @@ const PAIN = {lev:{}, vortex:{}, shield:{}, holdKeys:{}, fx:[], fields:[], rods:
 function isPain(){ return G.mode === 'pain'; }
 // the Pain powers are in your hands: the Pain class in any mode, or the default kit in Pain mode (the map rules stay with the mode)
 function painKit(){ return G.cls === 'pain' || (G.cls === 'native' && isPain()); }
-function skillTable(){ if (typeof guardActive === 'function' && guardActive()) return GUARD; return G.cls === 'bomber' ? BOMBER : G.cls === 'sword' ? SWORD : G.cls === 'summon' ? SUMMON : G.cls === 'necro' ? NECRO_SK : G.cls === 'pain' ? PAIN_SKILLS : isPain() ? PAIN_SKILLS : SPECIALS; }
-function skillDef(id){ return PAIN_SKILLS[id] || SPECIALS[id] || BOMBER[id] || SWORD[id] || SUMMON[id] || NECRO_SK[id] || GUARD[id]; }
+function skillTable(){ if (typeof guardActive === 'function' && guardActive()) return GUARD; return G.cls === 'bomber' ? BOMBER : G.cls === 'sword' ? SWORD : G.cls === 'avatar' ? avatarTable() : G.cls === 'summon' ? SUMMON : G.cls === 'necro' ? NECRO_SK : G.cls === 'pain' ? PAIN_SKILLS : isPain() ? PAIN_SKILLS : SPECIALS; }
+function skillDef(id){ return PAIN_SKILLS[id] || SPECIALS[id] || BOMBER[id] || SWORD[id] || (typeof AVATAR !== 'undefined' && AVATAR[id]) || SUMMON[id] || NECRO_SK[id] || GUARD[id]; }
 // cooldowns are a match setting (off by default): with them off every ability is ready again immediately
 function cdFor(id){ { const d = skillDef(id); if (d && d.fixed) return d.cd; if (d && d.ult) return 0; } if (!G.cdOn) return 0;   // the match's cooldown setting covers every class (World Severance stays once per round)
-  if (BOMBER[id]) return BOMBER[id].cd; if (SWORD[id]) return SWORD[id].cd; if (SUMMON[id]) return SUMMON[id].cd; if (NECRO_SK[id]) return NECRO_SK[id].cd; if (GUARD[id]) return GUARD[id].cd; return (PAIN_SKILLS[id] && PAIN_SKILLS[id].cd) || CD[id] || 3; }
+  if (BOMBER[id]) return BOMBER[id].cd; if (SWORD[id]) return SWORD[id].cd; if (typeof AVATAR !== 'undefined' && AVATAR[id]) return AVATAR[id].cd; if (SUMMON[id]) return SUMMON[id].cd; if (NECRO_SK[id]) return NECRO_SK[id].cd; if (GUARD[id]) return GUARD[id].cd; return (PAIN_SKILLS[id] && PAIN_SKILLS[id].cd) || CD[id] || 3; }
 function painReset(){
   PAIN.lev = {}; PAIN.vortex = {}; PAIN.shield = {}; PAIN.holdKeys = {}; PAIN.links = {}; PAIN.circ = {}; PAIN.wring = {}; PAIN.zeroG = null; zeroGStars(false); quakeStop(true);
   PAIN.gravAreas = []; PAIN.slabs = []; PAIN.circBuild = false;
@@ -7536,8 +7539,8 @@ function castOK(c, m){
   if (m.s === 'w_loot') return P.alive !== false && typeof m.i === 'number';   // picking up a potion (WILD)
   if (m.s === 'w_grab' || m.s === 'w_drop') return m.s === 'w_drop' || Array.isArray(m.ob);   // carrying things (E)
   if (GUARD[m.s] && (!eggOn() || !isDef(m.id))) return false;   // the protector's kit is the defender's alone   // only for your own summons, even while dead
-  if (eggOn() && (G.egg.over || (isDef(m.id) && !['ki', 'b_bazooka', 's_slash', 'u_cmd', 'n_skull'].includes(m.s) && !GUARD[m.s]))) return false;   // the defender only shoots
-  const def = m.s === 'ki' ? null : (BOMBER[m.s] || SWORD[m.s] || SUMMON[m.s] || NECRO_SK[m.s] || PAIN_SKILLS[m.s] || GUARD[m.s] || modeTable()[m.s]); if (m.s !== 'ki' && !def) return false;   // the mode's own kit or a class (anyone may switch class any time)
+  if (eggOn() && (G.egg.over || (isDef(m.id) && !['ki', 'b_bazooka', 's_slash', 'af_whip', 'u_cmd', 'n_skull'].includes(m.s) && !GUARD[m.s]))) return false;   // the defender only shoots
+  const def = m.s === 'ki' ? null : (BOMBER[m.s] || SWORD[m.s] || AVATAR[m.s] || SUMMON[m.s] || NECRO_SK[m.s] || PAIN_SKILLS[m.s] || GUARD[m.s] || modeTable()[m.s]); if (m.s !== 'ki' && !def) return false;   // the mode's own kit or a class (anyone may switch class any time)
   // cast from where they actually are. Positions arrive ~15 times a second and can be late, so allow for how fast they
   // were moving and how old the last position is (knockbacks reach 50+ m/s), and for powers that teleport them
   const tNow = performance.now()/1000, age = P.netT ? tNow - P.netT : 0, spd = P.net ? Math.hypot(P.net.vx || 0, P.net.vz || 0) : 0;
@@ -7572,12 +7575,12 @@ function castOK(c, m){
    or the class button on the Skills bar. Cooldowns are kept per power id in G.cd (and in the host's castLog), so
    swapping away and back never resets them. The host accepts a cast if the power exists in the mode's kit or in
    any class, so players can swap freely without telling anyone. */
-const CLASS_IDS = ['native', 'pain', 'bomber', 'sword', 'summon', 'necro'];
+const CLASS_IDS = ['native', 'pain', 'bomber', 'sword', 'avatar', 'summon', 'necro'];
 // in Pain mode the default kit already is Pain, so the class is skipped there
 const classCycle = () => CLASS_IDS.filter(c => !(c === 'pain' && isPain()) && !((G.mode === 'egg' || G.mode === 'td') && (c === 'native' || c === 'summon' || c === 'necro')));   // Alpha Mode: no Chaos, Summoner or Necromancer for now
-function classInfo(c){ return c === 'pain' ? {name:'Pain', e:'🌑'} : c === 'bomber' ? {name:'Bomber', e:'💣'} : c === 'sword' ? {name:'Swordsman', e:'⚔️'} : c === 'summon' ? {name:'Summoner', e:'🐾'} : c === 'necro' ? {name:'Necromancer', e:'💀'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
+function classInfo(c){ return c === 'avatar' ? {name:'Genos', e:'🔥'} : c === 'pain' ? {name:'Pain', e:'🌑'} : c === 'bomber' ? {name:'Bomber', e:'💣'} : c === 'sword' ? {name:'Swordsman', e:'⚔️'} : c === 'summon' ? {name:'Summoner', e:'🐾'} : c === 'necro' ? {name:'Necromancer', e:'💀'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
 function modeTable(){ return isPain() ? PAIN_SKILLS : SPECIALS; }
-G.cls = (() => { try { const c = localStorage.getItem('ca-cls'); return c === 'pain' || c === 'bomber' || c === 'sword' || c === 'summon' || c === 'necro' ? c : 'native'; } catch (e) { return 'native'; } })();
+G.cls = (() => { try { const c = localStorage.getItem('ca-cls'); return c === 'pain' || c === 'bomber' || c === 'sword' || c === 'avatar' || c === 'summon' || c === 'necro' ? c : 'native'; } catch (e) { return 'native'; } })();
 function switchClass(to){
   const cyc = classCycle(), next = to || cyc[(cyc.indexOf(G.cls) + 1) % cyc.length];
   if (next === G.cls) return;
@@ -7800,7 +7803,7 @@ function skyLook(dx, dy){
 }
 // called from the camera block: returns true when the sky camera owns the view
 function skyCamera(rdt, camPos, camLook){
-  const want = G.targeting && BOMBER[G.targeting] && BOMBER[G.targeting].kind === 'sky' && G.phase === 'attack';
+  const sd0 = G.targeting && skillDef(G.targeting), want = sd0 && sd0.kind === 'sky' && G.phase === 'attack';
   if (want && (!SKY.on || SKY.id !== G.targeting)) skyAimOn(G.targeting);
   if (!want && SKY.on) skyAimOff();
   if (!SKY.on) return false;
@@ -8395,6 +8398,886 @@ function bomberFrame(dt){
   { const cur = BX.fx; BX.fx = []; const keep = cur.filter(e => e.update(dt) !== false); BX.fx = keep.concat(BX.fx); }   // effects may start new effects
   updateMines(dt);
   BX.magnets = BX.magnets.filter(m => !m.done);
+}
+
+/* ===================================== GENOS (class id 'avatar') =====================================
+   A fire class. Click the Fire Whip, 1-9 nine more powers (the hold-to-charge ones
+   grow while held and show what they will do), ultimates B Three Dragons, N The Sun, M Whiteout Incineration, Z Black
+   Flame. Every power is a cast (af_* ids) that every screen replays; damage is victim-side (fireArea / fireLine ->
+   victimFor), fire lights what burns (igniteAt), breaks what breaks (damageProps) and shoves loose things. Burning
+   ground and lava are temporary surface zones (AV.zones) laid over the terrain; the terrain itself never changes.
+   Sustained powers (Flamethrower, Incineration Cannon, Whiteout) follow the caster's aim: on other screens it comes in
+   the state message ('av' = [yaw, pitch]). */
+const AV_ELEMS = {fire:{name:'Fire', e:'🔥'}};   // fire only
+const AVATAR = {
+  af_whip:   {name:'Fire Whip', e:'〰️', key:'🖱', kind:'click', cd:.5},
+  af_ball:   {name:'Fireball', e:'🔥', key:'1', kind:'charge', cd:1, max:20, rate:1.9},
+  af_flame:  {name:'Flamethrower', e:'🌬️', key:'2', kind:'charge', cd:5, max:6, rate:.8},
+  af_sky:    {name:'Skyfall Fireballs', e:'☄️', key:'3', kind:'sky', cd:18, range:400, r:7},
+  af_ring:   {name:'Fire Ring', e:'⭕', key:'4', kind:'charge', cd:9, max:8, rate:.7},
+  af_cannon: {name:'Incineration Cannon', e:'💥', key:'5', kind:'charge', cd:14, max:6, rate:.6},
+  af_pillar: {name:'Inferno Pillar', e:'🌋', key:'6', kind:'aimcharge', cd:10, range:90, r:4, max:10, rate:.6},
+  af_dance:  {name:'Blue Flame Breakdance', e:'💙', key:'7', kind:'now', cd:8},
+  af_orbs:   {name:'Fire Orb Field', e:'🟠', key:'8', kind:'aim', cd:12, range:70, r:10},
+  af_lava:   {name:'Lava Ground', e:'🟧', key:'9', kind:'charge', cd:14, max:6, rate:.6},
+  af_dragons:{name:'Three Dragons', e:'🐉', key:'B', kind:'now', ult:true, cd:0},
+  af_sun:    {name:'The Sun', e:'☀️', key:'N', kind:'now', ult:true, cd:0},
+  af_white:  {name:'Whiteout Incineration', e:'⚪', key:'M', kind:'now', ult:true, cd:0},
+  af_black:  {name:'Black Flame', e:'⚫', key:'Z', kind:'aim', ult:true, cd:0, range:120, r:5},
+  af_dragonsx:{name:'Dragons strike', e:'🐉', kind:'aim', hide:true, cd:0, range:250, r:14},
+  af_sunx:   {name:'The Sun: release', e:'☀️', kind:'aim', hide:true, cd:0, range:250, r:30},
+  af_flamex: {name:'Flamethrower stop', e:'🌬️', hide:true, cd:0}
+};
+const AV_KEYS = {}; for (const id in AVATAR) { const k = AVATAR[id].key; if (k && k.length === 1 && /[0-9A-Z]/.test(k) && !AVATAR[id].hide) AV_KEYS[k.toLowerCase()] = id; }
+for (const id in AVATAR) if (AVATAR[id].r) TARGET_R[id] = AVATAR[id].r;
+const AV = {elem:'fire', charge:null, chan:{}, zones:[], marks:[], markFx:[], orbs:[], dragons:{}, suns:{}, fx:[], prev:{}};
+const avMul = (id, c) => { const d = AVATAR[id]; return Math.min(d.max || 1, 1 + Math.max(0, +c || 0)*(d.rate || 1)); };
+function avatarKit(){ return G.cls === 'avatar'; }
+function avatarTable(){ return AV_ELEMS[AV.elem] && !AV_ELEMS[AV.elem].soon ? AVATAR : {}; }
+function avatarHelp(){
+  return '<b>Click</b> fire whip · hold <b>1</b> fireball (up to ×20) · hold <b>2</b> flamethrower (2 again stops) · <b>3</b> skyfall: Click marks up to 5, 3 calls them<br>' +
+    'hold <b>4</b> fire ring · hold <b>5</b> incineration cannon · <b>6</b> inferno pillar (hold Click to charge) · <b>7</b> blue flame breakdance · <b>8</b> fire orb field · hold <b>9</b> lava ground<br>' +
+    '<b>B</b> ULT three dragons (then Click where they strike) · <b>N</b> ULT the sun (then Click where it goes) · <b>M</b> ULT whiteout incineration · <b>Z</b> ULT black flame · <b>Tab</b> switch class';
+}
+function avatarReset(){
+  AV.charge = null; AV.chan = {}; AV.zones = []; AV.orbs = []; AV.dragons = {}; AV.suns = {}; AV.fx = []; avSkyClear(); avPrevHide();
+  for (const k in chars) { const P = chars[k]; if (P) { P.avPose = null; P.avHold = null; avWhiten(P, false); } }
+}
+
+/* ---------- looks: flame shaders, fire orbs, particles ---------- */
+const AV_NOISE = 'float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n' +
+  'float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y); }\n' +
+  'float fbm(vec2 p){ float s = 0.0, a = .5; for (int i = 0; i < 4; i++) { s += a * vn(p); p *= 2.03; a *= .5; } return s; }\n';
+// licking, scrolling flame for streams, beams, pillars and spheres (additive)
+function flameMat(c1, c2, sx, sy){
+  return new THREE.ShaderMaterial({transparent:true, depthWrite:false, side:THREE.DoubleSide, blending:THREE.AdditiveBlending,
+    uniforms:{t:{value:0}, a:{value:1}, c1:{value:new THREE.Color(c1 || 0xFFF0A8)}, c2:{value:new THREE.Color(c2 || 0xFF4A10)}, sc:{value:new THREE.Vector2(sx || 3, sy || 6)}},
+    vertexShader:'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader:AV_NOISE + 'varying vec2 vUv; uniform float t; uniform float a; uniform vec3 c1; uniform vec3 c2; uniform vec2 sc; void main(){ vec2 p = vec2(vUv.x * sc.x, vUv.y * sc.y + t * 3.0); float n = fbm(p), m = fbm(p * 2.1 + vec2(1.7, t * 2.0)); float f = clamp(n * .8 + m * .55 - .3, 0.0, 1.0); vec3 c = mix(c2, c1, f * f * 1.4); gl_FragColor = vec4(c, (f * .9 + .08) * a); }'});
+}
+// burning ground (scorch + flickering flames) and lava (molten cracks under a crust that cools), both over a disc that can grow
+function groundFireMat(lava){
+  return new THREE.ShaderMaterial({transparent:true, depthWrite:false, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2,
+    uniforms:{t:{value:0}, a:{value:0}, rv:{value:1}, r0:{value:0}, cool:{value:0}, sc:{value:8}},
+    vertexShader:'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader:AV_NOISE + 'varying vec2 vUv; uniform float t; uniform float a; uniform float rv; uniform float r0; uniform float cool; uniform float sc; void main(){ float r = length(vUv - .5) * 2.0; vec2 p = vUv * sc;' +
+      (lava
+        ? ' float n = fbm(p + vec2(t * .12, t * .07)), n2 = fbm(p * 1.8 - vec2(t * .2, -t * .06)); float v = n * .6 + n2 * .45; float hot = smoothstep(.36, .56, v) * (1.0 - cool); vec3 crust = mix(vec3(.16, .07, .05), vec3(.07, .05, .05), cool); vec3 molten = mix(vec3(1.0, .32, .02), vec3(1.0, .86, .35), smoothstep(.62, .82, v)); vec3 c = mix(crust, molten * (.85 + .3 * sin(t * 2.5 + v * 14.0)), hot); float edge = smoothstep(rv, rv - .08, r + (n - .5) * .18); gl_FragColor = vec4(c, edge * a * .97); }'
+        : ' float n = fbm(p + vec2(0.0, -t * 1.6)), n2 = fbm(p * 2.4 + vec2(t * .4, -t * 2.4)); float f = smoothstep(.42, .75, n * .62 + n2 * .5); vec3 c = mix(vec3(.12, .06, .04), mix(vec3(1.0, .3, .03), vec3(1.0, .85, .35), f), f); float edge = smoothstep(rv, rv - .1, r + (n - .5) * .25) * smoothstep(r0 - .06, r0 + .02, r); gl_FragColor = vec4(c, (.38 + f * .6) * edge * a); }')});
+}
+// a disc laid over the terrain (follows the hills)
+function groundPatch(cx, cz, R, mat){
+  const seg = Math.min(44, Math.max(10, Math.round(R*1.4))), g = new THREE.PlaneGeometry(2*R, 2*R, seg, seg); g.rotateX(-Math.PI/2);
+  const pos = g.attributes.position; for (let i = 0; i < pos.count; i++) { const x = cx + pos.getX(i), z = cz + pos.getZ(i); pos.setXYZ(i, x, groundH(x, z) + .1, z); }
+  g.computeBoundingSphere(); const m = new THREE.Mesh(g, mat); m.renderOrder = 3; m.userData.noRay = true; roundGroup.add(m); return m;
+}
+const AVG = {};
+function avGeo(){
+  if (AVG.s) return AVG;
+  AVG.s = new THREE.IcosahedronGeometry(1, 2); AVG.lo = new THREE.IcosahedronGeometry(1, 1);
+  AVG.core = new THREE.MeshBasicMaterial({color:0xFFFBE6}); AVG.mid = addBlend(0xFFC23A); AVG.mid.opacity = .8; AVG.out = addBlend(0xFF5A14); AVG.out.opacity = .45;
+  AVG.bcore = new THREE.MeshBasicMaterial({color:0xF2FBFF}); AVG.bmid = addBlend(0x6FD0FF); AVG.bmid.opacity = .8; AVG.bout = addBlend(0x2A6BFF); AVG.bout.opacity = .45;
+  return AVG;
+}
+function fireOrbMesh(r, blue){
+  const A = avGeo(), g = new THREE.Group(), c = new THREE.Mesh(A.s, blue ? A.bcore : A.core), m = new THREE.Mesh(A.s, blue ? A.bmid : A.mid), o = new THREE.Mesh(A.lo, blue ? A.bout : A.out);
+  g.add(c, m, o); g.userData.parts = [c, m, o]; g.userData.r = r; avOrbScale(g, 0); noRayAll(g); return g;
+}
+function avOrbScale(g, t, r){ r = r || g.userData.r; g.userData.r = r; const [c, m, o] = g.userData.parts; c.scale.setScalar(r*.5); m.scale.setScalar(r*(.85 + Math.sin(t*31)*.06)); o.scale.setScalar(r*(1.25 + Math.sin(t*23 + 1)*.12)); o.rotation.y += .2; o.rotation.x += .13; }
+const FIRE_COLS = [0xFFF3B0, 0xFFD84D, 0xFFB02E, 0xFF6A1F, 0xE8401C], BLUE_COLS = [0xE6F7FF, 0x9FE4FF, 0x4FB8FF, 0x2A6BFF], DARK_COLS = [0x0A0608, 0x16080C, 0x24060E];
+function flameP(p, v, s, col, life){ const m = pmesh('oct', s, pmat(col)); m.position.copy(p); m.userData.noRay = true; roundGroup.add(m); fx.push({mesh:m, v, r:V3(rr(-5, 5), rr(-5, 5), 0), life:life || .5}); }
+function fireBurst(p, n, sp, s, cols){ for (let i = 0; i < n; i++) flameP(p, V3(rr(-1, 1), rr(-.4, 1.2), rr(-1, 1)).normalize().multiplyScalar(sp*rr(.4, 1)), s*rr(.6, 1.3), pick(cols || FIRE_COLS), rr(.3, .7)); }
+function sparks(p, n, sp){ for (let i = 0; i < n; i++) flameP(p, V3(rr(-1, 1), rr(-.3, 1), rr(-1, 1)).normalize().multiplyScalar(sp*rr(.5, 1.2)), rr(.05, .12), pick([0xFFFFFF, 0xFFF3B0, 0xFFD84D]), rr(.2, .45)); }
+// the caster's fists, in the world
+function avHand(P, side){ const f = P.face, fx0 = Math.sin(f), fz0 = Math.cos(f), rx = -Math.cos(f), rz = Math.sin(f), p = P.root.position; return V3(p.x + fx0*.55 + rx*side*.38, p.y + 1.35, p.z + fz0*.55 + rz*side*.38); }
+// where the caster is aiming: the local camera, or the yaw/pitch other screens get in the state message
+function avAimLocal(){ const P = localP(); if (!P) return V3(0, 0, 1); return aimPoint(300).sub(avHand(P, 1)).normalize(); }
+function avAimArr(){ const v = avAimLocal(); return [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)]; }
+function avAimState(){ if (!avatarKit() || !(AV.chan[G.localKey] || AV.charge)) return null; const v = avAimLocal(); return [+Math.atan2(v.x, v.z).toFixed(3), +Math.asin(clamp(v.y, -1, 1)).toFixed(3)]; }
+function avAimOf(key){
+  if (key === G.localKey) return avAimLocal();
+  const P = chars[key], a = P && P.netAv; if (a) return V3(Math.sin(a[0])*Math.cos(a[1]), Math.sin(a[1]), Math.cos(a[0])*Math.cos(a[1]));
+  return P ? V3(Math.sin(P.face), 0, Math.cos(P.face)) : V3(0, 0, 1);
+}
+const avDirOf = x => x && Array.isArray(x.d) && x.d.length === 3 ? V3(+x.d[0] || 0, +x.d[1] || 0, +x.d[2] || 1).normalize() : null;
+
+/* ---------- hits (victim-side) ---------- */
+function avBurn(P, key, s){ P.burnT = Math.max(P.burnT || 0, s || 3); P.burnBy = key; }
+// a ball of fire around `at`: damage, knockback, things set alight, props broken, the egg hit
+function fireArea(key, team, at, R, dmg, kb, up, o){
+  o = o || {};
+  swordArea(key, team, at, R, dmg, kb, up, {stun:o.stun || .35, props:o.props != null ? o.props : dmg*4, pull:o.pull, objects:o.objects, onHit:P => avBurn(P, key, o.burn)});
+  igniteAt(V3(at.x, at.y, at.z), R*.9);
+  if (eggOn() && egg && egg.alive && eggAuth() && egg.body.position.distanceTo(at) < R*.6 + 1) eggHit(dmg*.5, 'fire');
+}
+// along a segment (streams and beams): damage, burn, a shove along it, props broken and lit
+function fireLine(key, team, a, b, W, dmg, kb, o){
+  o = o || {}; const dir = b.clone().sub(a), L = dir.length() || 1; dir.divideScalar(L);
+  const P = victimFor(key, team);
+  if (P && !(amDefender() && fortShielded(P.body.position))) { const q = V3(P.body.position.x, P.body.position.y + 1, P.body.position.z); if (segDist(a, b, q) < W + .5) { painHurt(P, dmg, key); knock(P, dir.x*kb, Math.max(1.5, dir.y*kb + 2.5), dir.z*kb, o.stun || .2); avBurn(P, key, o.burn || 2.5); } }
+  PAIN.dummies.forEach(dm => { if (!dm.dead && segDist(a, b, V3(dm.body.position.x, dm.body.position.y + 1, dm.body.position.z)) < W + .6) { dummyHit(dm.body, dmg); const bb = dm.body; if (bb.wakeUp) bb.wakeUp(); bb.velocity.x += dir.x*kb*.5; bb.velocity.z += dir.z*kb*.5; bb.velocity.y += 1.5; } });
+  forEachObject(bb => { if (bb.tag === 'dummy' || segDist(a, b, bb.position) > W + 1) return; if (bb.wakeUp) bb.wakeUp(); bb.velocity.x += dir.x*kb*.4; bb.velocity.y += dir.y*kb*.4 + 1; bb.velocity.z += dir.z*kb*.4; spin(bb, 2); });
+  const n = Math.max(1, Math.min(14, Math.ceil(L/(W*2 + 5))));
+  for (let i = 0; i <= n; i++) { const q = a.clone().lerp(b, i/n); if (o.props !== 0) damageProps(q, W + 1.5, o.props || dmg*3); summonsTakeArea(q, W + 1, dmg/(n + 1)*2, key, team); if (o.ignite !== false && i % 2 === 0) igniteAt(q, W + 1); }
+  if (eggOn() && egg && egg.alive && eggAuth() && segDist(a, b, egg.body.position) < W + 1.5) eggHit(dmg*.4, 'fire');
+}
+// does anything stop a flying fireball here?
+function avPropAt(b, r){
+  return props.find(pr => { if (pr.dead || Math.abs(pr.x - b.x) > 5 || Math.abs(pr.z - b.z) > 5) return false;
+    if (pr.kind === 'tree') return Math.hypot(pr.x - b.x, pr.z - b.z) < .4*pr.s + r && b.y > pr.y && b.y < pr.y + 4*pr.s;
+    if (pr.kind === 'rock') return b.distanceTo(pr.mesh.position) < pr.r + r;
+    return Math.abs(b.x - pr.mesh.position.x) < (pr.hx || 1) + r && Math.abs(b.z - pr.mesh.position.z) < (pr.hz || 1) + r && Math.abs(b.y - pr.mesh.position.y) < (pr.hy || 1) + r; });
+}
+function avBlocked(key, team, a, b, r){
+  if (b.y <= groundH(b.x, b.z) + r*.4) return true;
+  for (const k in chars) { const P = chars[k]; if (!P || k === key || P.alive === false || (team && P.team === team)) continue; if (segDist(a, b, V3(P.body.position.x, P.body.position.y + 1, P.body.position.z)) < r + .6) return true; }
+  for (const dm of PAIN.dummies) if (!dm.dead && segDist(a, b, V3(dm.body.position.x, dm.body.position.y + 1, dm.body.position.z)) < r + .7) return true;
+  if (avPropAt(b, r)) return true;
+  for (const bb of world.bodies) { if (bb.mass === 0 || bb.player || bb.tag === 'dummy') continue; if (segDist(a, b, bb.position) < r + Math.min(2.5, (bb.boundingRadius || .5)*.7)) return true; }
+  if (typeof tdOn === 'function' && tdOn()) for (const t of TD.list) if (!t.dead && Math.hypot(t.pos.x - b.x, t.pos.y - b.y, t.pos.z - b.z) < t.R + r) return true;
+  return false;
+}
+const FIRE_PAL = {ball:0xFF6A1F, core:0xFFF0A0, ring:0xFFB02E}, BLUE_PAL = {ball:0x2A6BFF, core:0xE6F7FF, ring:0x6FD0FF};
+// an explosion of fire: the blast, burning ground, and for big ones the ground torn up
+function fireBoom(key, team, at, R, dmg, kb, o){
+  o = o || {};
+  fireArea(key, team, V3(at.x, at.y + .8, at.z), R, dmg, kb, 6 + kb*.3, {props:o.props != null ? o.props : dmg*5, burn:o.burn || 3.5});
+  boomVisual(V3(at.x, at.y + .8, at.z), false, Math.min(3.2, .5 + R*.14), o.pal || FIRE_PAL);
+  fireBurst(V3(at.x, at.y + 1, at.z), Math.min(40, 8 + R*2), 8 + R, .25 + R*.03, o.cols);
+  if (R > 6) warpPulse(V3(at.x, at.y + 2, at.z), R*1.6, .6, .05);
+  const gy = groundH(at.x, at.z);
+  if (o.zone !== false && at.y - gy < 3) avZone({x:at.x, z:at.z, R:o.zoneR || Math.max(2.5, R*.55), dur:o.zoneT || 5, dps:o.zoneDps || 6, key, team});
+  if (o.rubble && at.y - gy < 3) { rubbleBurst(V3(at.x, gy, at.z), o.rubble, 6); debris(V3(at.x, gy + .5, at.z), 10, [0x5C4A3A, 0x3A2A22, 0x6B5A4E]); }
+  flash(Math.min(.8, .08 + R*.03), .5); shakeAt(at, Math.min(3, .4 + R*.12), 60 + R*4); sfx('boom'); sfx('fireball');
+}
+
+/* ---------- surfaces: burning ground and lava (temporary, over the terrain) ---------- */
+// {x, z, R, r0?, dur, dps, key, team, lava?, grow? (m/s: the patch spreads out from the middle), low? (how high above it still burns)}
+function avZone(o){
+  const z = Object.assign({t:0, tick:0, slow:0, r0:0, low:o.lava ? 2.6 : 1.4}, o);
+  z.mesh = groundPatch(z.x, z.z, z.R, groundFireMat(!!z.lava)); z.mesh.material.uniforms.sc.value = Math.max(4, z.R*.9); z.mesh.material.uniforms.r0.value = z.r0/z.R;
+  if (z.lava) z.lens = SpaceWarp.add({pos:() => V3(z.x, groundH(z.x, z.z) + 1.5, z.z), alive:() => !z.dead && z.t < z.dur - 1.5, R:() => z.R*.6, s:() => .06 + .03*Math.sin(G.t*3)});
+  AV.zones.push(z);
+  const live = AV.zones.filter(q => !q.dead); if (live.length > 70) avZoneKill(live[0]);
+  return z;
+}
+function avZoneKill(z){ if (z.dead) return; z.dead = true; if (z.mesh.parent) z.mesh.parent.remove(z.mesh); z.mesh.geometry.dispose(); z.mesh.material.dispose(); }
+const zoneR = z => z.grow ? Math.min(z.R, z.t*z.grow) : z.R;
+function zonesFrame(dt){
+  const P = localP(), sp = Math.max(1, AV.zones.length/12);
+  for (const z of AV.zones) {
+    if (z.dead) continue;
+    z.t += dt; const u = z.mesh.material.uniforms, Rc = zoneR(z);
+    u.t.value = G.t; u.rv.value = Math.max(.02, Rc/z.R); u.a.value = Math.min(1, z.t/.25)*Math.min(1, Math.max(0, (z.dur - z.t)/(z.lava ? 1.5 : 1)));
+    if (z.lava) u.cool.value = clamp((z.t - (z.dur - 3))/2, 0, 1);
+    if (z.t > z.dur) { avZoneKill(z); continue; }
+    const hot = !z.lava || u.cool.value < .7, gy = groundH(z.x, z.z);
+    // flames and embers (fewer when many patches burn at once)
+    if (hot && Math.random() < Math.min(1, Rc*Rc/40)/sp) { const a = Math.random()*Math.PI*2, d = Math.sqrt(Math.random())*Rc, x = z.x + Math.cos(a)*d, zz = z.z + Math.sin(a)*d; if (d >= z.r0) { const q = V3(x, groundH(x, zz) + .2, zz);
+      if (z.lava) { flameP(q, V3(rr(-.3, .3), rr(1.5, 4), rr(-.3, .3)), rr(.05, .1), pick([0xFFD84D, 0xFF8A2E, 0xFFF3B0]), rr(.6, 1.2)); if (Math.random() < .15) { puff(q, 0xFF6A1F, .45); } }
+      else flameP(q, V3(rr(-.4, .4), rr(1.5, 3.5), rr(-.4, .4)), rr(.18, .4), pick(FIRE_COLS), rr(.35, .7)); } }
+    if (z.lava && hot && Math.random() < .05) puff(V3(z.x + rr(-1, 1)*Rc*.6, gy + .5, z.z + rr(-1, 1)*Rc*.6), 0x3A3A3A, .7);   // smoke
+    if (!hot) continue;
+    z.tick -= dt; if (z.tick > 0) continue; z.tick = .25;
+    const inside = q => { const d = Math.hypot(q.x - z.x, q.z - z.z); return d < Rc && d >= z.r0 && q.y - groundH(q.x, q.z) < z.low; };
+    const V = victimFor(z.key, z.team);
+    if (V && inside(V.body.position) && !(amDefender() && fortShielded(V.body.position))) { painHurt(V, z.dps*.25, z.key); avBurn(V, z.key, 1.2); if (z.lava) V.slowT = Math.max(V.slowT || 0, .4); }
+    PAIN.dummies.forEach(dm => { if (!dm.dead && inside(dm.body.position)) dummyHit(dm.body, z.dps*.25); });
+    z.slow -= .25; if (z.slow <= 0) { z.slow = 1; summonsTakeArea(V3(z.x, gy + 1, z.z), Rc, z.dps, z.key, z.team); igniteAt(V3(z.x, gy, z.z), Rc*.8); if (z.lava) { damageProps(V3(z.x, gy + .5, z.z), Rc, z.dps*3); for (const b of world.bodies) { if (b.mass === 0 || b.player || !inside(b.position)) continue; if (b.wakeUp) b.wakeUp(); b.velocity.y += rr(.5, 1.5); } } }
+  }
+  if (AV.zones.length > 90) AV.zones = AV.zones.filter(z => !z.dead);
+}
+
+/* ---------- the charge: hold the key, it grows, release casts ---------- */
+function avChargeStart(id, key){
+  const P = localP(); if (!P || P.alive === false || P.stun > 0 || P.lockT > 0 || AV.charge) return;
+  if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
+  AV.charge = {id, key, t0:performance.now()/1000};
+}
+const avChargeSecs = () => AV.charge ? performance.now()/1000 - AV.charge.t0 : 0;
+function avRelease(ch){
+  const c = +(performance.now()/1000 - ch.t0).toFixed(2), id = ch.id;
+  if (id === 'af_pillar') { const pt = G.targetPoint; if (!pt) { toast(G.targetWhy || 'Aim at the ground.'); return; } localCast(id, pt.clone(), {c}); G.targeting = null; marker.visible = false; renderTray(); return; }
+  localCast(id, aimPoint(150), {c, d:avAimArr()});
+}
+// previews while charging: rings on the ground, the cone / beam it will make (local)
+function avPrevHide(){ for (const k in AV.prev) if (AV.prev[k]) AV.prev[k].visible = false; if (AV.handOrb) { if (AV.handOrb.parent) AV.handOrb.parent.remove(AV.handOrb); AV.handOrb = null; } }
+function avPrevRing(name, col){ if (!AV.prev[name]) AV.prev[name] = groundRing(col, .85); return AV.prev[name]; }
+function avPrevBeam(){ if (!AV.prev.beam) { const m = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 10, 1, true).rotateX(Math.PI/2).translate(0, 0, .5), new THREE.MeshBasicMaterial({color:0xFF5A14, transparent:true, opacity:.22, depthWrite:false, side:THREE.DoubleSide})); m.userData.noRay = true; m.renderOrder = 30; scene.add(m); AV.prev.beam = m; } return AV.prev.beam; }
+function avPrevCone(){ if (!AV.prev.cone) { const m = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 20, 1, true).translate(0, -.5, 0).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:0xFF8A2E, transparent:true, opacity:.16, depthWrite:false, side:THREE.DoubleSide})); m.userData.noRay = true; m.renderOrder = 30; scene.add(m); AV.prev.cone = m; } return AV.prev.cone; }
+function beamEnd(o, dir, L){ const q = o.clone(); for (let s = 0; s < L; s += 2) { q.copy(o).addScaledVector(dir, s); if (q.y <= groundH(q.x, q.z) || Math.abs(q.x) > ISL + 40 || Math.abs(q.z) > ISL + 40) return {p:q, d:s, hit:q.y <= groundH(q.x, q.z)}; } return {p:o.clone().addScaledVector(dir, L), d:L, hit:false}; }
+// ability numbers as functions of the charge multiplier (shared by the preview and the cast)
+const AVN = {
+  ball:  m => ({r:.35*Math.pow(m, .55), R:3 + 1.15*Math.pow(m, .8), dmg:22*Math.pow(m, .85), kb:12 + 2.2*m, sp:46 + m*.8}),
+  flame: m => ({L:9 + 3.2*m, W:1.3 + .6*m, sp:16 + 5*m, dmg:2 + m, kb:1.6 + .9*m, two:m >= 3}),
+  ring:  m => ({R:10 + 6*(m - 1), dmg:18 + 9*(m - 1), kb:12 + 4*m, v:26 + 2*m, h:1.6 + .3*m}),
+  cannon:m => ({W:1.2 + .7*m, L:120 + 45*m, dmg:5*m, kb:8 + 3*m}),
+  pillar:m => ({R:4 + 1.3*(m - 1), H:25 + 8*m, dmg:35*Math.pow(m, .8)}),
+  lava:  m => ({R:6 + 2.6*(m - 1), dur:8 + m, dps:12 + 5*(m - 1)})
+};
+function avChargeFrame(dt){
+  const ch = AV.charge, me = localP();
+  if (!ch || !me || me.alive === false || !avatarKit()) { if (ch && (!me || me.alive === false || !avatarKit())) AV.charge = null; for (const k of ['ring', 'end', 'beam', 'cone']) if (AV.prev[k]) AV.prev[k].visible = false; if (AV.handOrb) { if (AV.handOrb.parent) AV.handOrb.parent.remove(AV.handOrb); AV.handOrb = null; } return; }
+  const s = avChargeSecs(), m = avMul(ch.id, s), d = AVATAR[ch.id], hand = avHand(me, 1), aim = avAimLocal(), bar = chargeUI.querySelector('i'), label = chargeUI.querySelector('span');
+  me.pushPose = Math.max(me.pushPose || 0, .12);
+  chargeUI.style.display = 'block'; bar.style.width = ((m - 1)/((d.max || 2) - 1)*100) + '%';
+  const hot = (m - 1)/((d.max || 2) - 1), hue = 40 - hot*40; bar.style.background = `linear-gradient(90deg, hsl(${hue},95%,50%), hsl(${hue + 15},100%,${70 + hot*25}%))`;
+  for (const k of ['ring', 'end', 'beam', 'cone']) if (AV.prev[k]) AV.prev[k].visible = false;
+  // the fire gathering in the hands grows with the charge
+  if (!AV.handOrb) { AV.handOrb = fireOrbMesh(.2); scene.add(AV.handOrb); }
+  const p = me.body.position;
+  if (ch.id === 'af_ball') {
+    const n = AVN.ball(m); AV.handOrb.position.copy(hand); avOrbScale(AV.handOrb, G.t, Math.min(.85, n.r));
+    const h = crosshairHit(); if (h && h.point) avPrevRing('ring', 0xFF8A2E).set(h.point.x, h.point.z, n.R);
+    label.textContent = `🔥 Fireball ×${m.toFixed(1)}${m >= 20 ? ' MAX' : ''}: ${n.R.toFixed(1)} m blast, ${Math.round(n.dmg)} damage. Release to throw`;
+  } else if (ch.id === 'af_flame') {
+    const n = AVN.flame(m); AV.handOrb.position.copy(hand); avOrbScale(AV.handOrb, G.t, .15 + m*.05);
+    const c = avPrevCone(); c.visible = true; c.position.copy(hand); c.lookAt(hand.clone().add(aim)); c.scale.set(n.W, n.W, n.L);
+    if (Math.random() < .5) flameP(hand, V3(rr(-1, 1), rr(0, 1.5), rr(-1, 1)), .12 + m*.03, pick(FIRE_COLS), .3);
+    label.textContent = `🌬️ Flamethrower ×${m.toFixed(1)}: ${Math.round(n.L)} m stream${n.two ? ', TWO-HANDED torrent' : ''}. Release to fire, 2 again stops`;
+  } else if (ch.id === 'af_ring') {
+    const n = AVN.ring(m); AV.handOrb.visible = false; avPrevRing('ring', 0xFF6A1F).set(p.x, p.z, n.R);
+    for (let i = 0; i < 2; i++) { const a = G.t*6 + i*Math.PI, r0 = 1.2 + Math.sin(G.t*3)*.2; flameP(V3(p.x + Math.cos(a)*r0, p.y + .2 + Math.random()*1.6, p.z + Math.sin(a)*r0), V3(-Math.sin(a)*3, 1.5, Math.cos(a)*3), .15 + m*.02, pick(FIRE_COLS), .35); }
+    label.textContent = `⭕ Fire Ring ×${m.toFixed(1)}: ${Math.round(n.R)} m wave, ${Math.round(n.dmg)} damage. Release to slam the ground`;
+  } else if (ch.id === 'af_cannon') {
+    const n = AVN.cannon(m), mid = avHand(me, 1).lerp(avHand(me, -1), .5).addScaledVector(aim, .5); AV.handOrb.position.copy(mid); avOrbScale(AV.handOrb, G.t, Math.min(.8, .2 + m*.1));
+    const e = beamEnd(mid, aim, n.L), b = avPrevBeam(); b.visible = true; b.position.copy(mid); b.lookAt(e.p); b.scale.set(n.W*.5, n.W*.5, e.d);
+    if (e.hit) avPrevRing('end', 0xFF3B30).set(e.p.x, e.p.z, n.W*1.5);
+    for (let i = 0; i < 2 + m; i++) { const q = mid.clone().add(V3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).normalize().multiplyScalar(rr(2, 4))); flameP(q, mid.clone().sub(q).multiplyScalar(3), .1 + m*.02, pick(FIRE_COLS), .3); }
+    if (Math.random() < .3) shakeAt(p, .1 + m*.04, 20);
+    label.textContent = `💥 Incineration Cannon ×${m.toFixed(1)}: ${Math.round(n.L)} m beam, ${n.W.toFixed(1)} m wide. Release to fire`;
+  } else if (ch.id === 'af_lava') {
+    const n = AVN.lava(m); AV.handOrb.visible = false; avPrevRing('ring', 0xFF4A10).set(p.x, p.z, n.R);
+    if (Math.random() < .6) { const a = Math.random()*Math.PI*2, d = Math.random()*n.R; flameP(V3(p.x + Math.cos(a)*d, groundH(p.x + Math.cos(a)*d, p.z + Math.sin(a)*d) + .1, p.z + Math.sin(a)*d), V3(0, rr(1, 3), 0), .08, pick([0xFF6A1F, 0xFFB02E]), .5); }
+    label.textContent = `🟧 Lava Ground ×${m.toFixed(1)}: ${Math.round(n.R)} m of lava, ${Math.round(n.dps)} damage a second. Release to touch the ground`;
+  } else if (ch.id === 'af_pillar') {
+    const n = AVN.pillar(m); TARGET_R.af_pillar = n.R; AV.handOrb.position.copy(hand); avOrbScale(AV.handOrb, G.t, .15 + m*.03);
+    if (G.targetPoint) avPrevRing('ring', 0xFF3B30).set(G.targetPoint.x, G.targetPoint.z, n.R);
+    label.textContent = `🌋 Inferno Pillar ×${m.toFixed(1)}: ${n.R.toFixed(1)} m wide, ${Math.round(n.H)} m tall. Release Click to erupt`;
+  }
+  if (AV.handOrb.visible === false && ch.id !== 'af_ring' && ch.id !== 'af_lava') AV.handOrb.visible = true;
+}
+
+/* ---------- input ---------- */
+function avElemCycle(to){
+  const ids = Object.keys(AV_ELEMS), next = to || ids[(ids.indexOf(AV.elem) + 1) % ids.length];
+  if (AV_ELEMS[next].soon) { toast(`${AV_ELEMS[next].e} ${AV_ELEMS[next].name} bending is coming soon. 🔥 Fire stays active.`); sfx('click'); return; }
+  AV.elem = next; renderTray(); toast(`${AV_ELEMS[next].e} ${AV_ELEMS[next].name} bending`); sfx('grab');
+}
+function avElemChips(t){
+  const bar = t.querySelector('.bar'); if (!bar) return;
+  const w = document.createElement('div'); w.style.cssText = 'display:flex;flex-direction:column;gap:3px;align-self:center;margin-left:4px';
+  for (const id in AV_ELEMS) { const e = AV_ELEMS[id], b = document.createElement('button'); b.className = 'btn'; b.style.cssText = `padding:2px 8px;font-size:12px;${AV.elem === id ? 'outline:2px solid #FF8A2E;' : ''}${e.soon ? 'opacity:.55;' : ''}`; b.textContent = `${e.e} ${e.name}${e.soon ? ' (soon)' : ''}`; b.title = e.soon ? 'Coming soon' : 'Q switches the element'; b.onclick = ev => { ev.stopPropagation(); avElemCycle(id); }; w.appendChild(b); }
+  bar.appendChild(w);
+}
+function avatarUse(id){
+  const d = AVATAR[id], P = localP(); if (!d || d.hide || !P || P.alive === false || P.stun > 0 || P.lockT > 0) return;
+  if (G.phase !== 'attack' || (G.egg && G.egg.over)) return;
+  if (amDefender() && id !== 'af_whip') { cdToast2('🛡️ Defenders only get the fire whip (click).'); return; }
+  if (id === 'af_whip') { avatarClick(); return; }
+  if (d.ult && !ultReady(id)) return;
+  if (id === 'af_flame' && AV.chan[G.localKey] && AV.chan[G.localKey].id === 'af_flame') { localCast('af_flamex', null, {}); return; }
+  if (id === 'af_sky' && G.targeting === 'af_sky' && AV.marks.length) { avSkyConfirm(); return; }
+  if (!d.ult && (G.cd[id] || 0) > 0) { cdToast(id); return; }
+  if (d.kind === 'sky') { setTargeting(id); if (G.targeting === id) toast('☄️ Skyfall Fireballs: Click marks up to 5 spots, then press 3 to call them down. Right-click cancels.'); return; }
+  if (d.kind === 'aimcharge') { setTargeting(id); if (G.targeting === id) toast('🌋 Inferno Pillar: aim the ring, hold Click to charge it (the ring grows), release to erupt.'); return; }
+  if (d.kind === 'aim') { setTargeting(id); if (id === 'af_orbs' && G.targeting === id) toast('🟠 Fire Orb Field: the ring is the field. Click to scatter the orbs.'); return; }
+  if (G.spCd > 0) return; G.spCd = .2;
+  if (d.kind === 'charge') { localCast(id, aimPoint(150), {c:0, d:avAimArr()}); return; }   // from the Skills bar: base power
+  localCast(id, aimPoint(120), {d:avAimArr()});
+}
+function avatarKeyDown(k){
+  if (k === 'tab') return false;
+  const id = AV_KEYS[k]; if (!id) return false;
+  const d = AVATAR[id], P = localP(); if (!P || P.alive === false || P.stun > 0 || P.lockT > 0) return true;
+  if (d.kind === 'charge') {
+    if (id === 'af_flame' && AV.chan[G.localKey] && AV.chan[G.localKey].id === 'af_flame') { localCast('af_flamex', null, {}); return true; }   // 2 again stops the stream
+    if (amDefender()) { cdToast2('🛡️ Defenders only get the fire whip (click).'); return true; }
+    avChargeStart(id, k); return true;
+  }
+  avatarUse(id); return true;
+}
+function avatarKeyUp(k){ const ch = AV.charge; if (!ch || (k != null && ch.key !== k)) return; AV.charge = null; avPrevHide(); chargeUI.style.display = 'none'; if (k == null) return; avRelease(ch); }
+function avatarClick(){
+  const P = localP(); if (!P || P.alive === false || P.stun > 0) return;
+  if ((G.cd.af_whip || 0) > 0 || G.spCd > 0) return; G.spCd = .45;
+  localCast('af_whip', aimPoint(60), {d:avAimArr()});
+}
+// Skyfall: Click marks (castAt), 3 confirms
+function avSkyMark(p){
+  if (AV.marks.length >= 5) { toast('☄️ Five spots marked. Press 3 to call them down.'); return; }
+  AV.marks.push(p.clone()); const r = groundRing(0xFF6A1F, .95); r.set(p.x, p.z, AVATAR.af_sky.r, .55); AV.markFx.push(r); sfx('click');
+  toast(AV.marks.length >= 5 ? '☄️ 5/5 marked. Press 3 to call them down.' : `☄️ ${AV.marks.length}/5 marked. Click for more, press 3 to call them down.`);
+}
+function avSkyConfirm(){
+  if (!AV.marks.length) return;
+  localCast('af_sky', AV.marks[0].clone(), {pts:AV.marks.map(q => [+q.x.toFixed(1), +q.z.toFixed(1)])});
+  avSkyClear(); G.targeting = null; marker.visible = false; renderTray();
+}
+function avSkyClear(){ AV.markFx.forEach(r => r.kill()); AV.markFx = []; AV.marks = []; }
+
+/* ---------- dispatch ---------- */
+function runAvatar(id, p, x){
+  const ci = casterInfo(); if (!ci.C) return;
+  ci.rng = mulberry32((p ? seedOf(p) : seedOf(ci.pos)) ^ 0xF1E);
+  if (AVATAR[id] && AVATAR[id].ult) { G.ultUsed = G.ultUsed || {}; if (ci.key === G.localKey) { G.ultUsed[id] = true; renderTray(); } }
+  switch (id) {
+    case 'af_whip': afWhip(ci, x); break;
+    case 'af_ball': afBall(ci, p, x); break;
+    case 'af_flame': afFlame(ci, x); break;
+    case 'af_flamex': { const ch = AV.chan[ci.key]; if (ch && ch.id === 'af_flame') ch.stop = true; break; }
+    case 'af_sky': afSky(ci, x); break;
+    case 'af_ring': afRing(ci, x); break;
+    case 'af_cannon': afCannon(ci, x); break;
+    case 'af_pillar': if (p) afPillar(ci, p, x); break;
+    case 'af_dance': afDance(ci); break;
+    case 'af_orbs': if (p) afOrbs(ci, p); break;
+    case 'af_lava': afLava(ci, x); break;
+    case 'af_dragons': afDragons(ci); break;
+    case 'af_dragonsx': if (p) afDragonsDive(ci, p); break;
+    case 'af_sun': afSun(ci); break;
+    case 'af_sunx': if (p) afSunGo(ci, p); break;
+    case 'af_white': afWhite(ci); break;
+    case 'af_black': if (p) afBlack(ci, p); break;
+  }
+}
+function avFx(e){ AV.fx.push(e); return e; }
+
+/* 1. Fireball: grows in the hand while held (up to ×20), then flies where you aim and bursts */
+function afBall(ci, p, x){
+  const {key, team, C} = ci, m = avMul('af_ball', x && x.c), n = AVN.ball(m), from = avHand(C, 1);
+  const dir = avDirOf(x) || (p ? p.clone().sub(from).normalize() : V3(Math.sin(C.face), 0, Math.cos(C.face)));
+  const g = fireOrbMesh(n.r); g.position.copy(from); roundGroup.add(g);
+  let t = 0; const pos = from.clone(), heat = m > 4 ? SpaceWarp.add({pos:() => pos, alive:() => g.parent != null, R:() => n.r*3, s:() => .3}) : null;
+  C.avPose = {k:'throw', t:0, dur:.45}; sfx('fireball'); if (m > 8) sfx('roar');
+  avFx({update(dt){
+    t += dt; const nxt = pos.clone().addScaledVector(dir, n.sp*dt);
+    const hit = (t > .03 && avBlocked(key, team, pos, nxt, n.r)) || t > 3.5;
+    pos.copy(nxt); g.position.copy(pos); avOrbScale(g, G.t);
+    for (let i = 0; i < 1 + Math.min(6, m*.4); i++) flameP(pos.clone().add(V3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(n.r*.6)), dir.clone().multiplyScalar(-rr(2, 6)).add(V3(0, rr(.5, 2), 0)), n.r*rr(.4, .8), pick(FIRE_COLS), .35);
+    if (hit) { roundGroup.remove(g); fireBoom(key, team, pos, n.R, n.dmg, n.kb, {rubble:m > 6 ? Math.min(4, 1 + m*.12) : 0, zoneR:n.R*.5, zoneT:4 + m*.15, zoneDps:5 + m*.6}); return false; }
+    return true;
+  }});
+}
+
+/* 2. Flamethrower: a charge, then a sustained stream that follows your aim (two-handed torrent when charged high) */
+function afFlame(ci, x){
+  const {key, C} = ci, c = Math.max(0, +(x && x.c) || 0), m = avMul('af_flame', c), n = AVN.flame(m), dur = Math.min(6, 2.5 + c*.5);
+  avChanEnd(key);
+  const mk = (w, c1, c2) => { const mesh = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 22, 4, true).translate(0, -.5, 0).rotateX(-Math.PI/2), flameMat(c1, c2, 4, 3)); mesh.userData.noRay = true; roundGroup.add(mesh); return mesh; };
+  const ch = AV.chan[key] = {id:'af_flame', key, team:ci.team, t:0, dur, m, n, tick:0, meshes:[mk(1, 0xFFF0A8, 0xFF5A14), mk(.55, 0xFFFFFF, 0xFFB02E)], sfxT:0};
+  if (n.two) ch.meshes.push(mk(1, 0xFFF0A8, 0xFF5A14), mk(.55, 0xFFFFFF, 0xFFB02E));
+  sfx('fireball'); sfx('fire'); if (n.two) sfx('roar');
+}
+function avFlameUpdate(ch, P, dt){
+  const n = ch.n, dir = avChanDir(ch, P.key, dt, 0), hands = n.two ? [avHand(P, 1), avHand(P, -1)] : [avHand(P, 1)], k = Math.min(1, ch.t/.2)*Math.min(1, (ch.dur - ch.t)/.25);
+  hands.forEach((h, i) => { const o = ch.meshes[i*2], inner = ch.meshes[i*2 + 1], L = n.L*(.3 + .7*k);
+    [o, inner].forEach((mm, j) => { mm.position.copy(h); mm.lookAt(h.clone().add(dir)); const w = n.W*(j ? .5 : 1)*(n.two ? 1.2 : 1); mm.scale.set(w, w, L*(j ? .8 : 1)); mm.material.uniforms.t.value = G.t*(1 + n.sp*.05); mm.material.uniforms.a.value = k*(j ? .9 : .75)*(P.key === G.localKey ? .6 : 1); });
+    for (let q = 0; q < 2 + Math.min(6, ch.m); q++) { const v = dir.clone().multiplyScalar(n.sp*rr(.7, 1.1)).add(V3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(n.sp*n.W/n.L*.8)); flameP(h.clone(), v, rr(.15, .35)*(1 + ch.m*.12), pick(FIRE_COLS), n.L/n.sp*rr(.6, 1)); } });
+  ch.sfxT -= dt; if (ch.sfxT <= 0) { ch.sfxT = .35; sfx('fire'); }
+  if (P.key === G.localKey) { P.slowT = Math.max(P.slowT || 0, .2); P.pushPose = Math.max(P.pushPose || 0, .15); }
+  ch.tick -= dt; if (ch.tick > 0) return; ch.tick = .12;
+  const h = hands[0], L = n.L*k, e = beamEnd(h, dir, L);
+  fireLine(ch.key, ch.team, h, e.p, n.W*.55*(n.two ? 1.25 : 1), n.dmg*(n.two ? 1.3 : 1), n.kb, {props:12*ch.m, burn:2});
+  if (e.hit) { avZone({x:e.p.x, z:e.p.z, R:1.6 + ch.m*.25, dur:3, dps:5, key:ch.key, team:ch.team}); }
+}
+// sustained powers aim where the caster aims (turn = max rad/s for the heavy beams)
+function avChanDir(ch, key, dt, turn){
+  const want = avAimOf(key);
+  if (!ch.dir) ch.dir = want.clone();
+  else if (turn) { const ang = ch.dir.angleTo(want), mx = turn*dt; if (ang > mx && ang > 1e-4) ch.dir.lerp(want, mx/ang).normalize(); else ch.dir.copy(want); }
+  else ch.dir.lerp(want, Math.min(1, dt*14)).normalize();
+  return ch.dir;
+}
+function avChanEnd(key){
+  const ch = AV.chan[key]; if (!ch) return; delete AV.chan[key];
+  (ch.meshes || []).forEach(mm => { if (mm.parent) mm.parent.remove(mm); });
+  if (ch.id === 'af_white') { const P = chars[key]; if (P) avWhiten(P, false); }
+}
+function chanFrame(dt){
+  for (const key in AV.chan) {
+    const ch = AV.chan[key], P = chars[key];
+    if (!P || P.alive === false || ch.stop) { avChanEnd(key); continue; }
+    ch.t += dt;
+    if (ch.id === 'af_flame') avFlameUpdate(ch, P, dt);
+    else if (ch.id === 'af_cannon' || ch.id === 'af_white') avBeamUpdate(ch, P, dt);
+    if (ch.t > ch.dur) avChanEnd(key);
+  }
+}
+
+/* 3. Skyfall Fireballs: marked from above (the Giant Rocket's sky view), up to five fireballs crash down */
+function afSky(ci, x){
+  const {key, team, C} = ci, pts = Array.isArray(x && x.pts) ? x.pts.slice(0, 5) : [];
+  if (C) C.castPose = .8; sfx('fireball');
+  pts.forEach((q, i) => {
+    const at = V3(+q[0] || 0, 0, +q[1] || 0); at.y = groundH(at.x, at.z);
+    const warn = warnRing(at, AVATAR.af_sky.r + 2, 0xFF3B30), R = 9, r = 1.6, T = 1.5, delay = i*.28, side = V3(rr(-1, 1), 0, rr(-1, 1)).normalize();
+    const g = fireOrbMesh(r); g.visible = false; roundGroup.add(g);
+    const top = V3(at.x + side.x*18, at.y + 70, at.z + side.z*18);
+    let t = -delay;
+    avFx({update(dt){
+      t += dt; warn.material.opacity = .4 + Math.sin(G.t*14)*.3;
+      if (t < 0) return true;
+      const u = Math.min(1, t/T), e = u*u; g.visible = true; g.position.lerpVectors(top, V3(at.x, at.y + r*.6, at.z), e); avOrbScale(g, G.t);
+      for (let k = 0; k < 4; k++) flameP(g.position.clone().add(V3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(r*.7)), V3(rr(-2, 2), rr(4, 10), rr(-2, 2)), rr(.4, .8), pick(FIRE_COLS), .5);
+      if (Math.random() < .3) puff(g.position.clone().add(V3(0, 2, 0)), 0x4A4A4A, .9);
+      if (u >= 1) { roundGroup.remove(g); roundGroup.remove(warn); fireBoom(key, team, at, R, 55, 20, {rubble:2.2, zoneR:6, zoneT:6, zoneDps:8, props:400}); return false; }
+      return true;
+    }});
+    if (i === 0) setTimeout(() => sfx('whistle'), 400);
+  });
+}
+
+/* 4. Fire Ring: charge, a hand on the ground, and a wall of fire races out in a circle; the ground it crosses burns */
+function afRing(ci, x){
+  const {key, team, C} = ci, m = avMul('af_ring', x && x.c), n = AVN.ring(m), O = V3(C.body.position.x, 0, C.body.position.z); O.y = groundH(O.x, O.z);
+  C.avPose = {k:'touch', t:0, dur:.75};
+  const wall = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 72, 1, true), flameMat(0xFFF0A8, 0xFF4A10, 24, 2)); wall.userData.noRay = true; roundGroup.add(wall);
+  const z = avZone({x:O.x, z:O.z, R:n.R, grow:n.v, dur:n.R/n.v + 4, dps:5 + m, key, team});
+  let t = 0, hitMe = false; const swept = new Set(), id = 'afr' + key + O.x.toFixed(1) + O.z.toFixed(1);
+  avFx({update(dt){
+    t += dt; const r = Math.min(n.R, .8 + t*n.v), k = r/n.R;
+    wall.position.set(O.x, O.y + n.h*.5, O.z); wall.scale.set(r, n.h*(1 - k*.4), r); wall.material.uniforms.t.value = G.t*1.5; wall.material.uniforms.a.value = 1 - k*k*.8;
+    for (let i = 0; i < 6; i++) { const a = Math.random()*Math.PI*2, q = V3(O.x + Math.cos(a)*r, 0, O.z + Math.sin(a)*r); q.y = groundH(q.x, q.z) + .3; flameP(q, V3(Math.cos(a)*4, rr(2, 5), Math.sin(a)*4), rr(.3, .6), pick(FIRE_COLS), .5); }
+    const P = victimFor(key, team);
+    if (P && !hitMe) { const q = P.body.position, d = hdist(q, O); if (Math.abs(d - r) < 1.8 && q.y - groundH(q.x, q.z) < n.h + 1) { hitMe = true; const away = V3(q.x - O.x, 0, q.z - O.z).normalize(); painHurt(P, n.dmg, key); knock(P, away.x*n.kb, 6, away.z*n.kb, .5); avBurn(P, key, 3); } }
+    PAIN.dummies.forEach(dm => { if (dm.dead || swept.has(dm)) return; const d = hdist(dm.body.position, O); if (Math.abs(d - r) < 1.8) { swept.add(dm); dummyHit(dm.body, n.dmg); const b = dm.body, a = V3(b.position.x - O.x, 0, b.position.z - O.z).normalize(); if (b.wakeUp) b.wakeUp(); b.velocity.x += a.x*n.kb*.6; b.velocity.z += a.z*n.kb*.6; b.velocity.y += 4; } });
+    forEachObject(b => { if (b.tag === 'dummy' || swept.has(b)) return; const d = hdist(b.position, O); if (Math.abs(d - r) > 1.8) return; swept.add(b); const a = V3(b.position.x - O.x, 0, b.position.z - O.z).normalize(); if (b.wakeUp) b.wakeUp(); b.velocity.x += a.x*n.kb*.7; b.velocity.z += a.z*n.kb*.7; b.velocity.y += 4; });
+    if (Math.random() < .5) { const a = Math.random()*Math.PI*2; const q = V3(O.x + Math.cos(a)*r, O.y + 1, O.z + Math.sin(a)*r); igniteAt(q, 2); damageProps(q, 2.5, n.dmg*3); }
+    tdTakeRing(O, r, 2.5, n.dmg, id); summonsTakeArea(V3(O.x, O.y + 1, O.z), r, 0, key, team);
+    if (t > n.R/n.v + .25) { roundGroup.remove(wall); return false; }
+    return true;
+  }});
+  smokePuffs(V3(O.x, O.y + .3, O.z), 1, 4); shakeAt(O, .6 + m*.1, 60); sfx('fireball'); sfx('boom');
+}
+
+/* 5. Incineration Cannon: a braced charge, then a sustained, enormous beam of fire */
+function afCannon(ci, x){
+  const {key, C} = ci, c = Math.max(0, +(x && x.c) || 0), m = avMul('af_cannon', c), n = AVN.cannon(m);
+  avChanEnd(key);
+  AV.chan[key] = avBeam({id:'af_cannon', key, team:ci.team, dur:Math.min(5, 2 + c*.3), m, W:n.W, L:n.L, dmg:n.dmg, kb:n.kb, turn:1.1, c1:0xFFF6C8, c2:0xFF4A10, burnEvery:.35, burnR:n.W*1.3});
+  sfx('boom'); sfx('roar'); sfx('fireball'); flash(.2, .3);
+}
+function avBeam(o){
+  const mk = (r, c1, c2) => { const mesh = new THREE.Mesh(new THREE.CylinderGeometry(1, .25, 1, 24, 6, true).rotateX(Math.PI/2).translate(0, 0, .5), flameMat(c1, c2, 6, 40)); mesh.userData.noRay = true; mesh.userData.r = r; roundGroup.add(mesh); return mesh; };
+  const muzzle = fireOrbMesh(o.W*.9, false); roundGroup.add(muzzle);
+  const ch = Object.assign({t:0, tick:0, burn:0, sfxT:0}, o); ch.meshes = [mk(1, o.c2b || o.c1, o.c2), mk(.45, 0xFFFFFF, o.c1), muzzle];
+  ch.lens = SpaceWarp.add({pos:() => muzzle.position, alive:() => muzzle.parent != null, R:() => o.W*2, s:() => .35});
+  return ch;
+}
+function avBeamUpdate(ch, P, dt){
+  if (ch.id === 'af_white' && ch.t < ch.T0) { avWhiteCharge(ch, P, dt); return; }
+  const tt = ch.t - (ch.T0 || 0), dir = avChanDir(ch, P.key, dt, ch.turn), o = avHand(P, 1).lerp(avHand(P, -1), .5).addScaledVector(dir, .6), k = Math.min(1, tt/.15)*Math.min(1, (ch.dur - ch.t)/.3);
+  const e = beamEnd(o, dir, ch.L), [outer, inner, muzzle] = ch.meshes;
+  const mine = P.key === G.localKey, o2 = o.clone().addScaledVector(dir, mine ? 1.5 : .3);
+  [outer, inner].forEach(mm => { mm.position.copy(o2); mm.lookAt(e.p); const w = ch.W*mm.userData.r*k*(1 + Math.sin(G.t*40)*.05); mm.scale.set(w, w, Math.max(.5, e.d - (mine ? 1.5 : .3))); mm.material.uniforms.t.value = G.t*4; mm.material.uniforms.a.value = k*(mine ? .45 : 1); });
+  muzzle.position.copy(o); avOrbScale(muzzle, G.t, Math.min(mine ? .7 : 99, ch.W*.9*k));
+  for (let i = 0; i < 4; i++) { const q = o.clone().addScaledVector(dir, Math.random()*Math.min(e.d, 60)); flameP(q.add(V3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(ch.W*.8)), dir.clone().multiplyScalar(rr(10, 30)), rr(.3, .7)*ch.W*.4, pick(ch.id === 'af_white' ? [0xFFFFFF, 0xE6F2FF, 0xBFD9FF] : FIRE_COLS), .35); }
+  if (e.hit) { fireBurst(e.p.clone().add(V3(0, .8, 0)), 3, 10 + ch.W*2, .4 + ch.W*.08, ch.id === 'af_white' ? [0xFFFFFF, 0xE6F2FF, 0xFFE9A0] : FIRE_COLS); if (Math.random() < .2) puff(e.p.clone().add(V3(0, 2, 0)), 0x3A3A3A, 1.2); shakeAt(e.p, .2 + ch.W*.08, 40); }
+  if (P.key === G.localKey) { P.slowT = Math.max(P.slowT || 0, .25); P.pushPose = Math.max(P.pushPose || 0, .15); P.body.velocity.x -= dir.x*ch.W*.25*dt*10; P.body.velocity.z -= dir.z*ch.W*.25*dt*10; shakeAt(o, .25 + ch.W*.05, 10); }
+  ch.sfxT -= dt; if (ch.sfxT <= 0) { ch.sfxT = .3; sfx('fire'); if (Math.random() < .5) sfx('fireball'); }
+  ch.burn -= dt; if (ch.burn <= 0 && e.hit) { ch.burn = ch.burnEvery; avZone({x:e.p.x, z:e.p.z, R:ch.burnR, dur:ch.id === 'af_white' ? 7 : 4, dps:ch.id === 'af_white' ? 14 : 7, key:ch.key, team:ch.team}); damageProps(e.p, ch.burnR + 1, ch.dmg*8); }
+  ch.tick -= dt; if (ch.tick > 0) return; ch.tick = .1;
+  fireLine(ch.key, ch.team, o, e.p, ch.W*.7, ch.dmg, ch.kb, {props:ch.dmg*5, burn:3, stun:.35});
+  if (e.hit) fireArea(ch.key, ch.team, V3(e.p.x, e.p.y + 1, e.p.z), ch.W*1.5, ch.dmg*.6, ch.kb*.6, 6, {props:ch.dmg*6});
+}
+
+/* 6. Inferno Pillar: the marked ground cracks and glows, then a colossal column of fire erupts from it */
+function afPillar(ci, p, x){
+  const {key, team, C} = ci, m = avMul('af_pillar', x && x.c), n = AVN.pillar(m), at = V3(p.x, groundH(p.x, p.z), p.z);
+  if (C) { C.avPose = {k:'point', t:0, dur:.9}; }
+  const cracks = new THREE.Group(); cracks.position.set(at.x, at.y + .08, at.z); cracks.userData.noRay = true; roundGroup.add(cracks);
+  for (let i = 0; i < 12; i++) { const l = new THREE.Mesh(new THREE.PlaneGeometry(.18 + n.R*.02, n.R*rr(.6, 1.2)), addBlend(0xFF8A2E)); l.rotation.x = -Math.PI/2; l.rotation.z = i/12*Math.PI*2 + rr(-.2, .2); l.translateY(n.R*.4); cracks.add(l); }
+  const ring = warnRing(at, n.R, 0xFF4A10);
+  const outer = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.15, 1, 40, 1, true).translate(0, .5, 0), flameMat(0xFFF0A8, 0xFF3A08, 10, 3)), inner = new THREE.Mesh(new THREE.CylinderGeometry(.55, .7, 1, 30, 1, true).translate(0, .5, 0), flameMat(0xFFFFFF, 0xFFB02E, 8, 4));
+  [outer, inner].forEach(mm => { mm.position.copy(at); mm.visible = false; mm.userData.noRay = true; roundGroup.add(mm); });
+  const T0 = .45, DUR = 2.6; let t = 0, erupted = false, tick = 0;
+  sfx('rumble'); shakeAt(at, .5, 50);
+  const heat = SpaceWarp.add({pos:() => V3(at.x, at.y + n.H*.3, at.z), alive:() => t < T0 + DUR, R:() => n.R*1.5, s:() => erupted ? .3 : .1});
+  avFx({update(dt){
+    t += dt; ring.material.opacity = .4 + Math.sin(G.t*18)*.3;
+    cracks.children.forEach(l => l.material.opacity = Math.min(1, t/T0)*(.7 + Math.sin(G.t*20 + l.rotation.z)*.3));
+    if (!erupted) { if (Math.random() < .6) flameP(V3(at.x + rr(-1, 1)*n.R*.7, at.y + .2, at.z + rr(-1, 1)*n.R*.7), V3(0, rr(2, 6), 0), rr(.1, .25), pick(FIRE_COLS), .4);
+      if (t < T0) return true;
+      erupted = true; roundGroup.remove(ring); outer.visible = inner.visible = true;
+      // the eruption: everything inside is thrown up and burnt
+      const P = victimFor(key, team);
+      if (P) { const q = P.body.position, d = hdist(q, at); if (d < n.R + .5 && q.y - at.y < n.H) { painHurt(P, n.dmg, key); P.body.velocity.y = Math.max(P.body.velocity.y, 14 + 2*m); P.body._onGround = false; P.stun = Math.max(P.stun, .6); avBurn(P, key, 4); } }
+      forEachObject(b => { if (hdist(b.position, at) > n.R + 1) return; if (b.wakeUp) b.wakeUp(); b.velocity.y += 18 + 3*m; spin(b, 6); if (b.tag === 'dummy') dummyHit(b, n.dmg); });
+      for (const pr of propsNear(at, n.R).slice(0, 12)) { const o = liftProp(pr, V3(rr(-2, 2), 16 + 3*m, rr(-2, 2))); }
+      igniteAt(V3(at.x, at.y + 1, at.z), n.R + 1); damageProps(V3(at.x, at.y + 1, at.z), n.R, n.dmg*6); summonsTakeArea(V3(at.x, at.y + 2, at.z), n.R + 1, n.dmg, key, team); tdTakeColumn(at, n.R, n.dmg);
+      if (eggOn() && egg && egg.alive && eggAuth() && hdist(egg.body.position, at) < n.R) eggHit(n.dmg*.6, 'fire');
+      avZone({x:at.x, z:at.z, R:n.R*1.15, dur:DUR + 4, dps:8 + m, key, team});
+      flash(.35, .5); shakeAt(at, 1.2 + m*.12, 90 + n.H); sfx('boom'); sfx('fireball'); sfx('roar'); warpPulse(V3(at.x, at.y + 2, at.z), n.R*3, .6, .05);
+    }
+    const tt = t - T0, k = Math.min(1, tt/.25), fade = Math.min(1, Math.max(0, (DUR - tt)/.5));
+    outer.scale.set(n.R*(1 + Math.sin(G.t*9)*.04), n.H*k, n.R*(1 + Math.cos(G.t*8)*.04)); inner.scale.set(n.R, n.H*1.05*k, n.R); outer.rotation.y += dt*2.5; inner.rotation.y -= dt*3.5;
+    [outer, inner].forEach(mm => { mm.material.uniforms.t.value = G.t*2.2; mm.material.uniforms.a.value = fade; });
+    for (let i = 0; i < 5; i++) flameP(V3(at.x + rr(-1, 1)*n.R*.8, at.y + Math.random()*n.H*k, at.z + rr(-1, 1)*n.R*.8), V3(rr(-2, 2), rr(15, 30), rr(-2, 2)), rr(.4, .9), pick(FIRE_COLS), .6);
+    // inside it keeps burning and lifting
+    tick -= dt; if (tick <= 0 && fade > .3) { tick = .2;
+      const P = victimFor(key, team); if (P) { const q = P.body.position; if (hdist(q, at) < n.R && q.y - at.y < n.H) { painHurt(P, 5*Math.sqrt(m), key); P.body.velocity.y = Math.max(P.body.velocity.y, 6); avBurn(P, key, 3); } }
+      forEachObject(b => { if (hdist(b.position, at) > n.R || b.position.y - at.y > n.H) return; b.velocity.y = Math.max(b.velocity.y, 6 + m*.5); if (b.tag === 'dummy') dummyHit(b, 5*Math.sqrt(m)); }); }
+    if (tt > DUR) { [outer, inner, cracks].forEach(mm => roundGroup.remove(mm)); return false; }
+    return true;
+  }});
+}
+
+/* 7. Blue Flame Breakdance: a low spin, legs sweeping round; every kick throws out a ring of blue fire */
+function afDance(ci){
+  const {key, team, C} = ci, O = V3(C.body.position.x, 0, C.body.position.z); O.y = groundH(O.x, O.z);
+  C.avPose = {k:'dance', t:0, dur:1.35}; sfx('dash');
+  [.25, .65, 1.05].forEach((at, i) => {
+    let t = -at, fired = false; const R = 7 + i*1.8, w = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 64, 1, true), flameMat(0xE6F7FF, 0x2A6BFF, 20, 2)); w.visible = false; w.userData.noRay = true; roundGroup.add(w);
+    const swept = new Set();
+    avFx({update(dt){
+      t += dt; if (t < 0) return true;
+      const P0 = chars[key], c = P0 ? V3(P0.body.position.x, 0, P0.body.position.z) : O; c.y = groundH(c.x, c.z);
+      if (!fired) { fired = true; sfx('fire'); sfx('slash'); fireBurst(V3(c.x, c.y + .5, c.z), 14, 10, .3, BLUE_COLS);
+        fireArea(key, team, V3(c.x, c.y + .8, c.z), R*.5, 12, 8, 4, {props:150, burn:2}); }
+      const k = Math.min(1, t/.4), r = .8 + (R - .8)*(1 - Math.pow(1 - k, 2));
+      w.visible = true; w.position.set(c.x, c.y + .6, c.z); w.scale.set(r, 1.1*(1 - k*.5), r); w.material.uniforms.t.value = G.t*2; w.material.uniforms.a.value = 1 - k;
+      const P = victimFor(key, team);
+      if (P && !swept.has(P)) { const q = P.body.position, d = hdist(q, c); if (Math.abs(d - r) < 1.4 && q.y - c.y < 2.5) { swept.add(P); const a = V3(q.x - c.x, 0, q.z - c.z).normalize(); painHurt(P, 14, key); knock(P, a.x*14, 5, a.z*14, .45); avBurn(P, key, 2.5); } }
+      PAIN.dummies.forEach(dm => { if (dm.dead || swept.has(dm)) return; const d = hdist(dm.body.position, c); if (Math.abs(d - r) < 1.4) { swept.add(dm); dummyHit(dm.body, 14); const b = dm.body, a = V3(b.position.x - c.x, 0, b.position.z - c.z).normalize(); if (b.wakeUp) b.wakeUp(); b.velocity.x += a.x*9; b.velocity.z += a.z*9; b.velocity.y += 3; } });
+      forEachObject(b => { if (b.tag === 'dummy' || swept.has(b)) return; const d = hdist(b.position, c); if (Math.abs(d - r) > 1.4) return; swept.add(b); const a = V3(b.position.x - c.x, 0, b.position.z - c.z).normalize(); if (b.wakeUp) b.wakeUp(); b.velocity.x += a.x*10; b.velocity.z += a.z*10; b.velocity.y += 3; });
+      for (let q = 0; q < 4; q++) { const a = Math.random()*Math.PI*2; flameP(V3(c.x + Math.cos(a)*r, c.y + rr(.2, 1.2), c.z + Math.sin(a)*r), V3(Math.cos(a)*5, rr(1, 3), Math.sin(a)*5), rr(.2, .4), pick(BLUE_COLS), .35); }
+      if (k >= 1) { roundGroup.remove(w); igniteAt(V3(c.x, c.y, c.z), R*.8); tdTakeArea(V3(c.x, c.y + 1, c.z), R, 14); return false; }
+      return true;
+    }});
+  });
+}
+
+/* 8. Fire Orb Field: orbs scattered over the marked area float there; touch one and it bursts (and sets off its neighbours) */
+function afOrbs(ci, p){
+  const {key, team, C, rng} = ci, at = V3(p.x, groundH(p.x, p.z), p.z), R = AVATAR.af_orbs.r, N = 16;
+  if (C) C.castPose = .6; sfx('fireball'); sfx('click');
+  const edge = groundRing(0xFF8A2E, .8, roundGroup); edge.set(at.x, at.z, R, .35);
+  let te = 0; avFx({update(dt){ te += dt; edge.material.opacity = .8*Math.max(0, 1 - te/2.5); if (te > 2.5) { edge.kill(); return false; } return true; }});
+  for (let i = 0; i < N; i++) {
+    const a = i*2.39996 + rng()*.3, d = R*Math.sqrt((i + .5)/N)*.95, x = at.x + Math.cos(a)*d, z = at.z + Math.sin(a)*d, y = groundH(x, z) + 1 + rng()*2.2;
+    const from = V3(C ? C.root.position.x : at.x, C ? C.root.position.y + 1.4 : at.y + 2, C ? C.root.position.z : at.z), o = {key, team, p:V3(x, y, z), from, t:0, arm:.7 + i*.03, ph:rng()*6, mesh:fireOrbMesh(.38), life:45};
+    o.mesh.position.copy(from); roundGroup.add(o.mesh); AV.orbs.push(o);
+  }
+  if (AV.orbs.length > 64) AV.orbs.slice(0, AV.orbs.length - 64).forEach(o => orbBoom(o, true));
+}
+function orbBoom(o, quiet){
+  if (o.dead) return; o.dead = true; if (o.mesh.parent) o.mesh.parent.remove(o.mesh);
+  if (quiet) return;
+  fireArea(o.key, o.team, o.p, 4.2, 28, 13, 6, {props:200, burn:3});
+  boomVisual(o.p.clone(), false, .8, FIRE_PAL); fireBurst(o.p, 12, 9, .3); sfx('bboom');
+  if (o.p.y - groundH(o.p.x, o.p.z) < 2.6) avZone({x:o.p.x, z:o.p.z, R:2.4, dur:3, dps:5, key:o.key, team:o.team});
+  for (const q of AV.orbs) if (!q.dead && !q.detAt && q.p.distanceTo(o.p) < 5.8) q.detAt = G.t + .12 + Math.random()*.06;   // chain reaction
+}
+function orbsFrame(dt){
+  const P = localP();
+  for (const o of AV.orbs) {
+    if (o.dead) continue;
+    o.t += dt; const fly = Math.min(1, o.t/.6);
+    o.mesh.position.lerpVectors(o.from, o.p, 1 - Math.pow(1 - fly, 3)); if (fly >= 1) o.mesh.position.y = o.p.y + Math.sin(G.t*2 + o.ph)*.25; avOrbScale(o.mesh, G.t + o.ph);
+    if (Math.random() < .25) flameP(o.mesh.position.clone(), V3(rr(-.3, .3), rr(.5, 1.5), rr(-.3, .3)), rr(.08, .16), pick(FIRE_COLS), .4);
+    if (o.detAt && G.t >= o.detAt) { orbBoom(o); continue; }
+    if (o.t > o.life) { orbBoom(o, true); continue; }
+    if (o.t < o.arm) continue;
+    const q = o.mesh.position; let go = false;
+    const V = victimFor(o.key, o.team); if (V && V.body.position.distanceTo(V3(q.x, q.y - 1, q.z)) < 1.8) go = true;
+    if (!go) for (const k in chars) { const C = chars[k]; if (!C || k === o.key || C.alive === false || (o.team && C.team === o.team)) continue; if (Math.hypot(C.body.position.x - q.x, C.body.position.y + 1 - q.y, C.body.position.z - q.z) < 1.6) { go = true; break; } }
+    if (!go) for (const dm of PAIN.dummies) if (!dm.dead && Math.hypot(dm.body.position.x - q.x, dm.body.position.y + 1 - q.y, dm.body.position.z - q.z) < 1.7) { go = true; break; }
+    if (!go) for (const b of world.bodies) { if (b.mass === 0 || b.player) continue; if (Math.hypot(b.position.x - q.x, b.position.y - q.y, b.position.z - q.z) < 1 + Math.min(2.5, (b.boundingRadius || .5)*.8)) { go = true; break; } }
+    if (!go && typeof tdOn === 'function' && tdOn()) for (const t of TD.list) if (!t.dead && Math.hypot(t.pos.x - q.x, t.pos.y - q.y, t.pos.z - q.z) < t.R + .8) { go = true; break; }
+    if (go) { o.p.copy(q); orbBoom(o); }
+  }
+  if (AV.orbs.length > 80 || (AV.orbs.length && AV.orbs[0].dead)) AV.orbs = AV.orbs.filter(o => !o.dead);
+}
+
+/* 9. Fire Whip: a long lash of fire that flows out of the hand and snaps at the tip (crack, sparks, the hardest hit) */
+const WHIP_N = 30, WHIP_L = 17, WHIP_LAG = .0045;
+function afWhip(ci, x){
+  const {key, team, C} = ci; C.avPose = {k:'whip', t:0, dur:.55};
+  const dir = avDirOf(x) || V3(Math.sin(C.face), 0, Math.cos(C.face)), up = V3(0, 1, 0).addScaledVector(dir, -dir.y).normalize(), side = V3().crossVectors(dir, up).normalize();
+  const A = avGeo(), outer = new THREE.InstancedMesh(A.lo, A.out, WHIP_N), inner = new THREE.InstancedMesh(A.s, A.mid, WHIP_N);
+  [outer, inner].forEach(m => { m.frustumCulled = false; m.userData.noRay = true; roundGroup.add(m); });
+  const alpha = tau => { if (tau <= 0) return 2.5; if (tau >= .3) return -.14 - Math.sin((tau - .3)*18)*.06*Math.max(0, 1 - (tau - .3)*4); const u = tau/.3, e = u*u*(3 - 2*u); return 2.5 + (-.14 - 2.5)*e; };
+  const pts = Array.from({length:WHIP_N}, () => V3()), M = new THREE.Matrix4(), hitSeg = new Set();
+  let t = 0, cracked = false, stopAt = WHIP_N, prevTip = null;
+  sfx('fire');
+  avFx({update(dt){
+    t += dt; const P0 = chars[key]; if (!P0) { roundGroup.remove(outer); roundGroup.remove(inner); return false; }
+    const hand = avHand(P0, 1), seg = WHIP_L/WHIP_N; let q = hand.clone();
+    for (let i = 0; i < WHIP_N; i++) {
+      if (i >= stopAt) { pts[i].copy(pts[stopAt - 1]); continue; }
+      const a = alpha(t - i*WHIP_LAG), wob = Math.sin(i*.45 - t*28)*.06*Math.max(0, 1 - t*2);
+      q.addScaledVector(dir, Math.cos(a)*seg).addScaledVector(up, Math.sin(a)*seg).addScaledVector(side, wob);
+      const gy = groundH(q.x, q.z) + .15; if (q.y < gy) { q.y = gy; if (Math.random() < .3) sparks(q, 2, 4); }   // it lies on the ground, it does not sink in
+      pts[i].copy(q);
+    }
+    const tip = pts[WHIP_N - 1], tipSp = prevTip ? tip.distanceTo(prevTip)/Math.max(dt, 1e-3) : 0; prevTip = tip.clone();
+    const fade = Math.max(0, Math.min(1, (.62 - t)/.15));
+    for (let i = 0; i < WHIP_N; i++) { const s = (.34 - i/WHIP_N*.22)*(1 + Math.sin(G.t*30 + i)*.1)*fade + .001; M.makeScale(s*1.5, s*1.5, s*1.5).setPosition(pts[i].x, pts[i].y, pts[i].z); outer.setMatrixAt(i, M); M.makeScale(s*.8, s*.8, s*.8).setPosition(pts[i].x, pts[i].y, pts[i].z); inner.setMatrixAt(i, M); }
+    outer.instanceMatrix.needsUpdate = inner.instanceMatrix.needsUpdate = true;
+    if (Math.random() < .8) { const i = Math.floor(Math.random()*WHIP_N); flameP(pts[i].clone(), V3(rr(-1, 1), rr(.5, 2), rr(-1, 1)), rr(.1, .22), pick(FIRE_COLS), .3); }
+    // the crack: at the end of the lash the tip breaks the sound barrier
+    if (!cracked && t > .3 + (WHIP_N - 1)*WHIP_LAG - .02) { cracked = true; sfx('whipcrack'); sparks(tip, 26, 14); fireBurst(tip, 8, 6, .2); igniteAt(tip, 1.6);
+      fireArea(key, team, tip.clone(), 1.8, 26, 14, 5, {props:220, burn:3, objects:true}); }
+    // what the lash touches: it hits there and stops there (it does not pass through)
+    if (t > .12 && t < .5) for (let i = 0; i < stopAt; i += 2) {
+      if (hitSeg.has(i)) continue; const p = pts[i], tipPart = i > WHIP_N - 5, dmg = tipPart ? 18 : 9;
+      let hit = false;
+      const V = victimFor(key, team); if (V && Math.hypot(V.body.position.x - p.x, V.body.position.y + 1 - p.y, V.body.position.z - p.z) < 1) { painHurt(V, dmg, key); knock(V, dir.x*(tipPart ? 12 : 6), 3, dir.z*(tipPart ? 12 : 6), .3); avBurn(V, key, 2.5); hit = true; }
+      for (const dm of PAIN.dummies) if (!dm.dead && Math.hypot(dm.body.position.x - p.x, dm.body.position.y + 1 - p.y, dm.body.position.z - p.z) < 1.1) { dummyHit(dm.body, dmg); const b = dm.body; if (b.wakeUp) b.wakeUp(); b.velocity.x += dir.x*6; b.velocity.z += dir.z*6; hit = true; }
+      for (const b of world.bodies) { if (b.mass === 0 || b.player || b.tag === 'dummy') continue; if (Math.hypot(b.position.x - p.x, b.position.y - p.y, b.position.z - p.z) < .6 + Math.min(2, (b.boundingRadius || .5)*.7)) { if (b.wakeUp) b.wakeUp(); const k = heft(b, .5); b.velocity.x += dir.x*10*k; b.velocity.y += 4*k; b.velocity.z += dir.z*10*k; spin(b, 3); b._own = key; b._ownTeam = team; b._ownT = G.t; hit = true; } }
+      const pr = avPropAt(p, .3); if (pr) { damageProps(p, 1.5, tipPart ? 160 : 70); igniteAt(p, 1.2); hit = true; }
+      if (typeof tdOn === 'function' && tdOn()) tdTakeArea(p, .9, dmg);
+      if (hit) { hitSeg.add(i); sparks(p, 10, 8); if (tipPart) sfx('crack'); if (pr && i > 2 && i < stopAt) stopAt = i + 1; }
+    }
+    if (t > .62) { roundGroup.remove(outer); roundGroup.remove(inner); return false; }
+    return true;
+  }});
+}
+
+/* 10. Lava Ground: charge, touch the ground, and the land around you turns to lava for a while */
+function afLava(ci, x){
+  const {key, team, C} = ci, m = avMul('af_lava', x && x.c), n = AVN.lava(m), O = V3(C.body.position.x, 0, C.body.position.z); O.y = groundH(O.x, O.z);
+  C.avPose = {k:'touch', t:0, dur:.8};
+  avZone({x:O.x, z:O.z, R:n.R, grow:n.R/.7, dur:n.dur, dps:n.dps, key, team, lava:true});
+  fireBurst(V3(O.x, O.y + .4, O.z), 18, 7, .3); smokePuffs(V3(O.x, O.y + .3, O.z), 1.4, 4); shakeAt(O, .8 + m*.1, 60); sfx('rumble'); sfx('fireball'); sfx('splat');
+}
+
+/* ULT 1. Three Dragon Release: arms out, head back: three streams of fire become three dragons that circle overhead;
+   Click where they strike and they dive one after another */
+function dragonMake(){
+  const A = avGeo(), N = 36, mo = addBlend(0xFF5A14), mi = addBlend(0xFFC23A); mo.opacity = .3; mi.opacity = .55;
+  const outer = new THREE.InstancedMesh(A.lo, mo, N), inner = new THREE.InstancedMesh(A.s, mi, N);
+  [outer, inner].forEach(m => { m.frustumCulled = false; m.userData.noRay = true; m.count = 0; roundGroup.add(m); });
+  const head = new THREE.Group(), add = (geo, mat, x, y, z, rx) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); if (rx) m.rotation.x = rx; head.add(m); return m; };
+  add(new THREE.BoxGeometry(1.7, 1.3, 2.4), A.mid, 0, 0, 0); add(new THREE.BoxGeometry(1.2, .75, 2), A.mid, 0, -.1, 1.9); add(new THREE.SphereGeometry(1.7, 12, 8), A.out, 0, 0, .6);
+  const jaw = add(new THREE.BoxGeometry(1.05, .35, 2), A.out, 0, -.7, 1.5, .35);
+  for (const s of [-1, 1]) { add(new THREE.ConeGeometry(.24, 1.9, 5), A.core, s*.55, .75, -.8, -2.2); add(new THREE.SphereGeometry(.17, 8, 6), A.core, s*.5, .3, 1.15); add(new THREE.ConeGeometry(.12, .9, 4), A.mid, s*.75, -.2, .4, 1.2).rotation.z = s*1.2; }
+  for (let i = 0; i < 3; i++) add(new THREE.ConeGeometry(.2, .9, 4), A.mid, 0, .8, -.4 - i*.6, -.8);
+  noRayAll(head); roundGroup.add(head);
+  return {outer, inner, head, jaw, trail:[], N, pos:V3(), vel:V3()};
+}
+function dragonPose(D, scale){
+  const tr = D.trail, hp = D.pos; if (!tr.length || tr[tr.length - 1].distanceTo(hp) > .8*scale) tr.push(hp.clone()); while (tr.length > D.N*2 + 6) tr.shift();
+  const M = new THREE.Matrix4(); let n = 0;
+  for (let i = 0; i < D.N; i++) { const q = tr[tr.length - 1 - i*2]; if (!q) break; const k = 1 - i/D.N, near = Math.min(1, q.distanceTo(camera.position)/9), s = scale*(1.25*Math.pow(k, .55) + .22)*(1 + Math.sin(G.t*12 + i*.7)*.08)*near*near + .001; M.makeScale(s*1.4, s*1.4, s*1.4).setPosition(q.x, q.y, q.z); D.outer.setMatrixAt(i, M); M.makeScale(s*.8, s*.8, s*.8).setPosition(q.x, q.y, q.z); D.inner.setMatrixAt(i, M); n++; }
+  D.outer.count = D.inner.count = n; D.outer.instanceMatrix.needsUpdate = D.inner.instanceMatrix.needsUpdate = true;
+  D.head.position.copy(hp); D.head.scale.setScalar(scale); const back = tr[Math.max(0, tr.length - 3)]; if (back && back.distanceTo(hp) > .05) D.head.lookAt(hp.clone().add(hp.clone().sub(back)));
+  D.jaw.rotation.x = .3 + Math.sin(G.t*6)*.25;
+  for (let i = 0; i < 3; i++) { const q = tr[Math.max(0, tr.length - 1 - Math.floor(Math.random()*D.N*2))]; if (q) flameP(q.clone().add(V3(rr(-1, 1), rr(-1, 1), rr(-1, 1))), V3(rr(-2, 2), rr(1, 4), rr(-2, 2)), rr(.4, .8)*scale, pick(FIRE_COLS), .5); }
+}
+function dragonKill(D){ [D.outer, D.inner, D.head].forEach(m => { if (m.parent) m.parent.remove(m); }); }
+function afDragons(ci){
+  const {key, team, C} = ci; if (AV.dragons[key]) return;
+  const O = V3(C.body.position.x, C.body.position.y, C.body.position.z), f = V3(Math.sin(C.face), 0, Math.cos(C.face)), r = V3(-Math.cos(C.face), 0, Math.sin(C.face));
+  C.avPose = {k:'spread', t:0, dur:1.7};
+  const starts = [avHand(C, -1), avHand(C, 1), V3(O.x, O.y + 1.9, O.z)], dirs = [f.clone().multiplyScalar(.5).addScaledVector(r, -1).add(V3(0, .9, 0)), f.clone().multiplyScalar(.5).addScaledVector(r, 1).add(V3(0, .9, 0)), f.clone().multiplyScalar(.3).add(V3(0, 1.6, 0))];
+  const S = AV.dragons[key] = {key, team, O, t:0, dragons:[], target:null};
+  starts.forEach((s, i) => { const D = dragonMake(); D.pos.copy(s); D.vel.copy(dirs[i].normalize().multiplyScalar(30)); D.phi0 = Math.atan2(dirs[i].z, dirs[i].x); D.start = s.clone(); S.dragons.push(D); });
+  sfx('roar'); sfx('fireball'); setTimeout(() => sfx('roar'), 500); flash(.25, .4);
+  if (key === G.localKey) toast('🐉 THREE DRAGON RELEASE!'); else toast(`🐉 ${C.name || 'Someone'} released three fire dragons!`);
+  avFx({update(dt){
+    S.t += dt; let live = 0;
+    S.dragons.forEach((D, i) => {
+      if (D.gone) return; live++;
+      if (D.dive && S.t >= D.dive.t0) {
+        if (!D.dive.from) { D.dive.from = D.pos.clone(); D.dive.ctrl = D.pos.clone().lerp(D.dive.at, .3).add(V3(0, 18, 0)); D.dive.T = .7 + D.pos.distanceTo(D.dive.at)/160; sfx('roar'); }
+        const u = Math.min(1, (S.t - D.dive.t0)/D.dive.T), e = u*u, a0 = D.dive.from, c0 = D.dive.ctrl, b0 = D.dive.at;
+        if (!D.hit) D.pos.set((1 - e)*(1 - e)*a0.x + 2*(1 - e)*e*c0.x + e*e*b0.x, (1 - e)*(1 - e)*a0.y + 2*(1 - e)*e*c0.y + e*e*b0.y, (1 - e)*(1 - e)*a0.z + 2*(1 - e)*e*c0.z + e*e*b0.z);
+        if (u >= 1 && !D.hit) { D.hit = true; D.hitT = S.t; const at = b0.clone(); at.y = groundH(at.x, at.z);
+          fireBoom(key, team, at, 14, 95, 30, {rubble:3, zoneR:11, zoneT:7, zoneDps:10, props:1200}); flash(.9, .8); shakeAt(at, 3.2, 240); sfx('thunder'); }
+        if (D.hit) { D.trail.shift(); D.trail.shift(); D.head.scale.multiplyScalar(.9); if (S.t - D.hitT > .8 || D.trail.length < 2) { D.gone = true; dragonKill(D); return; } }
+      } else {
+        // out of the hands and mouth, up, and round and round overhead
+        const ang = D.phi0 + S.t*.95, want = V3(S.O.x + Math.cos(ang)*24, S.O.y + 34 + Math.sin(S.t*1.7 + i*2)*4, S.O.z + Math.sin(ang)*24), d = want.clone().sub(D.pos), L = d.length() || 1;
+        D.vel.lerp(d.multiplyScalar(Math.min(40, L*2.2 + 12)/L), Math.min(1, dt*(S.t < 1 ? .7 : 2.4))); D.pos.addScaledVector(D.vel, dt);
+        if (S.t < 1.1) { const C0 = chars[key]; if (C0) { const s0 = i < 2 ? avHand(C0, i ? 1 : -1) : V3(C0.root.position.x, C0.root.position.y + 1.9, C0.root.position.z); for (let k = 0; k < 5; k++) flameP(s0.clone().lerp(D.pos, Math.random()), V3(rr(-1, 1), rr(0, 2), rr(-1, 1)), rr(.3, .6), pick(FIRE_COLS), .35); } }
+      }
+      dragonPose(D, 1.15);
+    });
+    if (key === G.localKey && !S.asked && S.t > 1.3) { S.asked = true; G.targeting = 'af_dragonsx'; renderTray(); toast('🐉 Choose where the dragons strike. Click.'); }
+    if (key === G.localKey && !S.target && !S.auto && S.t > 16) { S.auto = true; localCast('af_dragonsx', aimPoint(120), {}); }
+    if (!live || S.t > 40) { S.dragons.forEach(dragonKill); if (AV.dragons[key] === S) delete AV.dragons[key]; return false; }
+    return true;
+  }});
+}
+function afDragonsDive(ci, p){
+  const S = AV.dragons[ci.key]; if (!S || S.target) return;
+  S.target = V3(p.x, groundH(p.x, p.z), p.z);
+  const f = S.target.clone().sub(S.O).setY(0); if (f.lengthSq() < 1) f.set(1, 0, 0); f.normalize(); const sd = V3(-f.z, 0, f.x);
+  S.dragons.forEach((D, i) => { D.dive = {t0:S.t + i*.38, at:S.target.clone().addScaledVector(sd, (i - 1)*5).addScaledVector(f, (i - 1)*2)}; });
+  const ring = warnRing(S.target, 16, 0xFF3B30); avFx({update(){ ring.material.opacity = .4 + Math.sin(G.t*14)*.3; if (S.dragons.every(D => D.hit || D.gone)) { roundGroup.remove(ring); return false; } return true; }});
+  if (ci.key === G.localKey) { G.targeting = null; marker.visible = false; renderTray(); }
+}
+
+/* ULT 2. The Sun: a small, blinding sun over your raised hand; Click where it goes, it drifts there slowly and then
+   swells into a huge burning sphere */
+function sunMesh(){
+  const A = avGeo(), g = new THREE.Group(), core = new THREE.Mesh(A.s, A.core), m1 = new THREE.Mesh(A.s, A.mid), m2 = new THREE.Mesh(A.lo, A.out);
+  core.scale.setScalar(.9); m1.scale.setScalar(1.3); m2.scale.setScalar(1.9);
+  const corona = new THREE.Mesh(new THREE.RingGeometry(1.6, 3.4, 40), addBlend(0xFFB02E)); corona.material.opacity = .35;
+  g.add(core, m1, m2, corona); g.userData = {core, m1, m2, corona}; noRayAll(g); return g;
+}
+function afSun(ci){
+  const {key, team, C} = ci; if (AV.suns[key] && !AV.suns[key].done) return;
+  const S = AV.suns[key] = {key, team, t:0, state:'hold', pos:V3(C.root.position.x, C.root.position.y + 3.4, C.root.position.z), mesh:sunMesh(), R:30, tick:0};
+  roundGroup.add(S.mesh); C.avHold = 'raise'; sfx('holy'); sfx('fireball');
+  SpaceWarp.add({pos:() => S.pos, alive:() => !S.done && S.state !== 'burst', R:() => 3.5 + Math.sin(G.t*5)*.4, s:() => .5});
+  if (key === G.localKey) toast('☀️ THE SUN. Choose where it goes: Click.'); else toast(`☀️ ${C.name || 'Someone'} holds a sun!`);
+  avFx({update(dt){
+    S.t += dt; const P = chars[key], u = S.mesh.userData;
+    u.corona.quaternion.copy(camera.quaternion); u.corona.rotation.z += dt; u.m1.scale.setScalar(1.3*(1 + Math.sin(G.t*9)*.08)); u.m2.scale.setScalar(1.9*(1 + Math.sin(G.t*6 + 1)*.12)); u.corona.scale.setScalar(1 + Math.sin(G.t*4)*.1);
+    if (S.state === 'hold') {
+      if (!P || P.alive === false) { sunEnd(S); return false; }
+      S.pos.set(P.root.position.x + Math.sin(P.face)*.2 - Math.cos(P.face)*.38, P.root.position.y + 3.4, P.root.position.z + Math.cos(P.face)*.2 + Math.sin(P.face)*.38); P.avHold = 'raise';
+      if (key === G.localKey && !S.asked && S.t > .5) { S.asked = true; G.targeting = 'af_sunx'; renderTray(); }
+      if (key === G.localKey && !S.auto && S.t > 20) { S.auto = true; localCast('af_sunx', aimPoint(120), {}); }
+      if (Math.random() < .4) flameP(S.pos.clone().add(V3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(1.4)), V3(rr(-1, 1), rr(1, 3), rr(-1, 1)), rr(.15, .3), pick(FIRE_COLS), .4);
+    } else if (S.state === 'fly') {
+      const d = S.to.clone().sub(S.pos), L = d.length();
+      if (L < .5) { sunBurst(S); } else S.pos.addScaledVector(d, Math.min(1, 15*dt/L));
+      if (Math.random() < .6) flameP(S.pos.clone(), V3(rr(-1, 1), rr(-1, 1), rr(-1, 1)), rr(.3, .6), pick(FIRE_COLS), .5);
+      igniteAt(V3(S.pos.x, groundH(S.pos.x, S.pos.z), S.pos.z), 2);
+    } else if (S.state === 'burst') { if (sunBurstFrame(S, dt) === false) { sunEnd(S); return false; } }
+    S.mesh.position.copy(S.pos);
+    return true;
+  }});
+}
+function afSunGo(ci, p){
+  const S = AV.suns[ci.key]; if (!S || S.state !== 'hold') return;
+  S.state = 'fly'; S.to = V3(p.x, groundH(p.x, p.z) + 6, p.z); const P = chars[ci.key]; if (P) { P.avHold = null; P.avPose = {k:'throw', t:0, dur:.5}; }
+  sfx('fireball'); if (ci.key === G.localKey) { G.targeting = null; marker.visible = false; renderTray(); }
+}
+function sunBurst(S){
+  S.state = 'burst'; S.bt = 0; S.mesh.visible = false;
+  const A = avGeo(), g = new THREE.Group(), core = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), flameMat(0xFFFFFF, 0xFFB02E, 8, 8)), rim = new THREE.Mesh(new THREE.SphereGeometry(1.04, 48, 32), bubbleMat(0xFF9A2E)), glow = new THREE.Mesh(A.lo, A.out);
+  glow.scale.setScalar(1.25); g.add(core, rim, glow); noRayAll(g); g.position.copy(S.pos); roundGroup.add(g); S.big = {g, core, rim, glow};
+  SpaceWarp.add({pos:() => S.pos, alive:() => !S.done, R:() => (S.rNow || 1)*1.25, s:() => .25, ringR:() => (S.rNow || 1)*1.05, ringA:() => .06, ringW:4});
+  flash(1, 1.2); shakeAt(S.pos, 3, 260); sfx('boom'); sfx('thunder'); sfx('holy');
+  const gy = groundH(S.pos.x, S.pos.z);
+  igniteAt(V3(S.pos.x, gy, S.pos.z), S.R); damageProps(V3(S.pos.x, gy + 2, S.pos.z), S.R, 900); summonsTakeArea(S.pos.clone(), S.R, 120, S.key, S.team);
+  const P = victimFor(S.key, S.team); if (P && P.body.position.distanceTo(S.pos) < S.R + 1) { painHurt(P, 60, S.key); avBurn(P, S.key, 6); const a = V3(P.body.position.x - S.pos.x, 0, P.body.position.z - S.pos.z).normalize(); knock(P, a.x*12, 6, a.z*12, .6); }
+  forEachObject(b => { const d = b.position.distanceTo(S.pos); if (d > S.R) return; if (b.wakeUp) b.wakeUp(); const a = V3(b.position.x - S.pos.x, b.position.y - S.pos.y, b.position.z - S.pos.z).normalize(); b.velocity.x += a.x*14; b.velocity.y += 6 + a.y*8; b.velocity.z += a.z*14; if (b.tag === 'dummy') dummyHit(b, 60); });
+  if (eggOn() && egg && egg.alive && eggAuth() && egg.body.position.distanceTo(S.pos) < S.R) eggHit(90, 'fire');
+  avZone({x:S.pos.x, z:S.pos.z, R:Math.min(S.R, 26), dur:7, dps:10, key:S.key, team:S.team});
+}
+function sunBurstFrame(S, dt){
+  S.bt += dt; const k = Math.min(1, S.bt/.35), r = S.R*(1 - Math.pow(1 - k, 3)), fade = Math.min(1, Math.max(0, (4 - S.bt)/.7)); S.rNow = r;
+  const b = S.big; b.g.scale.setScalar(Math.max(.5, r*(1 + Math.sin(G.t*7)*.015))); b.core.material.uniforms.t.value = G.t; b.core.material.uniforms.a.value = .9*fade; b.rim.material.uniforms.t.value = G.t*2; b.rim.material.uniforms.a.value = 1.2*fade; b.glow.material.opacity = .35*fade;
+  for (let i = 0; i < 4; i++) { const v = V3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).normalize(); flameP(S.pos.clone().addScaledVector(v, r*rr(.8, 1.05)), v.multiplyScalar(rr(3, 8)), rr(.6, 1.4), pick(FIRE_COLS), .6); }
+  S.tick -= dt; if (S.tick <= 0 && fade > .3) { S.tick = .2;
+    const P = victimFor(S.key, S.team); if (P && P.body.position.distanceTo(S.pos) < r) { painHurt(P, 9, S.key); avBurn(P, S.key, 4); }
+    PAIN.dummies.forEach(dm => { if (!dm.dead && dm.body.position.distanceTo(S.pos) < r) dummyHit(dm.body, 9); });
+    tdTakeArea(S.pos, r, 15); if (Math.random() < .3) damageProps(S.pos, r, 200); }
+  if (Math.random() < .2) shakeAt(S.pos, .5*fade, 200);
+  return S.bt < 4.2;
+}
+function sunEnd(S){ S.done = true; if (S.mesh.parent) S.mesh.parent.remove(S.mesh); if (S.big && S.big.g.parent) S.big.g.parent.remove(S.big.g); const P = chars[S.key]; if (P && P.avHold === 'raise') P.avHold = null; if (AV.suns[S.key] === S) delete AV.suns[S.key]; if (S.key === G.localKey && G.targeting === 'af_sunx') { G.targeting = null; marker.visible = false; renderTray(); } }
+
+/* ULT 3. Whiteout Incineration: flames pressed into the body until it burns white, then a colossal white-hot beam you can
+   slowly sweep across the battlefield; it blasts debris ahead of it and leaves the ground burning behind */
+function avWhiten(P, on){
+  if (!P || !P.rig) return;
+  if (on && !P.avWhite) { P.avWhite = []; const w = new THREE.MeshBasicMaterial({color:0xFFFFFF}); P.rig.traverse(m => { if (m.isMesh && !(m.userData && m.userData.isOutline)) { P.avWhite.push([m, m.material]); m.material = w; } }); }
+  else if (!on && P.avWhite) { P.avWhite.forEach(([m, mat]) => m.material = mat); P.avWhite = null; if (P.avAura) { if (P.avAura.parent) P.avAura.parent.remove(P.avAura); P.avAura = null; } }
+}
+function afWhite(ci){
+  const {key, C} = ci; avChanEnd(key);
+  const ch = AV.chan[key] = avBeam({id:'af_white', key, team:ci.team, T0:2.2, dur:2.2 + 6, m:6, W:6.5, L:420, dmg:40, kb:34, turn:.55, c1:0xFFFFFF, c2:0x9FC8FF, c2b:0xFFFFFF, burnEvery:.22, burnR:4.5});
+  ch.meshes.forEach(mm => mm.visible = false);
+  avWhiten(C, true); const aura = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), bubbleMat(0xFFFFFF)); aura.position.y = 1; aura.userData.noRay = true; C.root.add(aura); C.avAura = aura;
+  sfx('holy'); sfx('rumble'); if (key === G.localKey) toast('⚪ WHITEOUT INCINERATION: aim, and sweep the beam slowly across the field.'); else toast(`⚪ ${C.name || 'Someone'} is burning white!`);
+}
+function avWhiteCharge(ch, P, dt){
+  const k = ch.t/ch.T0, c = V3(P.root.position.x, P.root.position.y + 1, P.root.position.z);
+  if (P.avAura) { P.avAura.scale.setScalar(.8 + k*1.6 + Math.sin(G.t*30)*.05*k); P.avAura.material.uniforms.t.value = G.t*3; P.avAura.material.uniforms.a.value = .4 + k; }
+  for (let i = 0; i < 6; i++) { const v = V3(rr(-1, 1), rr(-.3, 1), rr(-1, 1)).normalize(), q = c.clone().addScaledVector(v, rr(4, 8)*(1.2 - k*.5)); flameP(q, c.clone().sub(q).multiplyScalar(2.5), rr(.2, .45), pick(k > .6 ? [0xFFFFFF, 0xE6F2FF, 0xFFF3B0] : FIRE_COLS), .4); }
+  shakeAt(c, .2 + k*.8, 80); if (P.key === G.localKey) P.slowT = Math.max(P.slowT || 0, .25);
+  if (ch.t + dt >= ch.T0) { ch.meshes.forEach(mm => mm.visible = true); flash(.7, .6); sfx('boom'); sfx('thunder'); sfx('roar'); }
+}
+
+/* ULT 4. Black Flame: black fire ignites at the chosen point at once (nothing flies there): space caves in, then a tight
+   spiral of black fire burns there, anchored, for a long time */
+function afBlack(ci, p){
+  const {key, team, C} = ci, at = V3(p.x, groundH(p.x, p.z), p.z), R = AVATAR.af_black.r, H = 8, DUR = 8;
+  if (C) C.avPose = {k:'point', t:0, dur:.7};
+  warpPulseIn(V3(at.x, at.y + 2, at.z), 16, .5, .09); flash(.25, .3); sfx('hole'); sfx('fire');
+  const N = 54, tongue = new THREE.ConeGeometry(.35, 1.6, 5).translate(0, .8, 0), dark = new THREE.InstancedMesh(tongue, new THREE.MeshBasicMaterial({color:0x07020A}), N), glow = new THREE.InstancedMesh(tongue, addBlend(0xC0142E), N);
+  glow.material.opacity = .55; [dark, glow].forEach(m => { m.frustumCulled = false; m.userData.noRay = true; roundGroup.add(m); });
+  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 3), new THREE.MeshBasicMaterial({color:0x020103})), rim = new THREE.Mesh(new THREE.SphereGeometry(1.15, 32, 20), bubbleMat(0xD01438));
+  [core, rim].forEach(m => { m.position.set(at.x, at.y + 1.6, at.z); m.userData.noRay = true; roundGroup.add(m); });
+  let t = 0, tick = 0, slow = 0; const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), Sv = V3(), Pv = V3();
+  SpaceWarp.add({pos:() => V3(at.x, at.y + 2.5, at.z), alive:() => t < DUR, R:() => R*1.4, s:() => .45 + .15*Math.sin(G.t*6)});
+  avFx({update(dt){
+    t += dt; const k = Math.min(1, t/.4), fade = Math.min(1, Math.max(0, (DUR - t)/.8));
+    for (let i = 0; i < N; i++) { const u = i/N, a = u*Math.PI*6 + t*(5 + u*3), r = (.6 + u*R*.75)*k, y = at.y + u*H*k; E.set(Math.sin(a*1.3)*.4, -a, .7 + Math.sin(t*9 + i)*.25); Q.setFromEuler(E); const s = (1 - u*.5)*(.9 + Math.sin(t*14 + i*1.7)*.2)*fade + .001;
+      Pv.set(at.x + Math.cos(a)*r, y, at.z + Math.sin(a)*r); M.compose(Pv, Q, Sv.set(s, s*1.3, s)); dark.setMatrixAt(i, M); M.compose(Pv, Q, Sv.set(s*1.25, s*1.45, s*1.25)); glow.setMatrixAt(i, M); }
+    dark.instanceMatrix.needsUpdate = glow.instanceMatrix.needsUpdate = true;
+    core.scale.setScalar((1 + Math.sin(t*10)*.08)*fade*k + .01); rim.scale.setScalar((1.1 + Math.sin(t*7)*.1)*fade*k + .01); rim.material.uniforms.t.value = G.t*3; rim.material.uniforms.a.value = 1.3*fade;
+    if (Math.random() < .8) { const a = Math.random()*Math.PI*2, r = Math.random()*R*.8; flameP(V3(at.x + Math.cos(a)*r, at.y + Math.random()*H*.6, at.z + Math.sin(a)*r), V3(-Math.sin(a)*4, rr(2, 5), Math.cos(a)*4), rr(.3, .6), pick(DARK_COLS), .7); }
+    if (Math.random() < .5) flameP(V3(at.x + rr(-1, 1)*R*.6, at.y + Math.random()*H, at.z + rr(-1, 1)*R*.6), V3(0, rr(2, 4), 0), rr(.06, .12), pick([0xFF2A4A, 0xC0142E, 0xFF6A8A]), .5);
+    // extreme damage over time, growing the longer you stay; a pull toward the axis
+    tick -= dt; if (tick <= 0 && fade > .2) { tick = .2;
+      const P = victimFor(key, team); if (P) { const q = P.body.position, dx = at.x - q.x, dz = at.z - q.z, d = Math.hypot(dx, dz); if (d < R && q.y - at.y < H) { painHurt(P, 10 + t*2.5, key); avBurn(P, key, 4); P.body.velocity.x += dx/(d || 1)*2; P.body.velocity.z += dz/(d || 1)*2; P.slowT = Math.max(P.slowT || 0, .4); } }
+      PAIN.dummies.forEach(dm => { if (!dm.dead && hdist(dm.body.position, at) < R) dummyHit(dm.body, 10 + t*2.5); });
+      forEachObject(b => { const dx = at.x - b.position.x, dz = at.z - b.position.z, d = Math.hypot(dx, dz); if (d > R + 2 || d < .5) return; if (b.wakeUp) b.wakeUp(); b.velocity.x += -dz/d*2 + dx/d*1.2; b.velocity.z += dx/d*2 + dz/d*1.2; b.velocity.y += .8; }); }
+    slow -= dt; if (slow <= 0 && fade > .2) { slow = .5; damageProps(V3(at.x, at.y + 1, at.z), R, 220); igniteAt(V3(at.x, at.y, at.z), R); summonsTakeArea(V3(at.x, at.y + 2, at.z), R, 40 + t*5, key, team); if (eggOn() && egg && egg.alive && eggAuth() && hdist(egg.body.position, at) < R) eggHit(20, 'fire'); }
+    if (t > DUR) { [dark, glow, core, rim].forEach(m => roundGroup.remove(m)); return false; }
+    return true;
+  }});
+}
+
+/* ---------- the body: fists on fire, stances and swings ---------- */
+function setHandFire(P, on){
+  if (on && !P.handFire) { P.handFire = [0, 1].map(i => { const g = fireOrbMesh(.13); g.position.set(0, -.62, .05); P.arms[i].add(g); return g; }); }
+  else if (!on && P.handFire) { P.handFire.forEach((g, i) => P.arms[i].remove(g)); P.handFire = null; }
+}
+function avatarAnim(P, dt){
+  const mine = P === localP(), isAv = (mine ? G.cls === 'avatar' : P.cls === 'avatar') && P.alive !== false;
+  setHandFire(P, isAv);
+  if (P.handFire) { P.handFire.forEach((g, i) => avOrbScale(g, G.t + i*3, P.avWhite ? .2 : .13)); if (Math.random() < .15) { const q = new THREE.Vector3(); P.handFire[Math.random() < .5 ? 0 : 1].getWorldPosition(q); flameP(q, V3(rr(-.3, .3), rr(.6, 1.4), rr(-.3, .3)), .07, pick(FIRE_COLS), .3); } }
+  let pose = null, k = 0;
+  if (P.avPose) { P.avPose.t += dt; if (P.avPose.t > P.avPose.dur) P.avPose = null; else { pose = P.avPose.k; k = P.avPose.t/P.avPose.dur; } }
+  if (!pose) { const ch = AV.chan[P.key]; if (ch) pose = ch.id === 'af_flame' ? (ch.n.two ? 'aim2' : 'aim1') : 'brace'; }
+  if (!pose) { const cid = mine ? AV.charge && AV.charge.id : P.netCh && G.t - (P.netChT || 0) < 1 && typeof P.netCh[0] === 'string' && P.netCh[0].startsWith('af_') ? P.netCh[0] : null;
+    if (cid) pose = cid === 'af_ball' ? 'cup' : cid === 'af_flame' ? 'aim1' : cid === 'af_cannon' ? 'brace' : cid === 'af_pillar' ? 'point' : 'gather'; }
+  if (!pose && P.avHold) pose = P.avHold;
+  const A = P.arms, L = P.legs;
+  if (!pose) { if (P.avRig) { P.avRig = false; P.rig.position.y = 0; P.rig.rotation.y = 0; P.rig.rotation.x = 0; L[0].rotation.z = L[1].rotation.z = 0; P.head.rotation.x = 0; } return; }
+  P.avRig = true; P.rig.position.y = 0; P.rig.rotation.y = 0; L[0].rotation.z = L[1].rotation.z = 0;
+  const ease = u => u*u*(3 - 2*u);
+  switch (pose) {
+    case 'cup': A[1].rotation.x = -1.25; A[1].rotation.z = .35; A[0].rotation.x = -1.05; A[0].rotation.z = -.35; break;
+    case 'throw': A[1].rotation.x = k < .3 ? -2.8 : -2.8 + (2.8 - .9)*ease((k - .3)/.7); A[1].rotation.z = 0; A[0].rotation.x = .4; break;
+    case 'aim1': A[1].rotation.x = -1.57; A[1].rotation.z = 0; A[0].rotation.x = -.3; A[0].rotation.z = -.3; break;
+    case 'aim2': A[0].rotation.x = A[1].rotation.x = -1.57; A[0].rotation.z = -.15; A[1].rotation.z = .15; L[0].rotation.z = .25; L[1].rotation.z = -.25; P.rig.position.y = -.12; break;
+    case 'brace': A[0].rotation.x = A[1].rotation.x = -1.5; A[0].rotation.z = -.2; A[1].rotation.z = .2; L[0].rotation.z = .35; L[1].rotation.z = -.35; L[0].rotation.x = -.3; L[1].rotation.x = .3; P.rig.position.y = -.22; P.rig.rotation.x = -.08; break;
+    case 'gather': A[0].rotation.x = A[1].rotation.x = -.5; A[0].rotation.z = -.9; A[1].rotation.z = .9; P.rig.position.y = -.12; break;
+    case 'point': A[1].rotation.x = -1.45; A[1].rotation.z = 0; A[0].rotation.x = .2; break;
+    case 'raise': A[1].rotation.x = -3.05; A[1].rotation.z = .1; break;
+    case 'touch': { const d = ease(Math.min(1, k*2.5)); P.rig.position.y = -.65*d; P.rig.rotation.x = .45*d; A[1].rotation.x = -.7*d; A[1].rotation.z = 0; A[0].rotation.x = -.2; L[0].rotation.x = -1.1*d; L[1].rotation.x = .2*d; break; }
+    case 'whip': { const u = Math.min(1, k/.6); A[1].rotation.x = -3 + (3 - .5)*ease(u); A[1].rotation.z = .2 - .4*u; A[0].rotation.x = .3; P.rig.rotation.x = .12*Math.sin(u*Math.PI); break; }
+    case 'spread': A[0].rotation.x = A[1].rotation.x = -.25; A[0].rotation.z = -1.45; A[1].rotation.z = 1.45; P.head.rotation.x = -.6; P.rig.rotation.x = -.15; break;
+    case 'dance': { const d = ease(Math.min(1, k*5)), spinA = k*Math.PI*2*2.6; P.rig.position.y = -.85*d; P.rig.rotation.y = -spinA; P.rig.rotation.x = .25*d;
+      L[0].rotation.z = 1.35*d*(.8 + .2*Math.sin(spinA*2)); L[1].rotation.z = -1.35*d*(.8 + .2*Math.cos(spinA*2)); L[0].rotation.x = -.4; L[1].rotation.x = .4; A[0].rotation.x = A[1].rotation.x = .9*d; A[0].rotation.z = -.5; A[1].rotation.z = .5;
+      for (const leg of L) { const q = leg.localToWorld(V3(0, -.85, 0)); flameP(q, V3(rr(-1, 1), rr(.5, 2), rr(-1, 1)), rr(.15, .3), pick(BLUE_COLS), .35); } break; }
+  }
+}
+
+/* ---------- per frame ---------- */
+function avatarFrame(dt){
+  if (!G.pvp) return;
+  { const cur = AV.fx; AV.fx = []; const keep = cur.filter(e => e.update(dt) !== false); AV.fx = keep.concat(AV.fx); }
+  chanFrame(dt); zonesFrame(dt); orbsFrame(dt);
+  if (G.phase === 'attack') avChargeFrame(dt);
+  if (AV.marks.length && G.targeting !== 'af_sky') avSkyClear();   // put away: the marks go too
+  if (G.targeting === 'af_sunx' && !(AV.suns[G.localKey] && AV.suns[G.localKey].state === 'hold')) { G.targeting = null; marker.visible = false; renderTray(); }
+  if (G.targeting === 'af_dragonsx' && !(AV.dragons[G.localKey] && !AV.dragons[G.localKey].target)) { G.targeting = null; marker.visible = false; renderTray(); }
+}
+function avatarOwnerDied(id){
+  avChanEnd(id); const S = AV.suns[id]; if (S && S.state === 'hold') sunEnd(S);
+  const P = chars[id]; if (P) { P.avPose = null; P.avHold = null; avWhiten(P, false); }
+  if (id === G.localKey) { AV.charge = null; avSkyClear(); avPrevHide(); }
 }
 
 /* ===================================== SWORDSMAN =====================================
@@ -12506,6 +13389,7 @@ function runSkill(id, p, x){
   if (id === 'd_use' || id === 'd_place') { runDefense(id, p, x); return; }
   if (BOMBER[id]) { runBomber(id, p, x); return; }
   if (SWORD[id]) { runSword(id, p, x); return; }
+  if (AVATAR[id]) { runAvatar(id, p, x); return; }
   if (SUMMON[id]) { runSummon(id, p, x); return; }
   if (NECRO_SK[id]) { runNecro(id, p, x); return; }
   if (GUARD[id]) { runGuard(id, p, x); return; }
@@ -12588,7 +13472,7 @@ function kiPop(o){
 }
 
 /* remote players: smooth movement from the network */
-function applyState(m){ const P = chars[m.id]; if (!P || !P.remote) return; P.net = m; P.netT = performance.now()/1000; if (m.ch) P.netChT = G.t; if (m.gm) guidedNet(m.id, m.gm); if (m.pb) boulderNet(m.id, m.pb); }
+function applyState(m){ const P = chars[m.id]; if (!P || !P.remote) return; P.net = m; P.netT = performance.now()/1000; if (m.ch) P.netChT = G.t; P.netAv = Array.isArray(m.av) ? m.av : null; if (m.gm) guidedNet(m.id, m.gm); if (m.pb) boulderNet(m.id, m.pb); }
 // what the local player is charging right now: [power id, seconds], for everyone else to see
 function chargeState(){
   const now = performance.now()/1000;
@@ -12596,10 +13480,11 @@ function chargeState(){
   if (SW.charge) return [SW.charge.id, +(now - SW.charge.t0).toFixed(1)];
   if (TK.chargeT0 && TK.mine) return ['p_throw', +(now - TK.chargeT0).toFixed(1)];
   if (BX.nade) return ['b_nade', +(now - BX.nade.t0).toFixed(1)];
+  if (AV.charge) return [AV.charge.id, +(now - AV.charge.t0).toFixed(1)];
   return null;
 }
 // other players charging: a growing orb in their hand (and for the Gate of Babylon the gates opening behind them)
-const CH_COL = {pain:0x9D6BFF, sword:0xFFD84D, bomber:0xFF8A3A};
+const CH_COL = {pain:0x9D6BFF, sword:0xFFD84D, bomber:0xFF8A3A, avatar:0xFF7A1F};
 function remoteChargeFX(){
   for (const k in chars) {
     const P = chars[k]; if (!P || !P.remote) continue;
@@ -12891,7 +13776,7 @@ function netTick(dt){
   if (!NET.peer || !G.pvp || !(G.phase === 'attack' || G.phase === 'build')) return;
   NET.sendT -= dt; if (NET.sendT > 0) return; NET.sendT = 1/15;
   const P = localP(); if (!P) return; const b = P.body;
-  netSend({t:'st', cl:G.cls, ...(chargeState() ? {ch:chargeState()} : {}), id:G.localKey, x:+b.position.x.toFixed(2), y:+b.position.y.toFixed(2), z:+b.position.z.toFixed(2), f:+P.face.toFixed(2), vx:+b.velocity.x.toFixed(1), vz:+b.velocity.z.toFixed(1), fl:(P.naruto ? 1 : 0) | (P.grounded ? 2 : 0) | (P.dashT > 0 ? 4 : 0) | (P.stun > 0 ? 8 : 0) | (G.cls === 'sword' ? 16 : 0) | (G.hiddenUntil > G.t ? 32 : 0), hp:Math.round(P.hp), al:P.alive === false ? 0 : 1, ...(BX.guided[G.localKey] ? {gm:guidedState()} : {}), ...(boulderAir(G.localKey) ? {pb:boulderState()} : {})});
+  netSend({t:'st', cl:G.cls, ...(chargeState() ? {ch:chargeState()} : {}), ...(avAimState() ? {av:avAimState()} : {}), id:G.localKey, x:+b.position.x.toFixed(2), y:+b.position.y.toFixed(2), z:+b.position.z.toFixed(2), f:+P.face.toFixed(2), vx:+b.velocity.x.toFixed(1), vz:+b.velocity.z.toFixed(1), fl:(P.naruto ? 1 : 0) | (P.grounded ? 2 : 0) | (P.dashT > 0 ? 4 : 0) | (P.stun > 0 ? 8 : 0) | (G.cls === 'sword' ? 16 : 0) | (G.hiddenUntil > G.t ? 32 : 0), hp:Math.round(P.hp), al:P.alive === false ? 0 : 1, ...(BX.guided[G.localKey] ? {gm:guidedState()} : {}), ...(boulderAir(G.localKey) ? {pb:boulderState()} : {})});
 }
 
 /* ---------- menus and HUD ---------- */
@@ -12973,7 +13858,7 @@ function showMatchEnd(w, text){
 }
 function killFeedText(t){ const box = $('killfeed'); if (!box) return; const d = document.createElement('div'); d.textContent = t; box.prepend(d); while (box.children.length > 5) box.removeChild(box.lastChild); setTimeout(() => d.remove(), 6000); }
 function killFeed(m){
-  if (m.v && m.v !== G.localKey) { painOwnerDied(m.v); bomberOwnerDied(m.v); swordOwnerDied(m.v); summonOwnerDied(m.v); necroOwnerDied(m.v); }
+  if (m.v && m.v !== G.localKey) { painOwnerDied(m.v); bomberOwnerDied(m.v); swordOwnerDied(m.v); avatarOwnerDied(m.v); summonOwnerDied(m.v); necroOwnerDied(m.v); }
   const v = chars[m.v], by = m.by && chars[m.by];
   const vn = v ? v.name : 'Someone', bn = by ? by.name : null;
   killFeedText(bn ? `💥 ${bn} knocked out ${vn}` : `💥 ${vn} got knocked out`);
@@ -13017,12 +13902,13 @@ function setWho(c, team, verb, txt){
 function renderPhase(){
   const map = {title:'Egg Defense', intro:`Round ${G.round}`, build:`${teamName(G.defender)} builds`, handoff:'Swap players', attack: G.pvp ? (G.mode === 'pain' ? 'Pain' : 'Chaos Arena') : `${teamName(attacker())} attacks`, end:'Round over'};
   if (eggOn()) { eggHud(true); eggHelp(); $('tAct').textContent = G.phase === 'build' && amDefender() ? 'Place' : 'Shoot'; return; }
-  if (G.pvp && G.mode === 'td') { tdHud(); const help = $('help'); help.style.display = 'block'; help.innerHTML = (G.cls === 'bomber' ? bomberHelp() : G.cls === 'sword' ? swordHelp() : painHelp()) + '<br><b>Enter</b> start the next round · <b>Tab</b> switch class'; $('tAct').textContent = 'Cast'; return; }
+  if (G.pvp && G.mode === 'td') { tdHud(); const help = $('help'); help.style.display = 'block'; help.innerHTML = (G.cls === 'bomber' ? bomberHelp() : G.cls === 'sword' ? swordHelp() : G.cls === 'avatar' ? avatarHelp() : painHelp()) + '<br><b>Enter</b> start the next round · <b>Tab</b> switch class'; $('tAct').textContent = 'Cast'; return; }
   $('phase').innerHTML = map[G.phase] + (G.phase==='build' ? `<small>Place your protection</small>` : G.phase==='attack' ? (G.mode === 'swarm' ? '<small>Swarm mode</small>' : G.pvp ? `<small>First team to ${WIN_SCORE}</small>` : `<small>Break the egg!</small>`) : '');
   const help = $('help');
   if (G.phase === 'build') { help.style.display = 'block'; help.innerHTML = '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run, <b>Shift ×2</b> dash, <b>Space ×2</b> double jump<br><b>Click</b> place, <b>R</b> rotate, <b>1–3</b> or scroll to pick<br><b>E</b> pick up or put down, <b>click</b> while carrying to throw<br>Protection: press its key (see the Protection bar)<br><b>F</b> done building'; }
   else if (G.phase === 'attack' && G.cls === 'bomber') { help.style.display = 'block'; help.innerHTML = bomberHelp(); }
   else if (G.phase === 'attack' && G.cls === 'sword') { help.style.display = 'block'; help.innerHTML = swordHelp(); }
+  else if (G.phase === 'attack' && G.cls === 'avatar') { help.style.display = 'block'; help.innerHTML = avatarHelp(); }
   else if (G.phase === 'attack' && G.cls === 'summon') { help.style.display = 'block'; help.innerHTML = summonHelp(); }
   else if (G.phase === 'attack' && G.cls === 'necro') { help.style.display = 'block'; help.innerHTML = necroHelp(); }
   else if (G.phase === 'attack' && painKit()) { help.style.display = 'block'; help.innerHTML = painHelp() + '<br><b>Tab</b> switch class'; }
@@ -13037,6 +13923,7 @@ function eggHelp(){
     : amDefender() ? guardHelp()
     : G.cls === 'bomber' ? bomberHelp()
     : G.cls === 'sword' ? swordHelp()
+    : G.cls === 'avatar' ? avatarHelp()
     : G.cls === 'summon' ? summonHelp()
     : G.cls === 'necro' ? necroHelp()
     : G.cls === 'pain' ? painHelp()
@@ -13178,13 +14065,14 @@ function actionDown(){
   if (P.carry) { dropCarry(P, true); G.skipUp = true; return; }
   if (G.phase === 'attack' && painKit() && PAIN.circBuild && !G.targeting && circuitClick()) { G.skipUp = true; return; }   // placing the Falling Circuit
   if (G.phase === 'attack' && painKit() && G.targeting && PAIN_SKILLS[G.targeting] && PAIN_SKILLS[G.targeting].kind === 'aimcharge') { chargeStart(G.targeting, 'mouse'); return; }   // hold to charge the selected gravity ring
+  if (G.phase === 'attack' && G.cls === 'avatar' && G.targeting === 'af_pillar') { avChargeStart('af_pillar', 'mouse'); return; }   // hold to charge the pillar
   if ((G.phase === 'attack' || guardActive()) && G.targeting) { castAt(); G.skipUp = true; return; }
   if (guardActive()) { fortRocket(); return; }   // the defender's click: rocket launcher
   if (G.phase === 'build') { if (!G.pvp || amDefender()) placeItem(); }
-  else if (G.phase === 'attack' && G.pvp) { if (G.cls === 'bomber') fireBazooka(); else if (G.cls === 'sword') swordSwing(); else if (G.cls === 'summon') summonCommand(); else if (G.cls === 'necro') fireSkull(); else if (painKit()) tkDown(); else fireKi(); }
+  else if (G.phase === 'attack' && G.pvp) { if (G.cls === 'bomber') fireBazooka(); else if (G.cls === 'sword') swordSwing(); else if (G.cls === 'summon') summonCommand(); else if (G.cls === 'necro') fireSkull(); else if (G.cls === 'avatar') avatarClick(); else if (painKit()) tkDown(); else fireKi(); }
   else if (G.phase === 'attack') { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('Pick a skill first: press its key or tap it in the Skills bar.'); } }
 }
-function actionUp(){ if (PAIN.charge && PAIN.charge.key === 'mouse') { chargeRelease('mouse'); return; } if (painKit()) tkUp(); if (G.skipUp) { G.skipUp = false; return; } if (G.phase === 'attack' && G.charging) fire(); }
+function actionUp(){ if (PAIN.charge && PAIN.charge.key === 'mouse') { chargeRelease('mouse'); return; } if (AV.charge && AV.charge.key === 'mouse') { avatarKeyUp('mouse'); return; } if (painKit()) tkUp(); if (G.skipUp) { G.skipUp = false; return; } if (G.phase === 'attack' && G.charging) fire(); }
 
 let rdrag = null;
 const touches = {stick:null, look:null};
@@ -13272,6 +14160,7 @@ addEventListener('keydown', e => {
   if (k === 'enter' && !e.repeat && tdOn() && TD.state === 'build') { tdAskWave(); return; }   // anyone: switch sides
   if ((G.phase === 'attack' || G.phase === 'build') && guardActive()) { if (e.repeat) return; if (guardKeyDown(k)) return; if (G.phase === 'build' && (k === 'f' || k === 'enter')) finishBuild(); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'bomber') { bomberKeyDown(k); return; }
+  if (G.phase === 'attack' && !e.repeat && G.cls === 'avatar') { avatarKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'sword') { swordKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'summon') { summonKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'necro') { necroKeyDown(k); return; }
@@ -13282,11 +14171,11 @@ addEventListener('keydown', e => {
     if (k === 'f' || k === 'enter') finishBuild();
   }
 });
-addEventListener('keyup', e => { const k = keyName(e); keys[k] = false; guardKeyUp(k); bomberKeyUp(k); if (painKit() || PAIN.charge || PAIN.aim) painKeyUp(k); if (G.cls === 'sword') swordKeyUp(k); });
+addEventListener('keyup', e => { const k = keyName(e); keys[k] = false; guardKeyUp(k); bomberKeyUp(k); if (painKit() || PAIN.charge || PAIN.aim) painKeyUp(k); if (G.cls === 'sword') swordKeyUp(k); if (AV.charge) avatarKeyUp(k); });
 // leaving the tab never delivers the key-up for keys that were held, so start clean when it hides and when it comes back
 document.addEventListener('visibilitychange', () => { for (const k in keys) keys[k] = false; if (document.hidden) painKeyUp(null); });
 addEventListener('focus', () => { for (const k in keys) keys[k] = false; });
-addEventListener('blur', () => { for (const k in keys) keys[k] = false; painKeyUp(null); bomberKeyUp(null); SW.charge = null; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; painKeyUp(null); bomberKeyUp(null); SW.charge = null; avatarKeyUp(null); });
 
 function readInput(){
   let x = 0, z = 0;
@@ -13601,7 +14490,7 @@ function frame(now){
   { const hm = (inPlay() && !isTouch && !G.locked && !G.eggCam) ? (G.fallback ? 2 : 1) : 0;
     if (hm !== G.hintMode) { G.hintMode = hm; const h = $('lockHint'); h.style.display = hm ? 'block' : 'none'; h.classList.toggle('fb', hm === 2);
       h.innerHTML = hm === 2 ? `🖱️ Mouse lock is blocked in this tab (${G.lockErr || 'refused'}). The camera follows your mouse; hold it at the screen edge to keep turning.<br><small>Click to retry. If it keeps happening, close this tab and open the game link again.</small>` : 'Click to control your character'; } }
-  updateVisuals(rdt); worldFrame(rdt); updateEdge(); pvpFrame(rdt); if (G.pvp && G.phase === 'attack') painFrame(rdt); bomberFrame(rdt * G.fxScale); wildFrame(rdt * G.fxScale); fortFrame(rdt * G.fxScale); barrierFrame(rdt * G.fxScale); swarmFrame(rdt * G.fxScale); comboFrame(rdt); swordFrame(rdt); voiceFrame(rdt); summonFrame(rdt * G.fxScale); necroFrame(rdt * G.fxScale);
+  updateVisuals(rdt); worldFrame(rdt); updateEdge(); pvpFrame(rdt); if (G.pvp && G.phase === 'attack') painFrame(rdt); bomberFrame(rdt * G.fxScale); wildFrame(rdt * G.fxScale); fortFrame(rdt * G.fxScale); barrierFrame(rdt * G.fxScale); swarmFrame(rdt * G.fxScale); comboFrame(rdt); swordFrame(rdt); avatarFrame(rdt); voiceFrame(rdt); summonFrame(rdt * G.fxScale); necroFrame(rdt * G.fxScale);
   SpaceWarp.render();
   perfTune(performance.now() - t0, rdt);
 }

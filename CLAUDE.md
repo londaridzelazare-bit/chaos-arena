@@ -176,6 +176,18 @@ Pain pass 2026-10-08 (user feedback): visuals are ONLY screen-space bending: `gr
   placing) touch the path and sends `p_circx` {at:[x,y,z], who}: `circuitBreak(key, at)` hurls every rider at that spot.
 - Gravity Vortex is the old one again (kind 'now', centred on the caster, V/Click hurls at the crosshair).
 - Slabs ignore impact hits for 1.5 s after landing (their own whack throws rubble at them) and need > 18 m/s hits.
+
+GENOS (class id 'avatar', 2026-10-08; fire only, AV_ELEMS kept as a one-entry table): module "GENOS" before SWORDSMAN.
+Table AVATAR (af_* ids), state AV {charge, chan, zones, orbs, marks, dragons, suns, fx}, `runAvatar` dispatch, `avatarFrame`
+(AV.fx with safe re-entry, chanFrame, zonesFrame, orbsFrame, avChargeFrame), `avatarAnim` poses (P.avPose / P.avHold / charge
+and channel stances; hand fires `setHandFire`). Click whip; hold 1 fireball (×20 at 10 s, `AVN.ball`), hold 2 flamethrower
+(channel, 2 again = af_flamex, two-handed at ×3), 3 skyfall (kind 'sky' uses the Bomber sky camera; castAt → `avSkyMark`,
+3 again → `avSkyConfirm` {pts}), hold 4 fire ring, hold 5 incineration cannon (channel beam `avBeam`/`avBeamUpdate`, turn
+rate), 6 inferno pillar (aim + hold Click = AV.charge key 'mouse'), 7 breakdance, 8 orb field (chain `orbBoom`), hold 9 lava.
+ULTs B dragons (then af_dragonsx), N sun (then af_sunx), M whiteout (avWhiten + beam), Z black flame. Hits: `fireArea`,
+`fireLine`, `fireBoom` (victim-side, igniteAt, damageProps, eggHit); surfaces `avZone` (groundPatch + groundFireMat, lava
+cools, max 70). Sustained aim crosses the network in the state message `av` [yaw, pitch] (`avAimState` → P.netAv).
+Never name an x field s/p/o/y/ts/id/t: localCast spreads x over the cast message.
 Camera (2026-10-06): PITCH_MAX 1.38 (look almost straight up; the boom shortens as you look up), obstacle pull-in eases
 (2e-6/s instead of a one-frame snap), the ground lift eases (`CAM.lift`) with a hard floor at ground + .25.
 Performance (2026-10-06): all `fx` particles draw through shared InstancedMeshes (`fxInstAdd`, one per geometry +
