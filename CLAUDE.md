@@ -205,7 +205,7 @@ and Flamethrower are both kind 'clickcharge' (key selects, hold Click charges; C
 targeting marker is hidden for them (updateTargeting). Pillar no longer launches or uproots.
 Genos pass 3: AV_PUSH 0 (flames push nothing), explosions fireArea {push:AV_BOOM_PUSH .6} (fireBoom, orbBoom); flames never
 break props: inside the module damageProps → `avScorch` (igniteAt only), fireArea breaks props only when it pushes. EVERY
-power: its key only selects it (`avatarUse` → setTargeting), the left mouse charges (hold) or unleashes it (`avatarClickSel`
+power that charges or aims: its key only selects it (`avatarUse` → setTargeting; kind 'now' ultimates fire from the key), the left mouse charges (hold) or unleashes it (`avatarClickSel`
 in actionDown); aim/sky kinds still go through castAt. The marker is hidden for non-aim Genos powers. ULT M is now Fire Fist
 Rush (`avFist`/`fistMesh`: fists fly 34 m at 70 m/s, then a giant fist; no stand mesh; pose 'rush'). Held sun is small.
 Camera (2026-10-06): PITCH_MAX 1.38 (look almost straight up; the boom shortens as you look up), obstacle pull-in eases

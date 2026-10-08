@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-09.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-09.3';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -8476,7 +8476,7 @@ const avMul = (id, c) => { const d = AVATAR[id]; return Math.min(d.max || 1, 1 +
 function avatarKit(){ return G.cls === 'avatar'; }
 function avatarTable(){ return AV_ELEMS[AV.elem] && !AV_ELEMS[AV.elem].soon ? AVATAR : {}; }
 function avatarHelp(){
-  return 'Every power: press its key to select it, then <b>Click</b> (hold to charge) · <b>Click</b> with nothing selected: fire whip<br>' +
+  return 'Charged and aimed powers: press the key to select, then <b>Click</b> (hold to charge) · the ultimates fire from their key · <b>Click</b> with nothing selected: fire whip<br>' +
     '<b>1</b> fireball (up to ×20) · <b>2</b> flamethrower (one hand → two hands → mouth; Click again stops) · <b>3</b> skyfall (every Click, 5) · <b>4</b> fire ring · <b>5</b> incineration cannon (full: ⚪ white) · <b>6</b> inferno pillar · <b>7</b> fire orbs · <b>8</b> lava<br>' +
     '<b>B</b> ULT three dragons (then Click where they strike) · <b>N</b> ULT the sun (then Click where it goes) · <b>M</b> ULT fire fist rush · <b>Z</b> ULT supernova · <b>Tab</b> switch class';
 }
@@ -8749,7 +8749,8 @@ function avatarUse(id){
   if (id === 'af_flame' && AV.chan[G.localKey] && AV.chan[G.localKey].id === 'af_flame') { localCast('af_flamex', null, {}); return; }
   if (d.ult && !ultReady(id)) return;
   if (!d.ult && (G.cd[id] || 0) > 0) { cdToast(id); return; }
-  setTargeting(id);   // the key only selects; the left mouse charges or unleashes it
+  if (d.kind === 'now') { if (G.spCd > 0) return; G.spCd = .3; localCast(id, aimPoint(120), {d:avAimArr()}); return; }   // nothing to charge or aim: the key fires it
+  setTargeting(id);   // the key only selects; the left mouse charges or aims it
   if (G.targeting === id) { toast(avHowTo(id) + ` ${d.key} again puts it away.`); if (id === 'af_sky') AV.skyN = 0; }
 }
 // the left mouse with a power selected: hold to charge, click to unleash (aimed ones go through castAt)
