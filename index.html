@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-09.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-09.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -4241,7 +4241,7 @@ function terrainBlast(p, R, power){
   damageProps(p, R, power*4);
 }
 function damageProps(p, R, dmg){
-  decorDamage(p, R, dmg); if (typeof PAIN !== 'undefined' && PAIN.slabs) slabsTake(p, R, dmg);
+  decorDamage(p, R, dmg); if (typeof PAIN !== 'undefined' && PAIN.slabs) slabsTake(p, R, dmg); if (typeof BOULD !== 'undefined') banshoTake(p, R, dmg);
   for (const pr of props) {
     if (pr.dead) continue;
     const d = Math.hypot(pr.x - p.x, pr.z - p.z); if (d > R || Math.abs(p.y - pr.y) > R + 6) continue;
@@ -6255,6 +6255,7 @@ function updateRods(dt){
     }
     const dm = PAIN.dummies.find(o => !o.dead && segDist(a, b, V3(o.body.position.x, o.body.position.y + 1, o.body.position.z)) < .8);
     if (dm) { const s = r.v.clone().normalize(); if (dm.body.wakeUp) dm.body.wakeUp(); dm.body.velocity.x += s.x*(1 + r.kb); dm.body.velocity.z += s.z*(1 + r.kb); if (r.kb > 8) dm.body.velocity.y += r.kb*.3; dummyHit(dm.body, dmg); r.m.position.copy(b); stickRod(r, dm.mesh); sfx('zapHit'); continue; }
+    { const bh = banshoHit(b, .2); if (bh) { r.m.position.copy(b); stickRod(r, bh.g); sfx('thunk'); banshoTake(b, .5, dmg*3); continue; } }
     const pr = props.find(pr => { if (pr.dead || Math.hypot(pr.x - b.x, pr.z - b.z) > 4.5) return false;
       if (pr.kind === 'tree') return Math.hypot(pr.x - b.x, pr.z - b.z) < .35*pr.s && b.y > pr.y && b.y < pr.y + 3.6*pr.s;
       if (pr.kind === 'rock') return b.distanceTo(pr.mesh.position) < pr.r;
@@ -7289,7 +7290,7 @@ function painBoulder(p){
   const g = new THREE.Group(); g.userData.noRay = true; g.add(new THREE.Mesh(boulderGeo(), NAT_MAT)); g.rotation.set(rr(0, 6), rr(0, 6), 0);
   addOutline(g); g.traverse(m => m.userData.noRay = true);
   const gy = groundH(p.x, p.z); g.position.set(p.x, gy - 1, p.z); roundGroup.add(g);
-  const r = {g, p:V3(p.x, gy, p.z), R:1.2, phase:'rise', t:0, spin:rr(-.6, .6)}; B.rocks.push(r); B.idle = 0;
+  const r = {g, p:V3(p.x, gy, p.z), R:1.2, phase:'rise', t:0, spin:rr(-.6, .6)}; B.rocks.push(r); B.idle = 0; banshoBody(r);
   SpaceWarp.add({pos:() => r.g.position, alive:() => r.phase === 'rise', R:() => r.R*1.8 + 2, s:() => .35});
   if (C) C.castPose = .6; sfx('rumble'); sfx('drill');
 }
@@ -7314,9 +7315,40 @@ function painBoulderX(p, x){
   boulderUp(B, r, +(x && x.c) || 0);
   if (key === G.localKey) toast(`🪨 ${boulderAir(key)} in the sky. C for another, aim the ring, Click to bring them all down.`);
 }
+/* Bansho rocks are solid for everything else: a kinematic body follows each one (physics things bounce off it), projectiles
+   ask banshoHit (fireballs, bombs, rockets, rods, beams stop there), blasts go through damageProps -> banshoTake (they knock
+   the rock about and can shatter it: real chunks fall out of the sky, and they hurt what they land on, as the caster's). */
+function banshoBody(r){ const b = new CANNON.Body({mass:0, type:CANNON.Body.KINEMATIC, material:PM.def}); b.addShape(new CANNON.Sphere(1)); b.tag = 'bansho'; b.position.set(r.g.position.x, r.g.position.y, r.g.position.z); world.addBody(b); r.body = b; r.bR = 1; }
+function banshoSync(r, dt){
+  if (!r.body) return; const want = Math.max(.5, r.R*.85), sh = r.body.shapes[0];
+  if (Math.abs(want - r.bR) > r.bR*.05) { sh.radius = want; sh.updateBoundingSphereRadius(); r.body.updateBoundingRadius(); r.bR = want; }
+  const q = r.g.position; if (dt > 0) r.body.velocity.set((q.x - r.body.position.x)/dt, (q.y - r.body.position.y)/dt, (q.z - r.body.position.z)/dt);
+  r.body.position.set(q.x, q.y, q.z); r.body.aabbNeedsUpdate = true;
+}
+function banshoFree(r){ if (r.body && r.body.world) world.removeBody(r.body); r.body = null; }
+function banshoHit(p, rad){ for (const k in BOULD) for (const r of BOULD[k].rocks) { if (r.phase === 'gone' || r.phase === 'done') continue; if (r.g.position.distanceTo(p) < r.R*.9 + rad) return r; } return null; }
+function banshoTake(p, R, dmg){
+  if (!(dmg > 0)) return;
+  for (const k in BOULD) { const B = BOULD[k]; for (const r of B.rocks) {
+    if (r.phase !== 'air' && r.phase !== 'rise' && r.phase !== 'link') continue;
+    const q = r.g.position, d = Math.max(0, q.distanceTo(p) - r.R*.9); if (d > R) continue;
+    const f = 1 - d/R*.7; if (r.hp == null) r.hp = 300 + r.R*120; r.hp -= dmg*f;
+    const away = V3(q.x - p.x, q.y - p.y, q.z - p.z); if (away.lengthSq() < .01) away.set(0, 1, 0); away.normalize();
+    q.addScaledVector(away, Math.min(6, dmg*f*.01)); r.g.rotation.x += .3;   // knocked about (the sky pulls it back into place)
+    if (r.hp <= 0) banshoShatter(B, r); else if (dmg*f > 30 && G.t - (r.crT || -9) > .2) { r.crT = G.t; sfx('crack'); debris(q.clone(), 4, [0x5B5560, 0x6E6672]); }
+  } }
+}
+function banshoShatter(B, r){
+  if (r.phase === 'gone') return; const at = r.g.position.clone(); r.phase = 'gone'; banshoFree(r); if (r.g.parent) roundGroup.remove(r.g);
+  const n = Math.round(clamp(3 + r.R*.8, 3, 12));
+  for (let i = 0; i < n; i++) { const sz = clamp(r.R*rr(.18, .35), .35, 2.4), v = V3(rr(-1, 1), rr(-.2, 1), rr(-1, 1)).normalize(), o = rubbleRock(at.x + v.x*r.R*.5, at.y + v.y*r.R*.5, at.z + v.z*r.R*.5, sz);
+    o.body.velocity.set(v.x*rr(4, 10), v.y*rr(2, 6), v.z*rr(4, 10)); o.body._own = B.key; o.body._ownTeam = B.team; o.body._ownT = G.t + 8; }
+  const rub = objs.filter(o => o.kind === 'rubble' && !o.dead); for (let i = 0; i < rub.length - 90; i++) removeObj(rub[i]);
+  debris(at, 20, [0x5B5560, 0x6E6672, 0x7E5433, 0x4A4550]); gravWave(at, r.R*2 + 4, {k:2, dur:.5}); sfx('crack'); sfx('boom'); shakeAt(at, Math.min(2, .4 + r.R*.1), 80);
+}
 function boulderNet(id, pb){ const B = BOULD[id]; if (B && Array.isArray(pb)) B.tgt = V3(pb[0], groundH(pb[0], pb[1]), pb[1]); }
 function boulderState(){ const B = BOULD[G.localKey]; return B && B.tgt ? [+B.tgt.x.toFixed(1), +B.tgt.z.toFixed(1)] : null; }
-function boulderEnd(B){ B.rocks.forEach(r => { r.phase = 'done'; if (r.g.parent) roundGroup.remove(r.g); }); B.rocks = []; if (B.ring) { B.ring.kill(); B.ring = null; } if (BOULD[B.key] === B) delete BOULD[B.key]; }
+function boulderEnd(B){ B.rocks.forEach(r => { r.phase = 'done'; banshoFree(r); if (r.g.parent) roundGroup.remove(r.g); }); B.rocks = []; if (B.ring) { B.ring.kill(); B.ring = null; } if (BOULD[B.key] === B) delete BOULD[B.key]; }
 function boulderFrame(dt){
   for (const key in BOULD) {
     const B = BOULD[key]; B.idle += dt;
@@ -7347,6 +7379,7 @@ function boulderFrame(dt){
         if (cur.y - r.R*.6 <= groundH(cur.x, cur.z)) { r.phase = 'gone'; boulderImpact(B, r); }
       }
     }
+    for (const r of B.rocks) { if (r.phase === 'gone') banshoFree(r); else banshoSync(r, dt); }
     B.rocks = B.rocks.filter(r => { if (r.phase !== 'gone') return true; if (r.g.parent) roundGroup.remove(r.g); return false; });
     if (!B.rocks.length && B.idle > 2) boulderEnd(B);
   }
@@ -7442,6 +7475,7 @@ function impactFrame(){
       for (const pr of props) { if (pr.dead) continue; const dx = pr.x - b.position.x, dz = pr.z - b.position.z; if (Math.abs(dx) > 7 || Math.abs(dz) > 7) continue;
         const pr0 = pr.kind === 'tree' ? .6*(pr.s || 1) : pr.kind === 'rock' ? (pr.r || 1) : Math.max(pr.hx || 1, pr.hz || 1), top = pr.kind === 'tree' ? 4*(pr.s || 1) : (pr.hy || pr.r || 1)*2;
         if (Math.hypot(dx, dz) < pr0 + r*.8 && b.position.y < pr.y + top + r) { b._propT = G.t; pr.hp -= hit; if (pr.hp <= 0) destroyProp(pr, b.position, Math.min(40, hit*.05)); else if (Math.random() < .5) sfx('crack'); } }
+      if (sp > 15 && G.t - (b._bhT || -9) > .3 && banshoHit(b.position, r*.8 + .3)) { b._bhT = G.t; banshoTake(b.position, .5, cube*(sp - 12)*3); }
       if (sp > 18) for (const S of PAIN.slabs) { if (S.o.dead || S.o.body === b || G.t - S.born < 1.5) continue; if (slabTouch(S, b.position, r*.8)) { b._propT = G.t; slabHurt(S, cube*(sp - 16)*2.5, b.position); } }   // its own landing throws rubble at it: that doesn't count
     }
   }
@@ -7719,6 +7753,7 @@ function bEnemies(key, team){
 function bNearest(key, team, at, R){ let best = null, bd = R; for (const e of bEnemies(key, team)) { const d = hdist(e.pos, at); if (d < bd) { bd = d; best = e; } } return best; }
 // is a point inside a tree, rock, ruin or heavy object?
 function bSolid(p, r){
+  if (typeof BOULD !== 'undefined' && banshoHit(p, r)) return true;
   if (typeof BARS !== 'undefined') for (const b of BARS.list) if (!b.dead && p.y > b.p.y - .3 && p.y < b.p.y + barSize(b).H + r && barContains(b, p.x, p.z, r)) return true;
   for (const pr of props) {
     if (pr.dead || Math.abs(pr.x - p.x) > 8 || Math.abs(pr.z - p.z) > 8) continue;
@@ -8554,7 +8589,7 @@ function avBlocked(key, team, a, b, r){
   if (b.y <= groundH(b.x, b.z) + r*.4) return true;
   for (const k in chars) { const P = chars[k]; if (!P || k === key || P.alive === false || (team && P.team === team)) continue; if (segDist(a, b, V3(P.body.position.x, P.body.position.y + 1, P.body.position.z)) < r + .6) return true; }
   for (const dm of PAIN.dummies) if (!dm.dead && segDist(a, b, V3(dm.body.position.x, dm.body.position.y + 1, dm.body.position.z)) < r + .7) return true;
-  if (avPropAt(b, r)) return true;
+  if (avPropAt(b, r) || banshoHit(b, r)) return true;
   for (const bb of world.bodies) { if (bb.mass === 0 || bb.player || bb.tag === 'dummy') continue; if (segDist(a, b, bb.position) < r + Math.min(2.5, (bb.boundingRadius || .5)*.7)) return true; }
   if (typeof tdOn === 'function' && tdOn()) for (const t of TD.list) if (!t.dead && Math.hypot(t.pos.x - b.x, t.pos.y - b.y, t.pos.z - b.z) < t.R + r) return true;
   return false;
@@ -8627,7 +8662,7 @@ function avPrevHide(){ for (const k in AV.prev) if (AV.prev[k]) AV.prev[k].visib
 function avPrevRing(name, col){ if (!AV.prev[name]) AV.prev[name] = groundRing(col, .85); return AV.prev[name]; }
 function avPrevBeam(){ if (!AV.prev.beam) { const m = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 10, 1, true).rotateX(Math.PI/2).translate(0, 0, .5), new THREE.MeshBasicMaterial({color:0xFF5A14, transparent:true, opacity:.22, depthWrite:false, side:THREE.DoubleSide})); m.userData.noRay = true; m.renderOrder = 30; scene.add(m); AV.prev.beam = m; } return AV.prev.beam; }
 function avPrevCone(){ if (!AV.prev.cone) { const m = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 20, 1, true).translate(0, -.5, 0).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:0xFF8A2E, transparent:true, opacity:.16, depthWrite:false, side:THREE.DoubleSide})); m.userData.noRay = true; m.renderOrder = 30; scene.add(m); AV.prev.cone = m; } return AV.prev.cone; }
-function beamEnd(o, dir, L){ const q = o.clone(); for (let s = 0; s < L; s += 2) { q.copy(o).addScaledVector(dir, s); if (q.y <= groundH(q.x, q.z) || Math.abs(q.x) > ISL + 40 || Math.abs(q.z) > ISL + 40) return {p:q, d:s, hit:q.y <= groundH(q.x, q.z)}; } return {p:o.clone().addScaledVector(dir, L), d:L, hit:false}; }
+function beamEnd(o, dir, L){ const q = o.clone(); for (let s = 0; s < L; s += 2) { q.copy(o).addScaledVector(dir, s); { const rk = s > 1 && banshoHit(q, .3); if (rk) return {p:q.clone(), d:s, hit:false, rock:rk}; } if (q.y <= groundH(q.x, q.z) || Math.abs(q.x) > ISL + 40 || Math.abs(q.z) > ISL + 40) return {p:q, d:s, hit:q.y <= groundH(q.x, q.z)}; } return {p:o.clone().addScaledVector(dir, L), d:L, hit:false}; }
 // ability numbers as functions of the charge multiplier (shared by the preview and the cast)
 const AVN = {
   ball:  m => ({r:.35*Math.pow(m, .55), R:3 + 1.15*Math.pow(m, .8), dmg:22*Math.pow(m, .85), kb:12 + 2.2*m, sp:46 + m*.8}),
@@ -8929,6 +8964,7 @@ function avBeamUpdate(ch, P, dt){
   ch.burn -= dt; if (ch.burn <= 0 && e.hit) { ch.burn = ch.burnEvery; avZone({x:e.p.x, z:e.p.z, R:ch.burnR, dur:ch.white ? 7 : 4, dps:ch.white ? 14 : 7, key:ch.key, team:ch.team}); avScorch(e.p, ch.burnR + 1, ch.dmg*8); }
   ch.tick -= dt; if (ch.tick > 0) return; ch.tick = .1;
   fireLine(ch.key, ch.team, o, e.p, ch.W*.7, ch.dmg, ch.kb, {props:ch.dmg*5, burn:3, stun:.35});
+  if (e.rock) banshoTake(e.p, ch.W, ch.dmg*(ch.white ? 4 : 2));   // the beam melts into a Bansho rock
   if (e.hit) fireArea(ch.key, ch.team, V3(e.p.x, e.p.y + 1, e.p.z), ch.W*1.5, ch.dmg*.6, ch.kb*.6, 6, {props:ch.dmg*6});
 }
 
