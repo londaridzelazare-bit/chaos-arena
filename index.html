@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-09.3';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-10.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -4688,7 +4688,7 @@ const TD_WAVES = [   // groups of [type, count, seconds apart, start after]
   [[8, 6, 1.2], [7, 16, .7, 3]], [[8, 14, .8], [5, 26, .35, 2]], [[9, 4, 1.6], [8, 10, .8, 4]], [[9, 10, 1.1], [7, 22, .5, 3]],
   [[10, 1, 1], [9, 8, 1.2, 6]], [[9, 20, .7], [8, 20, .6, 4]], [[10, 3, 4], [9, 12, .9, 3]], [[11, 1, 1], [10, 2, 6, 8], [9, 15, .8, 3]]
 ];
-const TD_LIVES = 200, TD_ROUNDS = TD_WAVES.length, TD_FLY = 2.1;
+const TD_LIVES = 200, TD_ROUNDS = TD_WAVES.length, TD_FLY = 2.1, TD_SIZE = .65, TD_SLOW = .6;   // every balloon is drawn and hit at 65% size and moves at 60% speed
 const TD = {on:false, list:[], pd:null};
 // the path: it winds in from the edge of the island in a spiral and ends at the egg
 const TD_PTS = [[118,-40],[85,-25],[70,10],[80,45],[55,72],[15,70],[-25,75],[-60,60],[-78,25],[-60,-5],[-30,-35],[10,-40],[40,-20],[45,15],[20,35],[-15,30],[-25,5],[-10,-12],[-2.6,-2.6]];
@@ -4701,7 +4701,7 @@ function tdBuildPath(){
   TD.pd = new Float32Array(TN*TN).fill(99);
   for (let k = 0; k <= n; k += 2) { const x = TD.px[k], z = TD.pz[k], ci = Math.round((x + ISL)/TES), cj = Math.round((z + ISL)/TES);
     for (let j = Math.max(0, cj - 5); j <= Math.min(TN - 1, cj + 5); j++) for (let i = Math.max(0, ci - 5); i <= Math.min(TN - 1, ci + 5); i++) { const d = Math.hypot(-ISL + i*TES - x, -ISL + j*TES - z), v = i + j*TN; if (d < TD.pd[v]) TD.pd[v] = d; } }
-  TD.speedK = len/(6.5*66);   // a red balloon takes ~66 s from the start to the egg on round 1
+  TD.speedK = len/(6.5*66)*TD_SLOW;   // a red balloon takes ~110 s from the start to the egg on round 1
 }
 function tdPathDist(x, z){ if (!TD.pd) return 99; const i = Math.round((x + ISL)/TES), j = Math.round((z + ISL)/TES); if (i < 0 || j < 0 || i >= TN || j >= TN) return 99; return TD.pd[i + j*TN]; }
 function tdAt(d, out){ const f = clamp(d/TD.step, 0, TD.px.length - 1.001), i = Math.floor(f), t = f - i; const x = lerp(TD.px[i], TD.px[i + 1], t), z = lerp(TD.pz[i], TD.pz[i + 1], t); return (out || new THREE.Vector3()).set(x, groundH(x, z) + TD_FLY, z); }
@@ -4728,7 +4728,7 @@ function tdStartWave(){
   sfx('trumpet'); tdHud(); tdSend(true);
   toast(`🎈 Round ${TD.wave}${TD.wave === TD_ROUNDS ? ' (the last one!)' : ''}: ${TD_WAVES[TD.wave - 1].map(g => g[1] + ' ' + TDT[g[0]].n).join(', ')}`);
 }
-function tdSpawn(type, d){ const T = TDT[type], b = {id:++TD.seq, t:type, d:Math.max(0, d), hp:T.hp*TD.hpK, R:T.blimp ? (T.blimp === 1 ? 3.2 : 4.4) : .75*T.s, ph:Math.random()*6, pos:new THREE.Vector3(), dead:false, flash:0}; tdAt(b.d, b.pos); TD.list.push(b); return b; }
+function tdSpawn(type, d){ const T = TDT[type], b = {id:++TD.seq, t:type, d:Math.max(0, d), hp:T.hp*TD.hpK, R:(T.blimp ? (T.blimp === 1 ? 3.2 : 4.4) : .75*T.s)*TD_SIZE, ph:Math.random()*6, pos:new THREE.Vector3(), dead:false, flash:0}; tdAt(b.d, b.pos); TD.list.push(b); return b; }
 
 /* ---------- hits (host only: it owns the balloons) ---------- */
 function tdHit(b, dmg){
@@ -4829,8 +4829,8 @@ function tdApply(m){
   for (let i = 0; i + 3 < a.length; i += 4) {
     const id = a[i], t = a[i + 1] | 0, d = a[i + 2]/10, hp = a[i + 3]; if (!TDT[t]) continue;
     let b = old.get(id);
-    if (b) { if (b.t !== t) tdPopFX(b.pos, TDT[b.t], 1); old.delete(id); if (Math.abs(b.d - d) > 3) b.d = d; else b.d = lerp(b.d, d, .5); b.t = t; if (hp < b.hp) b.flash = .12; b.hp = hp; b.R = TDT[t].blimp ? (TDT[t].blimp === 1 ? 3.2 : 4.4) : .75*TDT[t].s; }
-    else { b = {id, t, d, hp, R:TDT[t].blimp ? (TDT[t].blimp === 1 ? 3.2 : 4.4) : .75*TDT[t].s, ph:Math.random()*6, pos:new THREE.Vector3(), dead:false, flash:0}; tdAt(d, b.pos); }
+    if (b) { if (b.t !== t) tdPopFX(b.pos, TDT[b.t], 1); old.delete(id); if (Math.abs(b.d - d) > 3) b.d = d; else b.d = lerp(b.d, d, .5); b.t = t; if (hp < b.hp) b.flash = .12; b.hp = hp; b.R = (TDT[t].blimp ? (TDT[t].blimp === 1 ? 3.2 : 4.4) : .75*TDT[t].s)*TD_SIZE; }
+    else { b = {id, t, d, hp, R:(TDT[t].blimp ? (TDT[t].blimp === 1 ? 3.2 : 4.4) : .75*TDT[t].s)*TD_SIZE, ph:Math.random()*6, pos:new THREE.Vector3(), dead:false, flash:0}; tdAt(d, b.pos); }
     list.push(b);
   }
   // the ones that are gone popped (or reached the egg)
@@ -4860,7 +4860,7 @@ function tdDraw(dt){
     if (b.dead) continue; const T = TDT[b.t];
     if (T.blimp) { tdBlimp(b, T); continue; }
     if (n >= 800) break;
-    b.ph += dt*2.2; const sc = T.s*big, y = b.pos.y + Math.sin(b.ph)*.18;
+    b.ph += dt*2.2; const sc = T.s*big*TD_SIZE, y = b.pos.y + Math.sin(b.ph)*.18;
     _tdE.set(Math.sin(b.ph*.7)*.12, 0, Math.cos(b.ph*.9)*.12); _tdQ.setFromEuler(_tdE);
     _tdS.set(sc, sc, sc); _tdM.compose(V3(b.pos.x, y, b.pos.z), _tdQ, _tdS);
     im.body.setMatrixAt(n, _tdM); im.knot.setMatrixAt(n, _tdM); im.shine.setMatrixAt(n, _tdM); im.str.setMatrixAt(n, _tdM);
@@ -4885,7 +4885,7 @@ function tdBlimp(b, T){
   if (!b.blimpG) { const g = new THREE.Group(), m = new THREE.Mesh(tdBlimpGeo(T.blimp), NAT_MAT); g.add(m); addOutline(g); const lab = textSprite(); lab.userData.set(T.n, '#FFFFFF'); lab.position.y = 4*(T.blimp === 1 ? 1 : 1.45); lab.scale.set(4, 1.5, 1); g.add(lab);
     const mkb = c => { const sp0 = new THREE.Sprite(new THREE.SpriteMaterial({color:c, depthTest:false, depthWrite:false})); sp0.center.set(0, .5); sp0.renderOrder = 41; g.add(sp0); return sp0; }; b.bar = {bg:mkb(0x1A1A1A), fill:mkb(0x5BD15B)};
     g.traverse(o => o.userData.noRay = true); roundGroup.add(g); b.blimpG = g; }
-  const g = b.blimpG, k = T.blimp === 1 ? 1 : 1.45; g.position.set(b.pos.x, b.pos.y + 2*k + Math.sin(G.t*1.3 + b.id)*.2, b.pos.z); g.rotation.y = tdDir(b.d);
+  const g = b.blimpG, k = T.blimp === 1 ? 1 : 1.45; g.scale.setScalar(TD_SIZE); g.position.set(b.pos.x, b.pos.y + 2*k*TD_SIZE + Math.sin(G.t*1.3 + b.id)*.2, b.pos.z);   // (the bar and label live inside the scaled group) g.rotation.y = tdDir(b.d);
   const f = clamp(b.hp/(T.hp*(TD.hpK || 1)), 0, 1), w = 5*k; b.bar.bg.position.set(-w/2, 5.2*k, 0); b.bar.bg.scale.set(w, .32, 1); b.bar.fill.position.set(-w/2, 5.2*k, 0); b.bar.fill.scale.set(Math.max(.01, w*f), .24, 1); b.bar.fill.material.color.setHex(f > .5 ? 0x5BD15B : f > .25 ? 0xF3C23A : 0xFF4B3E);
   g.children[0].scale.setScalar(b.flash > 0 ? 1.04 : 1);
 }

@@ -434,6 +434,7 @@ any player starts a round with Enter / the button (`tdgo`). Hits: `summonsTakeAr
 circuit riders) and `tdFastHits` (any body over 11 m/s). Drawing: instanced glossy outlined balloons (`tdMeshes`/`tdDraw`),
 blimps as merged meshes with health bars, confetti pops (`tdPopFX`), a start gate and flags (`tdScenery`), HUD `#tdHud`.
 Only Pain, Bomber, Swordsman; everyone is team blue; the egg is static and only balloons crack it (`G.tdBreak`).
+Balloon size/speed (2026-10-10): TD_SIZE .65 scales hit radii, instanced balloons and blimp groups; TD_SLOW .6 scales TD.speedK (a red takes ~110 s on round 1).
 
 ## Defender kit (Alpha Mode) — rebuilt 2026-10-06
 
