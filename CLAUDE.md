@@ -458,6 +458,8 @@ Wallets (2026-10-11.1): TD.wallet {playerId: cash}; TD.cash is a getter/setter f
 `ttEarn(n)` adds n to EVERY wallet (pops, round bonus, early-send bonus); a wallet first seen gets TT_START + TD.earned. Turrets have
 `own` (ttPack stride 6); ttBuild/ttUpgrade/ttSellIt(.., who) pay from / refund to who, upgrade+sell owner-only; host passes c.peer.
 Snapshot `c` = the whole wallet map. Test t73 (two players).
+Co-op (2026-10-11.2): in TD nobody is hurt, flung or stunned: hurt() returns, victimFor -> null, bodyFor ignores other players, knock()
+skips players, stunPlayer (flying-debris Bonk) returns. Tests t74 (two players) / t75 (solo).
 
 ## Akatsuki looks (2026-10-10.8)
 CHARS is now 4 looks: Itachi, Pain, Obito, Konan (`aka` key, `collar` height; old perks kept only for the legacy hot-seat mode).

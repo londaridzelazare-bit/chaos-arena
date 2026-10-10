@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-11.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-11.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -1122,6 +1122,7 @@ function animatePlayer(P, dt, isActive){
 }
 
 function stunPlayer(P, v){
+  if (G.pvp && G.mode === 'td') return;   // Balloon Defense: flying debris doesn't bonk anyone
   hurt(P, 12); P.stun = 1.6; P.stars.visible = true; sfx('bonk');
   if (P.carry) dropCarry(P, true);
   toast(pick(['Bonk!', `${P.cdef.name} saw stars.`, 'Direct hit on a human. Rude.']));
@@ -4636,7 +4637,7 @@ function nearestEnemy(x, z, team){
   return best;
 }
 function hurt(P, dmg){
-  if (G.mode === 'tennis') return;   // Pain Tennis: nobody gets hurt
+  if (G.mode === 'tennis' || G.mode === 'td') return;   // Pain Tennis and Balloon Defense (co-op): nobody gets hurt
   if (!G.pvp || !P || P !== localP() || P.alive === false || G.phase !== 'attack' || !(dmg > 0)) return;
   if (G.spawnShield > 0) return;
   if (amDefender()) fortHurtHook();
@@ -5943,19 +5944,22 @@ function victimFor(ownerKey, ownerTeam){
   if (!me || !G.pvp || me.alive === false || G.phase !== 'attack' || G.matchOver || me.body._frozen) return null;
   if (G.localKey === ownerKey && G.teleBackUntil > G.t) return me;   // the teleport portal sent your own attack back at you
   if (G.localKey === ownerKey || (ownerTeam && me.team === ownerTeam)) return null;
+  if (G.mode === 'td') return null;   // Balloon Defense: everyone is on one team
   return me;
 }
 // area gravity moves whoever is inside it, the caster included; `harm` is only true for the owner's enemies
 function bodyFor(ownerKey, ownerTeam){
   const me = localP();
   if (!me || !G.pvp || me.alive === false || G.phase !== 'attack' || G.matchOver || me.body._frozen) return null;
-  return {P:me, harm:G.localKey !== ownerKey && !(ownerTeam && me.team === ownerTeam)};
+  if (G.mode === 'td' && G.localKey !== ownerKey) return null;   // Balloon Defense: teammates' powers don't move you
+  return {P:me, harm:G.mode !== 'td' && G.localKey !== ownerKey && !(ownerTeam && me.team === ownerTeam)};
 }
 const hdist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 
 function painHurt(P, dmg, ownerKey){ if (ownerKey && ownerKey !== G.localKey) G.lastEnemyCast = {id:ownerKey, t:G.t}; hurt(P, dmg); }
 // launch the local player; the stun keeps controlPlayer from damping the launch straight away
 function knock(P, vx, vy, vz, stun){
+  if (G.pvp && G.mode === 'td' && P && P.body && P.body.player) return;   // Balloon Defense: no flinging or stunning teammates
   if (P === localP() && amDefender() && fortShielded(P.body.position)) return;
   const b = P.body;
   b.velocity.x += vx; b.velocity.z += vz; b.velocity.y = Math.max(b.velocity.y + vy, vy > 0 ? 1.6 : -99);
