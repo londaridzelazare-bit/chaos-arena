@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-10.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-10.3';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -531,6 +531,7 @@ function genTerrain(seed){
     // the original rolling ground, plus wide hills further out on the big map
     terrH[v] = (tNoise(x, z, terrSeed)*2.1 + (Math.sin(x*.017 + terrSeed*2)*Math.cos(z*.02 - terrSeed) + .6*Math.sin((x + z)*.011 + terrSeed))*3.4*k2)*k; terrDmg[v] = 0;
     if (G.pvp && G.mode === 'td') { const pd = TD.pd ? TD.pd[v] : 99; terrH[v] = pd < 4 ? -.08*(1 - smooth(2.6, 4, pd)) : 0; }   // Balloon Defense: flat ground
+    if (G.pvp && G.mode === 'tennis') terrH[v] *= smooth(0, 30, Math.max(0, Math.abs(x) - TN_CW - 14, Math.abs(z) - TN_CL - 14));   // Pain Tennis: flat round the court
     if (G.pvp && G.mode === 'egg') { terrH[v] *= smooth(42, 62, r); if (r > RIVER[0] - 1.2 && r < RIVER[1] + 1.2) terrH[v] = Math.min(terrH[v], -1.7*smooth(RIVER[0] - 1.2, RIVER[0] + .4, r)*(1 - smooth(RIVER[1] - .4, RIVER[1] + 1.2, r))); }   // Alpha Mode: flat arena, river channel
   }
   syncTerrain();
@@ -1061,7 +1062,7 @@ function buildRound(seed, keepChars){
   const atkSpawn = new THREE.Vector3(Math.cos(sa)*sr, 0, Math.sin(sa)*sr); atkSpawn.y = groundH(atkSpawn.x, atkSpawn.z) + .3;
   const defSpawn = new THREE.Vector3(Math.cos(sa+Math.PI)*3, .3, Math.sin(sa+Math.PI)*3);
   const LIM = ISL - 4, taken = [];
-  const free = (p, r) => p.distanceTo(atkSpawn) > r + 4 && !(G.pvp && G.mode === 'egg' && Math.hypot(p.x, p.z) < LAVA[1] + 6 + r) && !(G.pvp && G.mode === 'td' && (tdPathDist(p.x, p.z) < r + 5 || Math.hypot(p.x, p.z) < 9 + r)) && taken.every(t => Math.hypot(t.x-p.x, t.z-p.z) > t.r + r);
+  const free = (p, r) => p.distanceTo(atkSpawn) > r + 4 && !(G.pvp && G.mode === 'egg' && Math.hypot(p.x, p.z) < LAVA[1] + 6 + r) && !(G.pvp && G.mode === 'td' && (tdPathDist(p.x, p.z) < r + 5 || Math.hypot(p.x, p.z) < 9 + r)) && !(G.pvp && G.mode === 'tennis' && Math.abs(p.x) < TN_CW + TN_FENCE + 6 + r && Math.abs(p.z) < TN_CL + TN_FENCE + 6 + r) && taken.every(t => Math.hypot(t.x-p.x, t.z-p.z) > t.r + r);
   const place = (r, minR) => { if (G.pvp && G.mode === 'td' && rand() > (r < 1.3 ? .03 : .05)) return null;   // Balloon Defense: a simple, open map
     for (let k=0;k<60;k++){ const a = rr(0,Math.PI*2), d = rr(minR, LIM - r); const p = new THREE.Vector3(Math.cos(a)*d, 0, Math.sin(a)*d); if (free(p, r)) { taken.push({x:p.x, z:p.z, r}); return p; } } return null; };
   const hillCols = G.map.ice ? [0xBFE6FA,0xD5F0FF] : G.map.bouncy ? [0xF093CC,0xFAB8DF] : [0x62A844,0x74B852,0x5E9E40];
@@ -4542,6 +4543,7 @@ function nearestEnemy(x, z, team){
   return best;
 }
 function hurt(P, dmg){
+  if (G.mode === 'tennis') return;   // Pain Tennis: nobody gets hurt
   if (!G.pvp || !P || P !== localP() || P.alive === false || G.phase !== 'attack' || !(dmg > 0)) return;
   if (G.spawnShield > 0) return;
   if (amDefender()) fortHurtHook();
@@ -4624,7 +4626,7 @@ function addPlayer(info, isLocal){
 function removePlayer(id){ const P = chars[id]; if (!P) return; roundGroup.remove(P.root); if (P.body.world) world.removeBody(P.body); delete chars[id]; }
 function startMatch(seed, list, score, mode, cdOn, eg){
   hideOverlay(); $('matchEnd').style.display = 'none'; $('eggBanner').style.display = 'none';
-  G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' || mode === 'swarm' || mode === 'td' ? mode : mode === 'chaos' ? 'td' : 'chaos'; G.cdOn = !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
+  G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' || mode === 'swarm' || mode === 'td' || mode === 'tennis' ? mode : mode === 'chaos' ? 'td' : 'chaos'; G.cdOn = !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
   if (G.mode === 'egg' && !eg) eg = {def:G.localKey, round:1, total:1, pts:{}};
   buildRound(seed);
   painReset(); painAmbience(); barReset(); bomberReset(); swordReset(); avatarReset(); summonReset(); necroReset(); ultReset();
@@ -4636,7 +4638,7 @@ function startMatch(seed, list, score, mode, cdOn, eg){
   }
   for (const k of Object.keys(chars)) { const P = chars[k]; if (P) { roundGroup.remove(P.root); if (P.body.world) world.removeBody(P.body); } delete chars[k]; }
   G.atkChar = {name:'', e:'', atk:{}}; G.defChar = {name:'', e:'', def:{}};
-  list.forEach(info => addPlayer(G.mode === 'td' ? Object.assign({}, info, {team:'blue'}) : G.mode === 'egg' ? Object.assign({}, info, {team:(eg.defs ? eg.defs[info.id] : info.id === eg.def) ? 'blue' : 'red'}) : info, info.id === G.localKey));
+  list.forEach((info, ix) => addPlayer(G.mode === 'tennis' ? Object.assign({}, info, {team:ix % 2 ? 'blue' : 'red'}) : G.mode === 'td' ? Object.assign({}, info, {team:'blue'}) : G.mode === 'egg' ? Object.assign({}, info, {team:(eg.defs ? eg.defs[info.id] : info.id === eg.def) ? 'blue' : 'red'}) : info, info.id === G.localKey));
   G.phase = 'attack'; G.atkTime = Infinity; G.specials = {}; Object.keys(modeTable()).forEach(k => G.specials[k] = Infinity);
   G.targeting = null; G.cd = {}; G.spCd = 0; G.kiCd = 0; G.slowmo = 0; G.eggCam = 0;
   G.score = score || {blue:0, red:0}; G.matchOver = false; G.spawnShield = 2;
@@ -4647,13 +4649,161 @@ function startMatch(seed, list, score, mode, cdOn, eg){
   if (isPain() && !NET.peer) spawnDummies();
   if (G.mode === 'swarm') swarmStart();
   wildStart();
-  $('eggPts').style.display = G.mode === 'egg' ? 'block' : 'none'; document.querySelector('#top .score').style.display = G.mode === 'egg' || G.mode === 'swarm' || G.mode === 'td' ? 'none' : '';
+  $('eggPts').style.display = G.mode === 'egg' ? 'block' : 'none'; document.querySelector('#top .score').style.display = G.mode === 'egg' || G.mode === 'swarm' || G.mode === 'td' || G.mode === 'tennis' ? 'none' : '';
   tdHudShow(G.mode === 'td'); if (G.mode !== 'td') tdClear();
+  tnHud(G.mode === 'tennis'); if (G.mode !== 'tennis') TNS.on = false;
   if (G.mode === 'td') { tdStart(); return; }
+  if (G.mode === 'tennis') { tnStart(); return; }
   if (G.mode === 'egg') { eggStart(eg); return; }
   if (G.mode === 'swarm') { toast('👾 Swarm mode: spawn enemies from the Swarm panel (or Alt+1–5) and try every class on them.'); return; }
   toast(isPain() ? (NET.peer ? `🌑 Pain mode! First team to ${WIN_SCORE} knockouts wins.` : '🌑 Pain practice: throw the training dummies around with every gravity power.')
     : NET.peer ? `⚔️ Match on! First team to ${WIN_SCORE} knockouts wins.` : '⚔️ Practice mode: try every skill on the map.');
+}
+
+/* ===================================== PAIN TENNIS (G.mode === 'tennis') =====================================
+   Two Pain players, one on each side of a giant tennis court covered in junk. A countdown, then the clock runs: throw,
+   push, pull and fling everything you can over the net. When time is up, the side with FEWER things on it wins. People
+   can't cross the net or leave their half (walls only people bump into); things fly over the net and the low fence, and
+   anything knocked off the court drops back onto the side of whoever knocked it off. Nobody gets hurt here. The host keeps
+   the clock and the score ('tn', 4 times a second). Practising alone, the far side throws things back on its own. */
+const TN_CL = 40, TN_CW = 22, TN_T = 150, TN_N = 72, TN_FENCE = 5;
+const TNS = {on:false};
+const tnOn = () => G.pvp && G.mode === 'tennis' && TNS.on;
+const tnAuth = () => !NET.peer || NET.host;
+const TN_KINDS = {junk:1, rubble:1, debris:1, slab:1};
+const tnSide = team => team === 'blue' ? 1 : -1;   // red plays the near half (z < 0), blue the far half
+function tnCourt(){
+  const g = new THREE.Group();
+  const flat = (w, d, col, x, z, y) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), M3(col)); m.rotation.x = -Math.PI/2; m.position.set(x || 0, y, z || 0); m.receiveShadow = true; g.add(m); return m; };
+  flat(2*(TN_CW + TN_FENCE), 2*(TN_CL + TN_FENCE), 0x3E8E5A, 0, 0, .02);
+  flat(2*TN_CW, TN_CL, 0x3366B8, 0, -TN_CL/2, .03); flat(2*TN_CW, TN_CL, 0x2E5DAA, 0, TN_CL/2, .03);
+  const line = (w, d, x, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, .03, d), M3(0xFFFFFF)); m.position.set(x, .05, z); g.add(m); };
+  for (const s of [-1, 1]) { line(.35, 2*TN_CL, s*TN_CW, 0); line(.3, 2*TN_CL, s*(TN_CW - 5), 0); line(2*TN_CW, .35, 0, s*TN_CL); line(2*(TN_CW - 5), .3, 0, s*TN_CL*.55); line(.3, 1.2, 0, s*(TN_CL - .6)); }
+  line(.3, TN_CL*1.1, 0, 0);
+  // the net: posts, a mesh you can see through, a white tape along the top
+  for (const s of [-1, 1]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(.18, .2, 2.7, 10), M3(0xDDDDDD)); p.position.set(s*(TN_CW + 1.5), 1.35, 0); g.add(p); }
+  { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'); x.strokeStyle = 'rgba(20,20,20,.9)'; x.lineWidth = 3; for (let i = 0; i <= 64; i += 16) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i, 64); x.moveTo(0, i); x.lineTo(64, i); x.stroke(); }
+    const tex = new THREE.CanvasTexture(c); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set((2*TN_CW + 3)/1.2, 2.2/1.2);
+    const net = new THREE.Mesh(new THREE.PlaneGeometry(2*TN_CW + 3, 2.2), new THREE.MeshBasicMaterial({map:tex, transparent:true, side:THREE.DoubleSide, depthWrite:false})); net.position.set(0, 1.2, 0); g.add(net); }
+  bx(2*TN_CW + 3, .16, .18, 0xFFFFFF, 0, 2.38, 0, g);
+  // a low fence round the court, and big flags at each end
+  const fc = [0x2D6B45, 0x245A3A];
+  for (const s of [-1, 1]) { bx(.4, 1, 2*(TN_CL + TN_FENCE), fc[0], s*(TN_CW + TN_FENCE), .5, 0, g); bx(2*(TN_CW + TN_FENCE), 1, .4, fc[1], 0, .5, s*(TN_CL + TN_FENCE), g); }
+  for (const [team, col] of [['red', 0xE8332E], ['blue', 0x2E7BFF]]) { const z = tnSide(team)*(TN_CL + TN_FENCE + 1.5);
+    for (const s of [-1, 1]) { bx(.25, 7, .25, 0xEEEEEE, s*10, 3.5, z, g); const fl = bx(3.2, 1.8, .1, col, s*10 + 1.6, 6, z, g); }
+    const lab = textSprite(); lab.userData.set(team === 'red' ? '🔴 RED' : '🔵 BLUE', '#FFFFFF'); lab.position.set(0, 8, z); lab.scale.set(10, 3.6, 1); g.add(lab); }
+  g.traverse(o => o.userData.noRay = o.userData.noRay || false); roundGroup.add(g); TNS.court = g;
+  // physics: the net and the fence stop rolling things; tall walls (people only) keep each player in their half
+  const wall = (hx, hy, hz, x, y, z, people) => { const b = new CANNON.Body({mass:0, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(hx, hy, hz))); b.position.set(x, y, z); if (people) { b.collisionFilterGroup = 32; b.collisionFilterMask = GRP_CHAR; } b.tag = 'tennis'; world.addBody(b); return b; };
+  wall(TN_CW + 1.5, 1.2, .08, 0, 1.2, 0);
+  for (const s of [-1, 1]) { wall(.2, .5, TN_CL + TN_FENCE, s*(TN_CW + TN_FENCE), .5, 0); wall(TN_CW + TN_FENCE, .5, .2, 0, .5, s*(TN_CL + TN_FENCE)); }
+  wall(TN_CW + TN_FENCE + 2, 40, .3, 0, 40, 0, true);
+  for (const s of [-1, 1]) { wall(.3, 40, TN_CL + TN_FENCE + 2, s*(TN_CW + TN_FENCE - .6), 40, 0, true); wall(TN_CW + TN_FENCE + 2, 40, .3, 0, 40, s*(TN_CL + TN_FENCE - .6), true); }
+}
+// the junk: rocks, crates, barrels, logs, tyres, traffic cones and giant tennis balls (the same on every screen: seeded)
+function tnJunk(kind, x, z, rng){
+  const y0 = groundH(x, z);
+  if (kind === 'rock') return rubbleRock(x, y0 + 1, z, .5 + rng()*.7);
+  const g = new THREE.Group(), body = (mass, mat) => new CANNON.Body({mass, material:mat || PM.def}); let b, bottom = .5;
+  if (kind === 'crate') { bx(1.1, 1.1, 1.1, 0xB9853F, 0, 0, 0, g); for (const yy of [-.38, .38]) bx(1.14, .14, 1.14, 0x8A5E2B, 0, yy, 0, g); b = body(45); b.addShape(new CANNON.Box(new CANNON.Vec3(.55, .55, .55))); bottom = .55; }
+  else if (kind === 'barrel') { const c = [0xD8432E, 0x2E7BD8, 0xE8B22E][Math.floor(rng()*3)]; g.add(new THREE.Mesh(new THREE.CylinderGeometry(.5, .5, 1.2, 14), M3(c)));
+    for (const yy of [-.4, .4]) { const r = new THREE.Mesh(new THREE.TorusGeometry(.51, .045, 6, 16), M3(0x555555)); r.rotation.x = Math.PI/2; r.position.y = yy; g.add(r); }
+    b = body(60); const q = new CANNON.Quaternion(); q.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), Math.PI/2); b.addShape(new CANNON.Cylinder(.5, .5, 1.2, 10), new CANNON.Vec3(0, 0, 0), q); bottom = .6; }
+  else if (kind === 'log') { g.add(new THREE.Mesh(new THREE.CylinderGeometry(.35, .38, 3, 10).rotateX(Math.PI/2), M3(0x6B4A2E))); for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.CircleGeometry(.34, 10), M3(0xC9A06A)); e.position.z = s*1.51; e.rotation.y = s > 0 ? 0 : Math.PI; g.add(e); }
+    b = body(90); b.addShape(new CANNON.Cylinder(.36, .36, 3, 8)); bottom = .36; }
+  else if (kind === 'tire') { g.add(new THREE.Mesh(new THREE.TorusGeometry(.55, .25, 8, 18), M3(0x222222))); g.add(new THREE.Mesh(new THREE.CylinderGeometry(.3, .3, .32, 10).rotateX(Math.PI/2), M3(0x9AA3AD)));
+    b = body(22); b.addShape(new CANNON.Cylinder(.8, .8, .5, 10)); bottom = .8; }
+  else if (kind === 'cone') { const m = new THREE.Mesh(new THREE.ConeGeometry(.35, .9, 12), M3(0xFF7A1F)); m.position.y = .05; g.add(m); const band = new THREE.Mesh(new THREE.CylinderGeometry(.2, .26, .16, 12), M3(0xFFFFFF)); band.position.y = .1; g.add(band); bx(.8, .08, .8, 0xFF7A1F, 0, -.42, 0, g);
+    b = body(6); b.addShape(new CANNON.Box(new CANNON.Vec3(.32, .46, .32))); bottom = .46; }
+  else { g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(.75, 2), M3(0xD8F23A))); for (const s of [-1, 1]) { const seam = new THREE.Mesh(new THREE.TorusGeometry(.62, .035, 6, 24), M3(0xFFFFFF)); seam.position.x = s*.3; seam.rotation.y = Math.PI/2; seam.scale.set(1, 1, .9); g.add(seam); }   // a giant tennis ball
+    b = body(14, PM.jelly); b.addShape(new CANNON.Sphere(.75)); bottom = .75; b.linearDamping = .1; }
+  b.position.set(x, y0 + bottom + .05 + rng()*.6, z); b.quaternion.setFromEuler(0, rng()*6.28, 0);
+  b.allowSleep = true; b.sleepSpeedLimit = .3; b.angularDamping = .3; if (!b.linearDamping) b.linearDamping = .05;
+  addOutline(g); g.traverse(m => { if (m.isMesh) m.castShadow = true; });
+  return addObj({body:b, mesh:g, kind:'junk', bottom, jk:kind});
+}
+const TN_MIX = [['rock', 25], ['crate', 20], ['barrel', 15], ['tire', 12], ['log', 10], ['cone', 10], ['ball', 8]];
+function tnPickKind(rng){ let r = rng()*100; for (const [k, w] of TN_MIX) { if ((r -= w) < 0) return k; } return 'rock'; }
+function tnSpawnJunk(){
+  const rng = mulberry32((G.seed || 1) ^ 0x7E2);
+  for (let i = 0; i < TN_N; i++) {
+    const side = i % 2 ? 1 : -1; let x, z, k = 0;
+    do { x = (rng()*2 - 1)*(TN_CW - 2); z = side*(3 + rng()*(TN_CL - 6)); } while (k++ < 8 && Math.hypot(x, z - side*TN_CL*.55) < 5);
+    tnJunk(tnPickKind(rng), x, z, rng);
+  }
+}
+function tnCount(){
+  let r = 0, b = 0;
+  for (const o of objs) { if (o.dead || !TN_KINDS[o.kind] || !o.body.world || isCarried(o)) continue; const p = o.body.position; if (Math.abs(p.x) > TN_CW || Math.abs(p.z) > TN_CL) continue; if (p.z < 0) r++; else b++; }
+  return [r, b];
+}
+// knocked off the court: it drops back from the sky onto the side of whoever knocked it off (random if nobody did)
+function tnOut(){
+  for (const o of objs) {
+    if (o.dead || !TN_KINDS[o.kind] || !o.body.world || isCarried(o)) continue;
+    const b = o.body, p = b.position; if (Math.abs(p.x) < TN_CW + TN_FENCE + 3 && Math.abs(p.z) < TN_CL + TN_FENCE + 3 && p.y > -4) continue;
+    const own = G.t - (b._ownT || -99) < 20 && b._own && chars[b._own], side = own ? tnSide(own.team) : (Math.random() < .5 ? -1 : 1);
+    b.position.set((Math.random()*2 - 1)*(TN_CW - 3), 14 + Math.random()*4, side*(4 + Math.random()*(TN_CL - 8))); b.velocity.set(0, -2, 0); b.angularVelocity.set(rr(-2, 2), rr(-2, 2), rr(-2, 2)); if (b.wakeUp) b.wakeUp();
+    sparkle(V3(b.position.x, b.position.y, b.position.z), 0xFFFFFF);
+  }
+}
+// practising alone: the far side throws things back over the net on its own
+function tnBot(dt){
+  TNS.botT -= dt; if (TNS.botT > 0) return; TNS.botT = 2.2 + Math.random()*1.2;
+  const mine = objs.filter(o => !o.dead && TN_KINDS[o.kind] && o.body.world && o.body.position.z > 2 && o.body.position.z < TN_CL && Math.abs(o.body.position.x) < TN_CW && o.body.mass < 2000).sort(() => Math.random() - .5).slice(0, 4);
+  for (const o of mine) { const b = o.body, a = V3(b.position.x, b.position.y, b.position.z), to = V3((Math.random()*2 - 1)*(TN_CW - 3), 0, -(4 + Math.random()*(TN_CL - 8))); to.y = groundH(to.x, to.z) + 1;
+    const v = lobVel(a, to, 1.5 + Math.random()*.5); if (b.wakeUp) b.wakeUp(); b.velocity.set(v.x, v.y, v.z); spin(b, 4); warpPulse(a.clone(), 4, .3, .03); }
+  if (mine.length) sfx('shinra');
+}
+// HUD: the score pill and the big countdown
+function tnHud(on){
+  let h = document.getElementById('tnHud');
+  if (!h) { h = document.createElement('div'); h.id = 'tnHud'; h.style.cssText = 'position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 70px);transform:translateX(-50%);z-index:7;display:none;text-align:center;font:900 16px/1.2 var(--display,system-ui),system-ui,sans-serif;pointer-events:none';
+    h.innerHTML = '<div id="tnStat" style="display:inline-flex;gap:14px;align-items:center;padding:7px 16px;border-radius:999px;background:linear-gradient(180deg,#F4FF9A,#C6E83A);color:#24320A;border:4px solid #24320A;box-shadow:0 4px 0 #24320A"></div><div id="tnBig" style="margin-top:80px;font-size:120px;color:#FFF;text-shadow:0 6px 0 #24320A,0 0 24px rgba(0,0,0,.4)"></div>';
+    document.body.appendChild(h); }
+  h.style.display = on ? 'block' : 'none';
+  if (!on) { const e = document.getElementById('tnEnd'); if (e) e.remove(); }
+}
+function tnHudFrame(){
+  const st = document.getElementById('tnStat'), big = document.getElementById('tnBig'); if (!st) return;
+  const me = localP(), myTeam = me ? me.team : 'red', cl = Math.max(0, Math.ceil(TNS.clock)), mm = Math.floor(cl/60), ss = String(cl % 60).padStart(2, '0');
+  const sc = TNS.sc, you = t => myTeam === t ? ' (you)' : '';
+  const html = `<span>🎾 PAIN TENNIS</span><span style="color:#B3201B">🔴 Red side${you('red')}: ${sc[0]}</span><span style="color:#1B4FB3">🔵 Blue side${you('blue')}: ${sc[1]}</span><span>⏱ ${mm}:${ss}</span>`;
+  if (st.innerHTML !== html) st.innerHTML = html;
+  const bt = TNS.state === 'count' ? (TNS.t > 3 ? '' : TNS.t > .2 ? String(Math.ceil(TNS.t)) : 'GO!') : TNS.state === 'play' && TNS.clock > 147 ? 'GO!' : TNS.state === 'play' && TNS.clock <= 10 ? String(cl) : '';
+  if (big.textContent !== bt) big.textContent = bt;
+}
+function tnStart(){
+  Object.assign(TNS, {on:true, state:'count', t:3.6, clock:TN_T, sc:[0, 0], sendT:0, botT:3, outT:0, cntT:0, endShown:false});
+  tnCourt(); tnSpawnJunk();
+  const P = localP(); if (P) { const s = tnSide(P.team), x = (Math.random()*2 - 1)*6, z = s*TN_CL*.55; P.body.position.set(x, groundH(x, z) + .4, z); P.body.velocity.set(0, 0, 0); G.yaw = s < 0 ? 0 : Math.PI; G.pitch = -.12; }
+  tnHud(true); sfx('whistle');
+  toast(`🎾 PAIN TENNIS! You are on the ${P && P.team === 'blue' ? '🔵 blue (far)' : '🔴 red (near)'} side. Throw everything over the net with your gravity powers. When the clock runs out, the side with FEWER things wins.`);
+}
+function tnFrame(dt){
+  if (!tnOn()) return;
+  const me = localP();
+  if (TNS.state === 'count') { TNS.t -= dt; if (me) me.lockT = Math.max(me.lockT || 0, .12); if (TNS.t <= 0 && tnAuth()) { TNS.state = 'play'; sfx('whistle'); tnSendNow(); } }
+  else if (TNS.state === 'play') { if (tnAuth()) { TNS.clock -= dt; if (TNS.clock <= 0) { TNS.clock = 0; TNS.state = 'over'; tnSendNow(); } } else TNS.clock = Math.max(0, TNS.clock - dt);
+    if (!NET.peer) tnBot(dt); }
+  TNS.outT -= dt; if (TNS.outT <= 0) { TNS.outT = .5; tnOut(); }
+  TNS.cntT -= dt; if (TNS.cntT <= 0 && tnAuth()) { TNS.cntT = .25; if (TNS.state !== 'over') TNS.sc = tnCount(); }
+  if (tnAuth() && NET.peer) { TNS.sendT -= dt; if (TNS.sendT <= 0) { TNS.sendT = .25; tnSendNow(); } }
+  if (TNS.state === 'over' && !TNS.endShown) tnShowEnd();
+  tnHudFrame();
+}
+function tnSendNow(){ if (NET.peer && NET.host) netBroadcast({t:'tn', s:TNS.state, c:+TNS.clock.toFixed(1), r:TNS.sc[0], b:TNS.sc[1]}); }
+function tnApply(m){ if (['count', 'play', 'over'].includes(m.s)) TNS.state = m.s; if (typeof m.c === 'number') TNS.clock = m.c; TNS.sc = [m.r | 0, m.b | 0]; if (TNS.state !== 'count') TNS.t = 0; }
+function tnShowEnd(){
+  TNS.endShown = true; sfx('whistle');
+  const [r, b] = TNS.sc, me = localP(), win = r === b ? null : r < b ? 'red' : 'blue', mine = me && win === me.team;
+  const e = document.createElement('div'); e.id = 'tnEnd'; e.style.cssText = 'position:fixed;inset:0;z-index:30;display:grid;place-items:center;background:rgba(0,0,0,.35)';
+  const again = !NET.peer || NET.host;
+  e.innerHTML = `<div class="panel sticker" style="text-align:center;background:linear-gradient(180deg,#F4FF9A,#C6E83A);color:#24320A;padding:22px 30px"><div class="title">${win ? (mine ? '🏆 You win!' : '😵 You lose') : '🤝 A draw!'}</div>
+    <p style="font-size:20px;font-weight:900;margin:8px 0">🔴 Red side: ${r} things · 🔵 Blue side: ${b} things</p><p>${win ? `${win === 'red' ? '🔴 Red' : '🔵 Blue'} kept their side cleaner.` : 'Both sides ended with the same.'}</p>
+    ${again ? '<button class="btn primary" id="tnAgain">🎾 Play again</button>' : '<p class="muted">Waiting for the host to start the next match…</p>'}</div>`;
+  document.body.appendChild(e);
+  if (again) $('tnAgain').onclick = () => { e.remove(); if (NET.peer && NET.host) hostStart(); else { const me2 = myInfo(); me2.id = 'me'; startMatch(Math.floor(Math.random()*90000) + 10000, [me2], null, 'tennis', ME.cdOn); } };
 }
 
 /* ===================================== BALLOON DEFENSE (G.mode === 'td') =====================================
@@ -7678,7 +7828,7 @@ function castOK(c, m){
    any class, so players can swap freely without telling anyone. */
 const CLASS_IDS = ['native', 'pain', 'bomber', 'sword', 'avatar', 'summon', 'necro'];
 // in Pain mode the default kit already is Pain, so the class is skipped there
-const classCycle = () => CLASS_IDS.filter(c => !(c === 'pain' && isPain()) && !((G.mode === 'egg' || G.mode === 'td') && (c === 'native' || c === 'summon' || c === 'necro')));   // Alpha Mode: no Chaos, Summoner or Necromancer for now
+const classCycle = () => G.mode === 'tennis' ? ['pain'] : CLASS_IDS.filter(c => !(c === 'pain' && isPain()) && !((G.mode === 'egg' || G.mode === 'td') && (c === 'native' || c === 'summon' || c === 'necro')));   // Alpha Mode: no Chaos, Summoner or Necromancer for now
 function classInfo(c){ return c === 'avatar' ? {name:'Genos', e:'🔥'} : c === 'pain' ? {name:'Pain', e:'🌑'} : c === 'bomber' ? {name:'Bomber', e:'💣'} : c === 'sword' ? {name:'Swordsman', e:'⚔️'} : c === 'summon' ? {name:'Summoner', e:'🐾'} : c === 'necro' ? {name:'Necromancer', e:'💀'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
 function modeTable(){ return isPain() ? PAIN_SKILLS : SPECIALS; }
 G.cls = (() => { try { const c = localStorage.getItem('ca-cls'); return c === 'pain' || c === 'bomber' || c === 'sword' || c === 'avatar' || c === 'summon' || c === 'necro' ? c : 'native'; } catch (e) { return 'native'; } })();
@@ -13677,8 +13827,8 @@ const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').s
 function netSend(m){ if (!NET.peer) return; if (NET.host) netBroadcast(m); else if (NET.hostConn && NET.hostConn.open) NET.hostConn.send(m); }
 function netBroadcast(m, except){ NET.conns.forEach(c => { if (c.open && c !== except) c.send(m); }); }
 function lobbyList(){ return Object.values(NET.players); }
-const normMode = m => m === 'td' || m === 'chaos' ? 'td' : 'egg';   // Chaos left the menu (2026-10-08); Balloon Defense took its place   // Pain and Swarm modes were removed (2026-10-06); 'egg' is shown as Alpha Mode
-const MODE_NAME = {egg:'🥚 Alpha Mode', td:'🎈 Balloon Defense', chaos:'🎈 Balloon Defense'};
+const normMode = m => m === 'tennis' ? 'tennis' : m === 'td' || m === 'chaos' ? 'td' : 'egg';   // Chaos left the menu (2026-10-08); Balloon Defense took its place   // Pain and Swarm modes were removed (2026-10-06); 'egg' is shown as Alpha Mode
+const MODE_NAME = {egg:'🥚 Alpha Mode', td:'🎈 Balloon Defense', tennis:'🎾 Pain Tennis'};
 function broadcastLobby(){ netBroadcast({t:'lobby', players:lobbyList(), host:NET.myId, mode:NET.mode, cd:NET.cdOn ? 1 : 0}); renderLobby(); }
 /* STUN lets two browsers find a direct route to each other. On strict networks (mobile data, school/work Wi-Fi,
    some VPNs) there is none. PeerJS's free TURN relays are gone (their hostnames no longer resolve), so when the
@@ -13896,6 +14046,7 @@ function clientHandle(m){
     case 'eg': if (Array.isArray(m.p) && Array.isArray(m.q)) eggNetState(m); break;
     case 'eover': if (eggOn()) eggShowOver(m); break;
     case 'td': if (tdOn()) tdApply(m); break;
+    case 'tn': if (tnOn()) tnApply(m); break;
     case 'egu': if (eggOn() && typeof m.id === 'string') { G.egg.gaveUp[m.id] = true; eggGaveUpNote(m); } break;
     case 'erole': if (eggOn() && typeof m.id === 'string' && (m.r === 'def' || m.r === 'atk')) eggRole(m.id, m.r, false); break;
     case 'erdy': if (eggOn() && typeof m.id === 'string' && G.egg.defs[m.id]) { G.egg.ready[m.id] = true; renderTray(); } break;
@@ -13947,7 +14098,7 @@ function showPvPTitle(){
     <div class="rows" style="grid-template-columns:1fr 1fr;align-items:center">
       <label style="grid-column:1/-1;text-align:left;font-size:14px">Your name<br><input id="nameIn" maxlength="14" value="${clean(saved) === 'Player' && !saved ? '' : clean(saved)}" placeholder="Player" style="width:100%;margin-top:4px;padding:10px 12px;border:3px solid var(--edge);border-radius:12px;font:inherit;background:var(--panel);color:var(--text)"></label>
       <button class="btn" id="tBlue" style="background:var(--blue);color:#fff">Blue team</button><button class="btn" id="tRed" style="background:var(--red);color:#fff">Red team</button>
-      <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="btn" id="mEgg" style="background:#FFF3DC;color:#3B2A1A">🥚 Alpha Mode</button><button class="btn" id="mTD" style="background:linear-gradient(180deg,#FFE14D,#FF9A2E);color:#4A2A00">🎈 Balloon Defense</button></div>
+      <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="btn" id="mEgg" style="background:#FFF3DC;color:#3B2A1A">🥚 Alpha Mode</button><button class="btn" id="mTD" style="background:linear-gradient(180deg,#FFE14D,#FF9A2E);color:#4A2A00">🎈 Balloon Defense</button><button class="btn" id="mTennis" style="background:linear-gradient(180deg,#F4FF9A,#C6E83A);color:#24320A">🎾 Pain Tennis</button></div>
       <p class="muted" id="modeDesc" style="grid-column:1/-1;margin:0;font-size:14px"></p>
       <button class="btn" id="cdB"></button><button class="btn" id="pixB"></button>
     </div>
@@ -13966,16 +14117,17 @@ function showPvPTitle(){
   $('tBlue').onclick = () => setTeam('blue'); $('tRed').onclick = () => setTeam('red');
   // game mode: the host's choice is used for the match; practice uses yours
   const setMode = m => { ME.mode = m; try { localStorage.setItem('ca-mode2', m); } catch (e) {}
-    if (m !== 'egg') m = ME.mode = 'td';
-    for (const [id, k] of [['mEgg','egg'],['mTD','td']]) $(id).style.outline = m === k ? '4px solid var(--yolk)' : 'none';
+    if (m !== 'egg' && m !== 'tennis') m = ME.mode = 'td';
+    for (const [id, k] of [['mEgg','egg'],['mTD','td'],['mTennis','tennis']]) $(id).style.outline = m === k ? '4px solid var(--yolk)' : 'none';
     $('hostB').disabled = m === 'swarm' || !online; $('hostB').title = m === 'swarm' ? 'Swarm mode is single-player: use Practice alone' : '';
     $('modeDesc').textContent = m === 'egg' ? `Alpha Mode: one player defends the egg with 20 protection powers and builds for as long as they like, then presses Ready. Everyone else attacks until the egg breaks or they give up. Everyone takes a turn defending.`
+      : m === 'tennis' ? 'Pain Tennis: two Pain players, a giant tennis court full of junk and a clock. Fling everything over the net with your gravity powers. When time runs out, the side with fewer things on it wins. Practising alone, the far side throws back on its own.'
       : m === 'swarm' ? 'Swarm (single-player): spawn 5 to 100 enemies that chase you, then try every class’s powers on them. Use Practice alone.'
       : 'Balloon Defense: balloons float along a winding path to crack the egg. Pop them with Pain, Bomber and Swordsman powers. 20 rounds, each one harder: more balloons, bigger, tougher, faster. Play alone or together.';
     if ($('cdB')) setCd(ME.cdOn); };
   function setCd(on){ ME.cdOn = on; try { localStorage.setItem('ca-cd', on ? 'on' : 'off'); } catch (e) {} $('cdB').disabled = false; $('cdB').textContent = on ? '⏱️ Cooldowns: on' : '⏱️ Cooldowns: off (spam everything)'; }
   setMode(ME.mode); setCd(ME.cdOn); $('cdB').onclick = () => setCd(!ME.cdOn);
-  $('mEgg').onclick = () => setMode('egg'); $('mTD').onclick = () => setMode('td');
+  $('mEgg').onclick = () => setMode('egg'); $('mTD').onclick = () => setMode('td'); $('mTennis').onclick = () => setMode('tennis');
   $('pixB').textContent = PIXEL.on ? '🟪 Pixel look: on' : '🟪 Pixel look: off'; $('pixB').title = 'Switching reloads the game';
   $('pixB').onclick = () => { try { localStorage.setItem('ca-pixel2', PIXEL.on ? 'off' : 'on'); } catch (e) {} location.reload(); };
   $('hostB').onclick = () => { if (ME.mode === 'swarm') return; ensureAudio(); hostGame($('codeIn').value); };
@@ -14033,7 +14185,7 @@ function pvpFrame(rdt){
   for (const k in G.cd) G.cd[k] = Math.max(0, G.cd[k] - rdt);
   G.kiCd = Math.max(0, (G.kiCd || 0) - rdt); G.spawnShield = Math.max(0, (G.spawnShield || 0) - rdt);
   G.cdUiT = (G.cdUiT || 0) - rdt; if (G.cdUiT <= 0) { G.cdUiT = .1; updateCooldownUI(); }
-  updateRemotes(rdt); remoteChargeFX(); netTick(rdt); updateEnemyFinder(); eggFrame(rdt); tdFrame(rdt);
+  updateRemotes(rdt); remoteChargeFX(); netTick(rdt); updateEnemyFinder(); eggFrame(rdt); tdFrame(rdt); tnFrame(rdt);
   const P = localP();
   if (P && P.alive === false && G.phase === 'attack') { P.deadT -= rdt; $('respawnT').textContent = Math.max(1, Math.ceil(P.deadT)); if (P.deadT <= 0) respawn(P); }
   if (P && P.alive && P.hp < 100 && G.phase === 'attack') { P.regenWait = (P.regenWait || 0) + rdt; }
@@ -14056,6 +14208,7 @@ function setWho(c, team, verb, txt){
 function renderPhase(){
   const map = {title:'Egg Defense', intro:`Round ${G.round}`, build:`${teamName(G.defender)} builds`, handoff:'Swap players', attack: G.pvp ? (G.mode === 'pain' ? 'Pain' : 'Chaos Arena') : `${teamName(attacker())} attacks`, end:'Round over'};
   if (eggOn()) { eggHud(true); eggHelp(); $('tAct').textContent = G.phase === 'build' && amDefender() ? 'Place' : 'Shoot'; return; }
+  if (G.pvp && G.mode === 'tennis') { const help = $('help'); help.style.display = 'block'; help.innerHTML = painHelp() + '<br>🎾 Fling everything over the net: when the clock runs out, the side with fewer things wins. Knocked off the court, it drops back on your side.'; $('phase').innerHTML = '🎾 Pain Tennis<small>Fewer things on your side wins</small>'; $('tAct').textContent = 'Cast'; return; }
   if (G.pvp && G.mode === 'td') { tdHud(); const help = $('help'); help.style.display = 'block'; help.innerHTML = (G.cls === 'bomber' ? bomberHelp() : G.cls === 'sword' ? swordHelp() : G.cls === 'avatar' ? avatarHelp() : painHelp()) + '<br><b>Enter</b> start the next round · <b>Tab</b> switch class'; $('tAct').textContent = 'Cast'; return; }
   $('phase').innerHTML = map[G.phase] + (G.phase==='build' ? `<small>Place your protection</small>` : G.phase==='attack' ? (G.mode === 'swarm' ? '<small>Swarm mode</small>' : G.pvp ? `<small>First team to ${WIN_SCORE}</small>` : `<small>Break the egg!</small>`) : '');
   const help = $('help');

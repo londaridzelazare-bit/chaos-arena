@@ -584,3 +584,10 @@ The user wants a public link to send to friends. Deploy `index.html` as a static
 - Skill names like Chibaku Tensei, Shinra Tensei, Bijuu Bomb, One Punch and End of Evangelion
   come from existing anime; fine for playing with friends, but they'd need renaming for a
   commercial release.
+
+PAIN TENNIS (G.mode 'tennis', 2026-10-10): module before BALLOON DEFENSE. TNS state (NOT `TN`: that is the terrain grid size).
+Court TN_CW 22 × TN_CL 40 (`tnCourt`: lines, see-through net with a physics box, low fence, people-only walls group 32 mask
+GRP_CHAR at the net and round each half), 72 seeded junk objects kind 'junk' (`tnJunk`: rock/crate/barrel/log/tire/cone/ball).
+Score = things on each half (`tnCount`, kinds junk/rubble/debris/slab); fewer wins at TN_T 150 s after a 3.6 s countdown. Out
+of bounds → dropped back on the knocker's side (`tnOut`, b._own). Host sends 'tn' {s, c, r, b} 4/s. Solo: `tnBot` lobs junk
+back. Teams by lobby order (red near z<0, blue far). Pain only (classCycle), hurt() off, flat terrain round the court.
