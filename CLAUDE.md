@@ -454,6 +454,10 @@ Early rounds: tdStartWave also works in state 'wave' (queues the next round at T
 100 rounds: rounds 21-100 generated after TD_WAVES; hpK +.03/round past 20, spK capped 1.9; balloon instances N 1600. Tests t68/t69.
 Turret names (2026-10-10.8): world labels are per-turret sprites sized to the text (`ttLabelSet`), visible only on TT.aimed; the
 Skills-bar buttons show icon + price (full name in the title tooltip).
+Wallets (2026-10-11.1): TD.wallet {playerId: cash}; TD.cash is a getter/setter for your own (Object.defineProperty after TD).
+`ttEarn(n)` adds n to EVERY wallet (pops, round bonus, early-send bonus); a wallet first seen gets TT_START + TD.earned. Turrets have
+`own` (ttPack stride 6); ttBuild/ttUpgrade/ttSellIt(.., who) pay from / refund to who, upgrade+sell owner-only; host passes c.peer.
+Snapshot `c` = the whole wallet map. Test t73 (two players).
 
 ## Akatsuki looks (2026-10-10.8)
 CHARS is now 4 looks: Itachi, Pain, Obito, Konan (`aka` key, `collar` height; old perks kept only for the legacy hot-seat mode).

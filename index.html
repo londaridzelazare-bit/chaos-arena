@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-10.8';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-11.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -4754,7 +4754,9 @@ function startMatch(seed, list, score, mode, cdOn, eg){
 }
 
 /* ===================================== TURRETS (Balloon Defense only) =====================================
-   Popping balloons earns cash (shared by the team: TD.cash, 2 per layer, plus a bonus for every round). Y opens the turret
+   Every player has their own wallet (TD.wallet by player id; TD.cash reads/writes yours). Income is shared: every coin earned
+   (2 per layer popped, by anyone or any turret, plus the round bonus) lands in EVERY wallet. Spending is personal, and only
+   a turret's owner can upgrade or sell it. Y opens the turret
    shop for your class (5 turrets each for Pain, Bomber and Swordsman), 1-5 picks one, Click places it (right-click
    cancels). Turrets fire on their own, can't be destroyed or moved, only sold (70% back). Aim at a turret: U upgrades it
    (5 upgrades each, every one a new power or a big boost), K sells it. The host owns the cash and the turrets: clients
@@ -4810,7 +4812,13 @@ Object.assign(TT_DEFS, {   // Genos (class id 'avatar'): fire
 });
 const TT_CLS = {}; for (const k in TT_DEFS) (TT_CLS[TT_DEFS[k].cls] = TT_CLS[TT_DEFS[k].cls] || []).push(k);
 // infinite money (a menu toggle the host picks before the match)
-const ttCan = c => !!TD.inf || (TD.cash | 0) >= c;
+const ttCan = c => !!TD.inf || (TD.cash | 0) >= c;   // can I afford it (my wallet)
+function ttWallet(who){ who = who || G.localKey; if (!TD.wallet) TD.wallet = {}; if (TD.wallet[who] == null) TD.wallet[who] = TT_START + (TD.earned || 0); return TD.wallet[who]; }
+// shared income: the same amount goes into everyone's wallet, whoever popped it
+function ttEarn(n){ for (const k of Object.keys(chars)) if (chars[k]) ttWallet(k); ttWallet(); TD.earned = (TD.earned || 0) + n; for (const k in TD.wallet) TD.wallet[k] += n; }
+function ttPay(who, n){ if (TD.inf) return; ttWallet(who); TD.wallet[who] -= n; }
+const ttCanFor = (who, c) => !!TD.inf || ttWallet(who) >= c;
+const ttOwnerName = t => t.own === G.localKey ? 'you' : (chars[t.own] && chars[t.own].name) || (NET.players && NET.players[t.own] && NET.players[t.own].name) || 'a teammate';
 const ttMoney = () => TD.inf ? '∞' : (TD.cash | 0).toLocaleString();
 const TT = {list:[], seq:0, shop:false, place:null, aimed:null, hudT:0, cashShown:-1};
 function ttStats(t){
@@ -4879,38 +4887,42 @@ function ttRemove(t){ if (t.g && t.g.parent) t.g.parent.remove(t.g); if (t.body 
 function ttClearAll(){ TT.list.forEach(ttRemove); TT.list = []; TT.place = null; TT.shop = false; ttGhostHide(); ttPanel(); }
 
 /* ---------- the host: build, upgrade, sell ---------- */
-function ttAdd(k, x, z, id, lvl){ const t = {id:id || ++TT.seq, k, x, z, lvl:lvl || 0, cd:Math.random()*.3}; TT.seq = Math.max(TT.seq, t.id); ttMesh(t); TT.list.push(t); return t; }
-function ttBuild(k, x, z){
-  const D = TT_DEFS[k]; if (!D || !tdOn()) return 'No such turret.';
+function ttAdd(k, x, z, id, lvl, own){ const t = {id:id || ++TT.seq, k, x, z, lvl:lvl || 0, own:own || G.localKey, cd:Math.random()*.3}; TT.seq = Math.max(TT.seq, t.id); ttMesh(t); TT.list.push(t); return t; }
+function ttBuild(k, x, z, who){
+  who = who || G.localKey; const D = TT_DEFS[k]; if (!D || !tdOn()) return 'No such turret.';
   const why = ttCanPlace(x, z); if (why) return why;
-  if (!ttCan(D.cost)) return `Not enough cash: ${D.name} costs 💰${D.cost}.`;
-  if (!TD.inf) TD.cash -= D.cost; ttAdd(k, x, z); sfx('place'); sfx('thud'); tdSend(true); return '';
+  if (!ttCanFor(who, D.cost)) return `Not enough cash: ${D.name} costs 💰${D.cost}.`;
+  ttPay(who, D.cost); ttAdd(k, x, z, 0, 0, who); sfx('place'); sfx('thud'); tdSend(true); return '';
 }
-function ttUpgrade(id){
-  const t = TT.list.find(q => q.id === id); if (!t) return 'That turret is gone.'; if (t.lvl >= 5) return 'Fully upgraded.';
-  const u = TT_DEFS[t.k].ups[t.lvl]; if (!ttCan(u[1])) return `Not enough cash: ${u[0]} costs 💰${u[1]}.`;
-  if (!TD.inf) TD.cash -= u[1]; t.lvl++; ttRelabel(t); ttUpFX(t); tdSend(true); return '';
+function ttUpgrade(id, who){
+  who = who || G.localKey; const t = TT.list.find(q => q.id === id); if (!t) return 'That turret is gone.'; if (t.own !== who) return `That's ${ttOwnerName(t)}'s turret: only they can upgrade it.`; if (t.lvl >= 5) return 'Fully upgraded.';
+  const u = TT_DEFS[t.k].ups[t.lvl]; if (!ttCanFor(who, u[1])) return `Not enough cash: ${u[0]} costs 💰${u[1]}.`;
+  ttPay(who, u[1]); t.lvl++; ttRelabel(t); ttUpFX(t); tdSend(true); return '';
 }
-function ttSellIt(id){ const i = TT.list.findIndex(q => q.id === id); if (i < 0) return; const t = TT.list[i]; TD.cash += ttSell(t); ttRemove(t); TT.list.splice(i, 1); sfx('pop'); tdSend(true); }
+function ttSellIt(id, who){
+  who = who || G.localKey; const i = TT.list.findIndex(q => q.id === id); if (i < 0) return 'That turret is gone.'; const t = TT.list[i];
+  if (t.own !== who) return `That's ${ttOwnerName(t)}'s turret: only they can sell it.`;
+  if (!TD.inf) { ttWallet(who); TD.wallet[who] += ttSell(t); } ttRemove(t); TT.list.splice(i, 1); sfx('pop'); tdSend(true); return '';
+}
 function ttUpFX(t){ sparkle(V3(t.x, groundH(t.x, t.z) + 3, t.z), 0xFFD84D); sfx('holy'); }
-// the snapshot: [id, kind index, x*10, z*10, level, ...]
+// the snapshot: [id, kind index, x*10, z*10, level, owner id, ...]
 const TT_KEYS = Object.keys(TT_DEFS);
-function ttPack(){ const a = []; for (const t of TT.list) a.push(t.id, TT_KEYS.indexOf(t.k), Math.round(t.x*10), Math.round(t.z*10), t.lvl); return a; }
+function ttPack(){ const a = []; for (const t of TT.list) a.push(t.id, TT_KEYS.indexOf(t.k), Math.round(t.x*10), Math.round(t.z*10), t.lvl, String(t.own)); return a; }
 function ttSync(a){
   if (!Array.isArray(a)) return; const seen = new Set();
-  for (let i = 0; i + 4 < a.length; i += 5) { const id = a[i], k = TT_KEYS[a[i + 1]], x = a[i + 2]/10, z = a[i + 3]/10, lvl = a[i + 4] | 0; if (!k) continue; seen.add(id);
-    let t = TT.list.find(q => q.id === id); if (!t) { t = ttAdd(k, x, z, id, lvl); sfx('place'); } else if (t.lvl !== lvl) { t.lvl = lvl; ttRelabel(t); ttUpFX(t); } }
+  for (let i = 0; i + 5 < a.length; i += 6) { const id = a[i], k = TT_KEYS[a[i + 1]], x = a[i + 2]/10, z = a[i + 3]/10, lvl = a[i + 4] | 0, own = String(a[i + 5]); if (!k) continue; seen.add(id);
+    let t = TT.list.find(q => q.id === id); if (t) t.own = own; if (!t) { t = ttAdd(k, x, z, id, lvl, own); sfx('place'); } else if (t.lvl !== lvl) { t.lvl = lvl; ttRelabel(t); ttUpFX(t); } }
   for (let i = TT.list.length - 1; i >= 0; i--) if (!seen.has(TT.list[i].id)) { ttRemove(TT.list[i]); TT.list.splice(i, 1); }
 }
 function ttRequest(kind, payload){
-  if (tdAuth()) { const why = kind === 'b' ? ttBuild(payload.k, payload.x, payload.z) : kind === 'u' ? ttUpgrade(payload.id) : (ttSellIt(payload.id), ''); if (why) cdToast2('🏗️ ' + why); return; }
+  if (tdAuth()) { const why = kind === 'b' ? ttBuild(payload.k, payload.x, payload.z) : kind === 'u' ? ttUpgrade(payload.id) : ttSellIt(payload.id); if (why) cdToast2('🏗️ ' + why); return; }
   netSend(Object.assign({t:'tt' + kind}, payload));
 }
-function ttHostMsg(m){
-  if (!tdOn() || !tdAuth()) return;
-  if (m.t === 'ttb' && typeof m.k === 'string' && isFinite(m.x) && isFinite(m.z)) ttBuild(m.k, +m.x, +m.z);
-  else if (m.t === 'ttu') ttUpgrade(m.id | 0);
-  else if (m.t === 'tts') ttSellIt(m.id | 0);
+function ttHostMsg(m, who){
+  if (!tdOn() || !tdAuth() || !who) return;
+  if (m.t === 'ttb' && typeof m.k === 'string' && isFinite(m.x) && isFinite(m.z)) ttBuild(m.k, +m.x, +m.z, who);
+  else if (m.t === 'ttu') ttUpgrade(m.id | 0, who);
+  else if (m.t === 'tts') ttSellIt(m.id | 0, who);
 }
 
 /* ---------- firing (every screen draws it; only the host's shots do damage) ---------- */
@@ -5017,6 +5029,7 @@ function ttKey(code){
   if (code === 'KeyY') { TT.shop = !TT.shop; if (!TT.shop) { TT.place = null; ttGhostHide(); } sfx('click'); ttPanel(); return true; }
   if (TT.shop && /^Digit[1-5]$/.test(code)) { const list = TT_CLS[G.cls] || [], k = list[+code.slice(5) - 1]; if (k) { TT.place = null; ttPick(k); } return true; }
   if (code === 'Escape' && (TT.shop || TT.place)) { TT.shop = false; TT.place = null; ttGhostHide(); ttPanel(); return true; }
+  if ((code === 'KeyU' || code === 'KeyK') && TT.aimed && TT.aimed.own !== G.localKey) { cdToast2(`🏗️ That's ${ttOwnerName(TT.aimed)}'s turret: only they can ${code === 'KeyU' ? 'upgrade' : 'sell'} it.`); return true; }
   if ((code === 'KeyU' || code === 'KeyK') && TT.aimed) { if (code === 'KeyU') ttRequest('u', {id:TT.aimed.id}); else ttRequest('s', {id:TT.aimed.id}); return true; }
   return false;
 }
@@ -5071,7 +5084,7 @@ function ttUI(dt){
   if (!TTG.aimRing) TTG.aimRing = groundRing(0xFFD84D, .7);
   const t = TT.aimed;
   if (t) { const D = TT_DEFS[t.k], S = ttStats(t), nx = D.ups[t.lvl];
-    const html = `${D.e} <b>${D.name}</b> ${'★'.repeat(t.lvl)}${'☆'.repeat(5 - t.lvl)} · range ${Math.round(S.range)} m<br>${nx ? `<b>U</b> upgrade: ${nx[0]} (💰${nx[1]})${!ttCan(nx[1]) ? ' <span style="color:#C4200E">not enough cash</span>' : ''}` : 'Fully upgraded'} · <b>K</b> sell for 💰${ttSell(t)}`;
+    const html = `${D.e} <b>${D.name}</b> ${'★'.repeat(t.lvl)}${'☆'.repeat(5 - t.lvl)} · range ${Math.round(S.range)} m<br>${t.own !== G.localKey ? `Owner: <b>${ttOwnerName(t)}</b>` : `${nx ? `<b>U</b> upgrade: ${nx[0]} (💰${nx[1]})${!ttCan(nx[1]) ? ' <span style="color:#C4200E">not enough cash</span>' : ''}` : 'Fully upgraded'} · <b>K</b> sell for 💰${ttSell(t)}`}`;
     if (c.innerHTML !== html) c.innerHTML = html; c.style.display = 'block'; TTG.aimRing.set(t.x, t.z, S.range, .3); }
   else { c.style.display = 'none'; TTG.aimRing.visible = false; }
   TT.hudT -= dt; if (TT.hudT <= 0) { TT.hudT = .25; if (TT.cashShown !== (TD.cash | 0)) { TT.cashShown = TD.cash | 0; tdHud(); } }
@@ -5269,6 +5282,7 @@ for (let w = 21; w <= 100; w++) { const k = w - 20, g = [];
   TD_WAVES.push(g); }
 const TD_LIVES = 200, TD_ROUNDS = TD_WAVES.length, TD_FLY = 2.1, TD_SIZE = .65, TD_SLOW = .6;   // every balloon is drawn and hit at 65% size and moves at 60% speed
 const TD = {on:false, list:[], pd:null};
+Object.defineProperty(TD, 'cash', {get(){ return ttWallet(); }, set(v){ ttWallet(); TD.wallet[G.localKey] = v; }, enumerable:false});   // TD.cash = your own wallet
 // the path: a spiral that winds in from the edge of the island, two and a half times round, to the egg in the middle
 const TD_PTS = (() => { const out = [], R0 = 118, R1 = 6, turns = 2.6, a0 = -.35, N = 150;
   for (let i = 0; i <= N; i++) { const u = i/N, a = a0 + u*turns*Math.PI*2, r = R0 + (R1 - R0)*u; out.push([Math.cos(a)*r, Math.sin(a)*r]); }
@@ -5291,7 +5305,7 @@ function tdDir(d){ const i = clamp(Math.floor(d/TD.step), 0, TD.px.length - 2); 
 /* ---------- a round's worth of state ---------- */
 function tdStart(){
   tdClear();
-  ttClearAll(); Object.assign(TD, {on:true, cash:TT_START, inf:tdAuth() && !!ME.tdInf, speed:TD.speed || 1, wave:0, state:'build', lives:TD_LIVES, pops:0, list:[], queue:[], t:0, seq:0, sendT:0, auto:TD.auto || false, autoT:0, over:false, net:{}, grid:new Map()});
+  ttClearAll(); Object.assign(TD, {on:true, wallet:{}, earned:0, inf:tdAuth() && !!ME.tdInf, speed:TD.speed || 1, wave:0, state:'build', lives:TD_LIVES, pops:0, list:[], queue:[], t:0, seq:0, sendT:0, auto:TD.auto || false, autoT:0, over:false, net:{}, grid:new Map()});
   if (egg) { const b = egg.body; b.type = CANNON.Body.STATIC; b.mass = 0; b.updateMassProperties(); b.velocity.set(0, 0, 0); }
   tdScenery();
   // everyone starts by the egg
@@ -5303,7 +5317,7 @@ function tdAskWave(){ if (!tdOn() || !(TD.state === 'build' || TD.state === 'wav
 function tdStartWave(){
   if (!tdOn() || !(TD.state === 'build' || TD.state === 'wave') || TD.wave >= TD_ROUNDS) return;
   // sent early, on top of the round still going: that round's bonus is paid now, the new balloons queue up behind
-  const early = TD.state === 'wave'; if (early) TD.cash = (TD.cash || 0) + 100 + 20*TD.wave; else { TD.t = 0; TD.queue = []; }
+  const early = TD.state === 'wave'; if (early) ttEarn(100 + 20*TD.wave); else { TD.t = 0; TD.queue = []; }
   TD.wave++; TD.state = 'wave';
   for (const [type, count, gap, start] of TD_WAVES[TD.wave - 1]) for (let i = 0; i < count; i++) TD.queue.push({at:TD.t + (start || 0) + i*gap, t:type});
   TD.queue.sort((a, b) => a.at - b.at);
@@ -5319,7 +5333,7 @@ function tdHit(b, dmg){
   b.hp -= dmg; b.flash = .12;
   let over = -b.hp, guard = 0;
   while (b.hp <= 0 && !b.dead && guard++ < 20) {
-    const T = TDT[b.t]; tdPopFX(b.pos, T, T.blimp ? 3 : 1); TD.pops++; TD.cash = (TD.cash || 0) + TT_POP;
+    const T = TDT[b.t]; tdPopFX(b.pos, T, T.blimp ? 3 : 1); TD.pops++; ttEarn(TT_POP);
     if (!T.ch.length) { b.dead = true; break; }
     if (T.ch.length === 1) { b.t = T.ch[0]; const N = TDT[b.t]; b.hp = N.hp*TD.hpK - over; b.R = .75*N.s*TD_SIZE; over = -b.hp; continue; }   // the next colour, same balloon
     b.dead = true; if (b.blimpG && b.blimpG.parent) b.blimpG.parent.remove(b.blimpG);
@@ -5438,7 +5452,7 @@ function tdLeak(T){
   if (TD.lives <= 0) tdEnd(false);
 }
 function tdWaveDone(){
-  TD.state = 'build'; TD.autoT = 0; sfx('win'); const bonus = 100 + 20*TD.wave; TD.cash = (TD.cash || 0) + bonus;
+  TD.state = 'build'; TD.autoT = 0; sfx('win'); const bonus = 100 + 20*TD.wave; ttEarn(bonus);
   if (TD.wave >= TD_ROUNDS) { tdEnd(true); return; }
   toast(`🎉 Round ${TD.wave} cleared! +💰${bonus}. ${TD.auto ? 'The next one starts in a moment.' : 'Enter (or the button) starts the next one.'}`); tdHud(); tdSend(true);
 }
@@ -5460,11 +5474,11 @@ function tdShowEnd(){
 function tdSend(force){
   if (!NET.peer || !NET.host) return;
   const b = []; for (const q of TD.list) if (!q.dead) b.push(q.id, q.t, Math.round(q.d*10), Math.round(Math.max(0, q.hp)));
-  netBroadcast({t:'td', c:TD.cash | 0, i:TD.inf ? 1 : 0, f:TD.speed || 1, tt:ttPack(), w:TD.wave, s:TD.state, l:TD.lives, p:TD.pops, a:TD.auto ? 1 : 0, k:+(TD.hpK || 1).toFixed(3), v:+(TD.spK || 1).toFixed(3), b});
+  netBroadcast({t:'td', c:TD.wallet || {}, i:TD.inf ? 1 : 0, f:TD.speed || 1, tt:ttPack(), w:TD.wave, s:TD.state, l:TD.lives, p:TD.pops, a:TD.auto ? 1 : 0, k:+(TD.hpK || 1).toFixed(3), v:+(TD.spK || 1).toFixed(3), b});
 }
 function tdApply(m){
   const was = TD.state, old = new Map(TD.list.map(b => [b.id, b]));
-  if (typeof m.c === 'number') TD.cash = m.c; TD.inf = !!m.i; TD.speed = m.f === 2 || m.f === 4 ? m.f : 1; if (Array.isArray(m.tt)) ttSync(m.tt);
+  if (m.c && typeof m.c === 'object') TD.wallet = Object.assign({}, m.c); TD.inf = !!m.i; TD.speed = m.f === 2 || m.f === 4 ? m.f : 1; if (Array.isArray(m.tt)) ttSync(m.tt);
   TD.wave = m.w | 0; TD.state = m.s; TD.lives = m.l | 0; TD.pops = m.p | 0; TD.auto = !!m.a; TD.hpK = +m.k || 1; TD.spK = +m.v || 1;
   const list = []; const a = Array.isArray(m.b) ? m.b : [];
   for (let i = 0; i + 3 < a.length; i += 4) {
@@ -14470,7 +14484,7 @@ function hostHandle(c, m){
     case 'death': if (m.id !== c.peer) break; if (m.by && !NET.players[m.by]) m.by = null; onDeath(m); break;
     case 'edone': if (eggOn() && isDef(c.peer)) eggReady(c.peer); break;
     case 'tdgo': if (tdOn() && (TD.state === 'build' || TD.state === 'wave')) tdStartWave(); break;
-    case 'ttb': case 'ttu': case 'tts': ttHostMsg(m); break;
+    case 'ttb': case 'ttu': case 'tts': ttHostMsg(m, c.peer); break;
     case 'erole': if (eggOn() && m.id === c.peer && (m.r === 'def' || m.r === 'atk')) eggRole(c.peer, m.r, true); break;
     case 'egu': if (eggOn() && m.id === c.peer) eggGaveUp(c.peer); break;
   }
