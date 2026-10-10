@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-10.6';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-10.7';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -4703,7 +4703,22 @@ const TT_DEFS = {
   s_excal: {cls:'sword', name:'Excalibur Pillar', e:'✨', cost:1200, kind:'beam', look:'excal', col:0xFFF1A8, range:40, rate:.25, dmg:60, splash:2.5, moab:2,
     ups:[['Brighter Light', 700, {dmg:1.4}], ['Quick Charge', 1200, {rate:1.5}], ['Twin Beams', 2000, {multi:1}], ['Holy Sword', 3500, {dmg:2, moab:2}], ['Excalibur!', 10000, {dmg:2.5, splash:2, rate:1.5}]]}
 };
-const TT_CLS = {pain:Object.keys(TT_DEFS).filter(k => TT_DEFS[k].cls === 'pain'), bomber:Object.keys(TT_DEFS).filter(k => TT_DEFS[k].cls === 'bomber'), sword:Object.keys(TT_DEFS).filter(k => TT_DEFS[k].cls === 'sword')};
+Object.assign(TT_DEFS, {   // Genos (class id 'avatar'): fire
+  a_brazier:{cls:'avatar', name:'Ember Brazier', e:'🔥', cost:300, kind:'dot', look:'brazier', col:0xFF6A1F, range:8, rate:4, dmg:2.2,
+    ups:[['Hotter Coals', 200, {dmg:1.6}], ['Wider Blaze', 450, {range:3}], ['Clinging Flames', 800, {slow:.5, dmg:1.3}], ['Blue Fire', 1800, {dmg:2, moab:2}], ['Inferno', 5500, {range:5, dmg:2.5}]]},
+  a_ball:   {cls:'avatar', name:'Fireball Tower', e:'☄️', cost:450, kind:'lob', look:'fireball', fx:'fire', col:0xFF8A2E, range:34, rate:.8, dmg:20, splash:4,
+    ups:[['Bigger Fireballs', 300, {splash:1.5, dmg:1.3}], ['Twin Fireballs', 650, {multi:1}], ['Rapid Fire', 1000, {rate:1.6}], ['Meteor', 2200, {dmg:2, splash:3, moab:2}], ['Skyfall', 6500, {multi:3, dmg:1.8}]]},
+  a_jet:    {cls:'avatar', name:'Flame Jet', e:'🌋', cost:400, kind:'beam', look:'jet', col:0xFFB02E, range:14, rate:2.2, dmg:6, splash:1.8,
+    ups:[['Longer Jet', 250, {range:5}], ['Wider Jet', 500, {splash:1.2}], ['Twin Jets', 900, {multi:1}], ['Dragon Breath', 1800, {dmg:2, rate:1.3}], ['White Flame', 5500, {dmg:2.5, range:8, moab:2}]]},
+  a_cannon: {cls:'avatar', name:'Incineration Cannon', e:'💥', cost:1100, kind:'beam', look:'cannon', col:0xFFF3B0, range:42, rate:.3, dmg:55, splash:2.4, moab:2,
+    ups:[['Hotter Core', 650, {dmg:1.4}], ['Quick Charge', 1100, {rate:1.5}], ['Twin Barrels', 2000, {multi:1}], ['Wide Beam', 3200, {splash:2, dmg:1.5}], ['White Incineration', 10000, {dmg:2.5, splash:2, rate:1.5, moab:2}]]},
+  a_sun:    {cls:'avatar', name:'Sun Shrine', e:'☀️', cost:650, kind:'pulse', look:'sun', col:0xFFD84D, range:9, rate:.6, dmg:16,
+    ups:[['Brighter Sun', 350, {dmg:1.5}], ['Bigger Flares', 700, {range:3}], ['Solar Pulse', 1100, {rate:1.7}], ['Corona', 2300, {range:4, dmg:1.8}], ['Supernova', 7500, {range:6, dmg:2.5, moab:2}]]}
+});
+const TT_CLS = {}; for (const k in TT_DEFS) (TT_CLS[TT_DEFS[k].cls] = TT_CLS[TT_DEFS[k].cls] || []).push(k);
+// infinite money (a menu toggle the host picks before the match)
+const ttCan = c => !!TD.inf || (TD.cash | 0) >= c;
+const ttMoney = () => TD.inf ? '∞' : (TD.cash | 0).toLocaleString();
 const TT = {list:[], seq:0, shop:false, place:null, aimed:null, hudT:0, cashShown:-1};
 function ttStats(t){
   const D = TT_DEFS[t.k], S = {range:D.range, rate:D.rate, dmg:D.dmg, splash:D.splash || 0, pierce:D.pierce || 0, multi:D.multi || 1, push:D.push || 0, slow:D.slow || 0, stun:D.stun || 0, moab:D.moab || 1};
@@ -4723,7 +4738,7 @@ function ttCanPlace(x, z, ignore){
 
 /* ---------- looks ---------- */
 function ttMesh(t){
-  const D = TT_DEFS[t.k], g = new THREE.Group(), head = new THREE.Group(), clsCol = D.cls === 'pain' ? 0x3A2E52 : D.cls === 'bomber' ? 0x4A4A3A : 0x5A5040;
+  const D = TT_DEFS[t.k], g = new THREE.Group(), head = new THREE.Group(), clsCol = D.cls === 'pain' ? 0x3A2E52 : D.cls === 'bomber' ? 0x4A4A3A : D.cls === 'avatar' ? 0x4A2A1E : 0x5A5040;
   const base = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.75, .7, 16), M3(clsCol)); base.position.y = .35; g.add(base);
   bx(2.4, .12, 2.4, D.col, 0, .76, 0, g);
   head.position.y = .8; g.add(head);
@@ -4743,6 +4758,11 @@ function ttMesh(t){
   else if (L === 'gate') { const r = new THREE.Mesh(new THREE.TorusGeometry(1.1, .14, 8, 24), M3(0xE0B040)); r.position.y = 2.2; head.add(r); const v = new THREE.Mesh(new THREE.CircleGeometry(1, 24), addBlend(0xFFE9A0)); v.material.opacity = .5; v.position.y = 2.2; head.add(v); bx(.3, 1.2, .3, 0xC9A030, 0, .6, 0, head); }
   else if (L === 'shrine') { for (const s of [-1, 1]) bx(.2, 2.4, .2, 0xC4300E, s*.8, 1.2, 0, head); bx(2.2, .2, .3, 0xC4300E, 0, 2.4, 0, head); bx(1.8, .14, .26, 0x2A1A14, 0, 2.05, 0, head); const s0 = swordOne(.9); s0.position.set(0, .2, 0); head.add(s0); }
   else if (L === 'excal') { bx(.9, 1.4, .9, 0xBDB5A6, 0, .7, 0, head); const s = swordOne(2.2); s.position.y = 1.2; head.add(s); const gl = new THREE.Mesh(new THREE.CylinderGeometry(.08, .08, 4, 6), addBlend(0xFFF1A8)); gl.position.y = 3.4; gl.material.opacity = .5; head.add(gl); t.orb = gl; }
+  else if (L === 'brazier') { const bowl = new THREE.Mesh(new THREE.CylinderGeometry(1, .6, .7, 10), M3(0x3A2A22)); bowl.position.y = 1.5; head.add(bowl); bx(.4, 1.2, .4, 0x2A1E18, 0, .6, 0, head); const f = new THREE.Mesh(new THREE.ConeGeometry(.7, 1.4, 7), new THREE.MeshBasicMaterial({color:0xFF8A2E})); f.position.y = 2.4; head.add(f); t.flame = f; }
+  else if (L === 'fireball') { bx(1, 2.2, 1, 0x4A2E22, 0, 1.1, 0, head); const o = new THREE.Mesh(new THREE.IcosahedronGeometry(.55, 1), new THREE.MeshBasicMaterial({color:0xFF6A1F})); o.position.y = 3; head.add(o); t.orb = o; }
+  else if (L === 'jet') { bx(1, 1, 1, 0x3E2A22, 0, .6, 0, head); const n = new THREE.Mesh(new THREE.CylinderGeometry(.18, .32, 1.4, 10), M3(0x6A4A3A)); n.rotation.x = Math.PI/2; n.position.set(0, 1.2, .8); head.add(n); }
+  else if (L === 'cannon') { bx(1.3, 1, 1.3, 0x3A2E2A, 0, .6, 0, head); const n = new THREE.Mesh(new THREE.CylinderGeometry(.42, .5, 2.2, 12), M3(0x5A4A44)); n.rotation.x = Math.PI/2; n.position.set(0, 1.5, .9); head.add(n); const gl = new THREE.Mesh(new THREE.CircleGeometry(.36, 16), new THREE.MeshBasicMaterial({color:0xFFF3B0})); gl.position.set(0, 1.5, 2.01); head.add(gl); }
+  else if (L === 'sun') { for (const sd of [-1, 1]) bx(.3, 2.2, .3, 0x8A5A2A, sd*.9, 1.1, 0, head); bx(2.3, .25, .4, 0x8A5A2A, 0, 2.3, 0, head); const o = new THREE.Mesh(new THREE.IcosahedronGeometry(.6, 2), new THREE.MeshBasicMaterial({color:0xFFD84D})); o.position.y = 3; head.add(o); t.orb = o; }
   // level pips and a name tag
   t.pips = []; for (let i = 0; i < 5; i++) { const a = i/5*Math.PI*2, pp = new THREE.Mesh(new THREE.SphereGeometry(.16, 8, 6), M3(0x2A2A2A)); pp.position.set(Math.cos(a)*1.45, .8, Math.sin(a)*1.45); g.add(pp); t.pips.push(pp); }
   const lab = textSprite(); lab.position.y = 5.2; lab.scale.set(3.2, 1.2, 1); g.add(lab); t.lab = lab;
@@ -4760,13 +4780,13 @@ function ttAdd(k, x, z, id, lvl){ const t = {id:id || ++TT.seq, k, x, z, lvl:lvl
 function ttBuild(k, x, z){
   const D = TT_DEFS[k]; if (!D || !tdOn()) return 'No such turret.';
   const why = ttCanPlace(x, z); if (why) return why;
-  if ((TD.cash | 0) < D.cost) return `Not enough cash: ${D.name} costs 💰${D.cost}.`;
-  TD.cash -= D.cost; ttAdd(k, x, z); sfx('place'); sfx('thud'); tdSend(true); return '';
+  if (!ttCan(D.cost)) return `Not enough cash: ${D.name} costs 💰${D.cost}.`;
+  if (!TD.inf) TD.cash -= D.cost; ttAdd(k, x, z); sfx('place'); sfx('thud'); tdSend(true); return '';
 }
 function ttUpgrade(id){
   const t = TT.list.find(q => q.id === id); if (!t) return 'That turret is gone.'; if (t.lvl >= 5) return 'Fully upgraded.';
-  const u = TT_DEFS[t.k].ups[t.lvl]; if ((TD.cash | 0) < u[1]) return `Not enough cash: ${u[0]} costs 💰${u[1]}.`;
-  TD.cash -= u[1]; t.lvl++; ttRelabel(t); ttUpFX(t); tdSend(true); return '';
+  const u = TT_DEFS[t.k].ups[t.lvl]; if (!ttCan(u[1])) return `Not enough cash: ${u[0]} costs 💰${u[1]}.`;
+  if (!TD.inf) TD.cash -= u[1]; t.lvl++; ttRelabel(t); ttUpFX(t); tdSend(true); return '';
 }
 function ttSellIt(id){ const i = TT.list.findIndex(q => q.id === id); if (i < 0) return; const t = TT.list[i]; TD.cash += ttSell(t); ttRemove(t); TT.list.splice(i, 1); sfx('pop'); tdSend(true); }
 function ttUpFX(t){ sparkle(V3(t.x, groundH(t.x, t.z) + 3, t.z), 0xFFD84D); sfx('holy'); }
@@ -4826,28 +4846,30 @@ function ttFire(t, S){
   if (D.kind === 'lob') {
     const tg = ttFirst(t, S, Math.round(S.multi)); if (!tg.length) return false;
     for (const b of tg) { const p = V3(b.pos.x, groundH(b.pos.x, b.pos.z) + 1, b.pos.z).addScaledVector(V3(Math.sin(tdDir(b.d)), 0, Math.cos(tdDir(b.d))), 3);
-      const m = D.fx === 'rock' ? new THREE.Mesh(PAIN_ROCK, M3(0x6E6672)) : new THREE.Mesh(new THREE.SphereGeometry(.3, 8, 6), M3(0x2A2A2A)); if (D.fx === 'rock') m.scale.setScalar(.5 + S.splash*.08);
-      ttFlyer(m, o.clone(), p, .7, 10, () => { boomVisual(p.clone(), false, .2 + S.splash*.06, D.fx === 'rock' ? {ball:0x6E6672, core:0xC9B8FF, ring:0xD9CCFF} : undefined); ttArea(p, S.splash, S, S.dmg); sfx('bboom'); }); }
+      const m = D.fx === 'rock' ? new THREE.Mesh(PAIN_ROCK, M3(0x6E6672)) : D.fx === 'fire' ? new THREE.Mesh(new THREE.IcosahedronGeometry(.45 + S.splash*.04, 1), new THREE.MeshBasicMaterial({color:0xFF6A1F})) : new THREE.Mesh(new THREE.SphereGeometry(.3, 8, 6), M3(0x2A2A2A)); if (D.fx === 'rock') m.scale.setScalar(.5 + S.splash*.08);
+      ttFlyer(m, o.clone(), p, .7, 10, () => { boomVisual(p.clone(), false, .2 + S.splash*.06, D.fx === 'rock' ? {ball:0x6E6672, core:0xC9B8FF, ring:0xD9CCFF} : D.fx === 'fire' ? {ball:0xFF6A1F, core:0xFFF3B0, ring:0xFFB02E} : undefined); ttArea(p, S.splash, S, S.dmg); sfx(D.fx === 'fire' ? 'fireball' : 'bboom'); }); }
     return true;
   }
   if (D.kind === 'pulse') {
     const any = ttFirst(t, S, 1); if (!any.length) return false;
     const c = V3(t.x, gy + 2, t.z);
     if (D.look === 'blades') { for (let i = 0; i < 2; i++) slashArc(V3(t.x, gy + 2, t.z), Math.random()*6.28, S.range, {span:Math.PI*1.2, col:0xE6F4FF, life:.18, grow0:.9, grow:.2}); sfx('slash'); }
+    else if (D.look === 'sun') { boomVisual(c.clone(), false, .25 + S.range*.04, {ball:0xFFB02E, core:0xFFF3B0, ring:0xFFD84D}); sfx('fire'); }
     else { warpPulse(c, S.range*1.4, .35, .04); sfx('shinra'); }
     ttArea(c, S.range, S, S.dmg); return true;
   }
   if (D.kind === 'dot') {
     const any = ttFirst(t, S, 1); if (!any.length) return false;
-    ttArea(V3(t.x, gy + 2, t.z), S.range, S, S.dmg); if (Math.random() < .2) warpPulseIn(V3(t.x, gy + 3, t.z), S.range, .4, .02); return true;
+    ttArea(V3(t.x, gy + 2, t.z), S.range, S, S.dmg); if (D.look === 'brazier') { for (let i = 0; i < 3; i++) { const a = Math.random()*6.28, r = Math.random()*S.range; flameP(V3(t.x + Math.cos(a)*r, gy + .4, t.z + Math.sin(a)*r), V3(0, rr(2, 4), 0), rr(.2, .4), pick(FIRE_COLS), .5); } } else if (Math.random() < .2) warpPulseIn(V3(t.x, gy + 3, t.z), S.range, .4, .02); return true;
   }
   if (D.kind === 'beam') {
     const tg = ttFirst(t, S, Math.round(S.multi)); if (!tg.length) return false;
     t.head.rotation.y = Math.atan2(tg[0].pos.x - t.x, tg[0].pos.z - t.z);
     for (const b of tg) { const dir = b.pos.clone().sub(o).normalize(), e = o.clone().addScaledVector(dir, S.range + 6);
-      ttTracer(o, e, D.look === 'excal' ? 0xFFF6C8 : 0xBFE9FF, D.look === 'excal' ? .9 + S.splash*.2 : .35, D.look === 'excal' ? .4 : .2);
+      const big = D.look === 'excal' || D.look === 'cannon'; ttTracer(o, e, D.look === 'excal' ? 0xFFF6C8 : D.look === 'jet' ? 0xFF8A2E : D.look === 'cannon' ? 0xFFF3B0 : 0xBFE9FF, big ? .9 + S.splash*.2 : D.look === 'jet' ? .5 + S.splash*.2 : .35, big ? .4 : .2);
+      if (D.look === 'jet') for (let i = 0; i < 4; i++) flameP(o.clone().addScaledVector(dir, rr(1, S.range)), V3(rr(-1, 1), rr(1, 2), rr(-1, 1)), rr(.25, .5), pick(FIRE_COLS), .35);
       ttLine(o, dir, S.range + 6, S.splash, S, S.dmg, new Set()); }
-    sfx(D.look === 'excal' ? 'holy' : 'slashH'); return true;
+    sfx(D.look === 'excal' ? 'holy' : D.look === 'cannon' ? 'fireball' : D.look === 'jet' ? 'fire' : 'slashH'); return true;
   }
   return false;
 }
@@ -4872,9 +4894,10 @@ function ttFrame(dt){
   for (const t of TT.list) {
     const S = ttStats(t), D = TT_DEFS[t.k];
     if (t.spin) t.spin.rotation.y += dt*(4 + S.rate);
+    if (t.flame) t.flame.scale.set(1, .8 + Math.sin(G.t*12 + t.id)*.25, 1);
     if (t.orb) { t.orb.rotation.y += dt*2; t.orb.position.y = (D.look === 'excal' ? 3.4 : D.look === 'obelisk' ? 4.4 : D.look === 'spire' ? 4 : D.look === 'core' ? 2.6 : 3) + Math.sin(G.t*2 + t.id)*.12; }
-    if (D.kind === 'plane') { if (fighting) ttPlanes(t, S, dt); else if (t.planes) t.planes.forEach(p => { p.a += dt*.5; p.m.position.set(t.x + Math.cos(p.a)*3, groundH(t.x, t.z) + 1.2, t.z + Math.sin(p.a)*3); }); continue; }
-    t.cd -= dt; if (t.cd > 0 || !fighting) continue;
+    if (D.kind === 'plane') { if (fighting) ttPlanes(t, S, dt*(TD.speed || 1)); else if (t.planes) t.planes.forEach(p => { p.a += dt*.5; p.m.position.set(t.x + Math.cos(p.a)*3, groundH(t.x, t.z) + 1.2, t.z + Math.sin(p.a)*3); }); continue; }
+    t.cd -= dt*(TD.speed || 1); if (t.cd > 0 || !fighting) continue;
     if (ttFire(t, S)) t.cd = 1/S.rate; else t.cd = .15;
   }
   ttUI(dt);
@@ -4889,7 +4912,7 @@ function ttAimedTurret(){
 function ttKey(code){
   if (!tdOn() || G.phase !== 'attack' || G.matchOver) return false;
   if (code === 'KeyY') { TT.shop = !TT.shop; if (!TT.shop) { TT.place = null; ttGhostHide(); } sfx('click'); ttPanel(); return true; }
-  if (TT.shop && /^Digit[1-5]$/.test(code)) { const list = TT_CLS[G.cls] || TT_CLS.pain, k = list[+code.slice(5) - 1]; if (k) { TT.place = k; toast(`${TT_DEFS[k].e} ${TT_DEFS[k].name} (💰${TT_DEFS[k].cost}): Click to place it, right-click cancels.`); ttPanel(); } return true; }
+  if (TT.shop && /^Digit[1-5]$/.test(code)) { const list = TT_CLS[G.cls] || [], k = list[+code.slice(5) - 1]; if (k) { TT.place = null; ttPick(k); } return true; }
   if (code === 'Escape' && (TT.shop || TT.place)) { TT.shop = false; TT.place = null; ttGhostHide(); ttPanel(); return true; }
   if ((code === 'KeyU' || code === 'KeyK') && TT.aimed) { if (code === 'KeyU') ttRequest('u', {id:TT.aimed.id}); else ttRequest('s', {id:TT.aimed.id}); return true; }
   return false;
@@ -4898,9 +4921,9 @@ function ttClick(){
   if (!tdOn() || !TT.place) return false;
   const h = crosshairHit(); if (!h || !h.point) { cdToast2('🏗️ Aim at the ground.'); return true; }
   const why = ttCanPlace(h.point.x, h.point.z); if (why) { cdToast2('🏗️ ' + why); return true; }
-  if ((TD.cash | 0) < TT_DEFS[TT.place].cost) { cdToast2(`🏗️ Not enough cash: ${TT_DEFS[TT.place].name} costs 💰${TT_DEFS[TT.place].cost}.`); return true; }
+  if (!ttCan(TT_DEFS[TT.place].cost)) { cdToast2(`🏗️ Not enough cash: ${TT_DEFS[TT.place].name} costs 💰${TT_DEFS[TT.place].cost}.`); return true; }
   ttRequest('b', {k:TT.place, x:+h.point.x.toFixed(1), z:+h.point.z.toFixed(1)});
-  TT.place = null; ttGhostHide(); ttPanel(); return true;
+  TT.place = null; TT.shop = false; ttGhostHide(); ttPanel(); return true;
 }
 const TTG = {};
 function ttGhostHide(){ if (TTG.m) TTG.m.visible = false; if (TTG.ring) TTG.ring.visible = false; }
@@ -4911,13 +4934,29 @@ function ttGhost(){
   const p = h.point, ok = !ttCanPlace(p.x, p.z) && (TD.cash | 0) >= TT_DEFS[TT.place].cost, col = ok ? 0x5BD15B : 0xFF3B30, D = TT_DEFS[TT.place];
   TTG.m.visible = true; TTG.m.position.set(p.x, groundH(p.x, p.z) + 1.5, p.z); TTG.m.material.color.setHex(col); TTG.ring.material.color.setHex(col); TTG.ring.set(p.x, p.z, D.range, .3);
 }
-function ttPanel(){
-  let e = document.getElementById('ttPanel');
-  if (!e) { e = document.createElement('div'); e.id = 'ttPanel'; e.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:7;width:300px;padding:10px 12px;border-radius:16px;background:rgba(255,247,214,.95);border:3px solid #4A2A00;box-shadow:0 4px 0 #4A2A00;font:800 13px/1.35 Nunito,system-ui,sans-serif;color:#4A2A00;pointer-events:none;display:none'; document.body.appendChild(e); }
-  if (!tdOn() || !TT.shop) { e.style.display = 'none'; return; }
-  const list = TT_CLS[G.cls] || TT_CLS.pain, cash = TD.cash | 0;
-  e.innerHTML = `<div style="font-size:16px;margin-bottom:4px">🏗️ ${classInfo(G.cls).name} turrets · 💰 ${cash}</div>` + list.map((k, i) => { const D = TT_DEFS[k], can = cash >= D.cost; return `<div style="padding:3px 6px;border-radius:8px;${TT.place === k ? 'background:#FFE08A;' : ''}${can ? '' : 'opacity:.5;'}"><b>${i + 1}</b> ${D.e} ${D.name} <span style="float:right">💰${D.cost}</span><br><small style="font-weight:700">${D.kind === 'plane' ? 'bombs the path from the air' : D.kind === 'pulse' ? 'hits everything around it' : D.kind === 'dot' ? 'burns everything in range' : D.kind === 'lob' ? 'shells land on the path' : D.kind === 'beam' ? 'cuts a line through them' : 'shoots the first balloon'} · range ${D.range} m</small></div>`; }).join('') + '<div style="margin-top:6px;font-size:12px">1-5 pick · Click place · right-click cancel · Y close · aim at a turret: U upgrade, K sell</div>';
-  e.style.display = 'block';
+function ttPanel(){ const e = document.getElementById('ttPanel'); if (e) e.style.display = 'none'; ttTrayRefresh(); }   // the shop lives in the Skills bar now
+const ttWhat = D => D.kind === 'plane' ? 'bombs the path from the air' : D.kind === 'pulse' ? 'hits everything around it' : D.kind === 'dot' ? 'burns everything in range' : D.kind === 'lob' ? 'shells land on the path' : D.kind === 'beam' ? 'cuts a line through them' : 'shoots the first balloon';
+function ttPick(k){
+  if (TT.place === k) { TT.place = null; ttGhostHide(); }
+  else { const D = TT_DEFS[k]; TT.place = k; TT.shop = true; toast(`${D.e} ${D.name} (💰${D.cost}): Click the ground to place it, right-click cancels.`); }
+  sfx('click'); ttTrayRefresh();
+}
+// the Turrets section on the right of the Skills bar: your money, how many you have, and this class's 5 turrets
+function ttTray(t){
+  const bar = t.querySelector('.bar'), list = TT_CLS[G.cls] || []; if (!bar || !list.length) return;
+  const sec = document.createElement('div'); sec.id = 'ttSec';
+  sec.style.cssText = 'display:flex;flex-direction:column;gap:4px;justify-content:center;border-left:3px dashed var(--edge);padding:0 4px 0 10px;margin-left:2px;border-radius:10px';
+  sec.innerHTML = `<div id="ttHead" style="display:flex;gap:10px;justify-content:space-between;white-space:nowrap;font:900 12px/1.2 var(--display,system-ui),system-ui,sans-serif;color:var(--text)"></div><div class="skills" style="--cols:3">${list.map((k, i) => { const D = TT_DEFS[k]; return `<button class="skill" data-tt="${k}" title="${D.name} (💰${D.cost}): ${ttWhat(D)}, range ${D.range} m. Click it (or Y then ${i + 1}), then click the ground." aria-label="${D.name}"><span class="si">${D.e}</span><span class="sn">${D.name}</span><sup>${D.cost}</sup><kbd>${i + 1}</kbd></button>`; }).join('')}</div>`;
+  bar.appendChild(sec);
+  sec.querySelectorAll('[data-tt]').forEach(b => b.onclick = e => { e.stopPropagation(); ttPick(b.dataset.tt); });
+  TT.trayKey = ''; ttTrayRefresh();
+}
+function ttTrayRefresh(){
+  const sec = document.getElementById('ttSec'); if (!sec) return;
+  const key = [ttMoney(), TT.list.length, TT.place, TT.shop].join('|'); if (key === TT.trayKey) return; TT.trayKey = key;
+  sec.querySelector('#ttHead').innerHTML = `<span>🏗️ Turrets ${TT.list.length}/${TT_MAX} <span style="opacity:.6">(Y)</span></span><span>💰 ${ttMoney()}</span>`;
+  sec.style.background = TT.shop ? 'rgba(255,216,77,.35)' : '';
+  sec.querySelectorAll('[data-tt]').forEach(b => { const D = TT_DEFS[b.dataset.tt]; b.setAttribute('aria-pressed', TT.place === b.dataset.tt ? 'true' : 'false'); b.style.opacity = ttCan(D.cost) ? '' : '.45'; });
 }
 function ttUI(dt){
   ttGhost();
@@ -4928,10 +4967,11 @@ function ttUI(dt){
   if (!TTG.aimRing) TTG.aimRing = groundRing(0xFFD84D, .7);
   const t = TT.aimed;
   if (t) { const D = TT_DEFS[t.k], S = ttStats(t), nx = D.ups[t.lvl];
-    const html = `${D.e} <b>${D.name}</b> ${'★'.repeat(t.lvl)}${'☆'.repeat(5 - t.lvl)} · range ${Math.round(S.range)} m<br>${nx ? `<b>U</b> upgrade: ${nx[0]} (💰${nx[1]})${(TD.cash | 0) < nx[1] ? ' <span style="color:#C4200E">not enough cash</span>' : ''}` : 'Fully upgraded'} · <b>K</b> sell for 💰${ttSell(t)}`;
+    const html = `${D.e} <b>${D.name}</b> ${'★'.repeat(t.lvl)}${'☆'.repeat(5 - t.lvl)} · range ${Math.round(S.range)} m<br>${nx ? `<b>U</b> upgrade: ${nx[0]} (💰${nx[1]})${!ttCan(nx[1]) ? ' <span style="color:#C4200E">not enough cash</span>' : ''}` : 'Fully upgraded'} · <b>K</b> sell for 💰${ttSell(t)}`;
     if (c.innerHTML !== html) c.innerHTML = html; c.style.display = 'block'; TTG.aimRing.set(t.x, t.z, S.range, .3); }
   else { c.style.display = 'none'; TTG.aimRing.visible = false; }
-  TT.hudT -= dt; if (TT.hudT <= 0) { TT.hudT = .25; if (TT.cashShown !== (TD.cash | 0)) { TT.cashShown = TD.cash | 0; tdHud(); if (TT.shop) ttPanel(); } }
+  TT.hudT -= dt; if (TT.hudT <= 0) { TT.hudT = .25; if (TT.cashShown !== (TD.cash | 0)) { TT.cashShown = TD.cash | 0; tdHud(); } }
+  ttTrayRefresh();
 }
 
 /* ===================================== PAIN TENNIS (G.mode === 'tennis') =====================================
@@ -5113,6 +5153,16 @@ const TD_WAVES = [   // groups of [type, count, seconds apart, start after]
   [[8, 6, 1.2], [7, 16, .7, 3]], [[8, 14, .8], [5, 26, .35, 2]], [[9, 4, 1.6], [8, 10, .8, 4]], [[9, 10, 1.1], [7, 22, .5, 3]],
   [[10, 1, 1], [9, 8, 1.2, 6]], [[9, 20, .7], [8, 20, .6, 4]], [[10, 3, 4], [9, 12, .9, 3]], [[11, 1, 1], [10, 2, 6, 8], [9, 15, .8, 3]]
 ];
+// rounds 21-100 follow a formula (the same on every screen): ceramic and rainbow floods, more and more MOABs, BFBs from
+// round 30, a zebra rush every 5th round and a BFB boss every 10th
+for (let w = 21; w <= 100; w++) { const k = w - 20, g = [];
+  g.push([9, 12 + Math.floor(k*.5), Math.max(.3, .9 - k*.008)]);
+  g.push([8, 14 + Math.floor(k*.6), Math.max(.25, .6 - k*.005), 2]);
+  g.push([10, 1 + Math.floor(k/5), Math.max(1.5, 5 - k*.05), 5]);
+  if (w >= 30) g.push([11, Math.floor((w - 25)/12), Math.max(3.5, 10 - k*.08), 12]);
+  if (w % 5 === 0) g.push([7, 25 + Math.floor(k*.5), .22, 0]);
+  if (w % 10 === 0) g.push([11, Math.floor(w/25), 5, 25]);
+  TD_WAVES.push(g); }
 const TD_LIVES = 200, TD_ROUNDS = TD_WAVES.length, TD_FLY = 2.1, TD_SIZE = .65, TD_SLOW = .6;   // every balloon is drawn and hit at 65% size and moves at 60% speed
 const TD = {on:false, list:[], pd:null};
 // the path: a spiral that winds in from the edge of the island, two and a half times round, to the egg in the middle
@@ -5137,21 +5187,23 @@ function tdDir(d){ const i = clamp(Math.floor(d/TD.step), 0, TD.px.length - 2); 
 /* ---------- a round's worth of state ---------- */
 function tdStart(){
   tdClear();
-  ttClearAll(); Object.assign(TD, {on:true, cash:TT_START, wave:0, state:'build', lives:TD_LIVES, pops:0, list:[], queue:[], t:0, seq:0, sendT:0, auto:TD.auto || false, autoT:0, over:false, net:{}, grid:new Map()});
+  ttClearAll(); Object.assign(TD, {on:true, cash:TT_START, inf:tdAuth() && !!ME.tdInf, speed:TD.speed || 1, wave:0, state:'build', lives:TD_LIVES, pops:0, list:[], queue:[], t:0, seq:0, sendT:0, auto:TD.auto || false, autoT:0, over:false, net:{}, grid:new Map()});
   if (egg) { const b = egg.body; b.type = CANNON.Body.STATIC; b.mass = 0; b.updateMassProperties(); b.velocity.set(0, 0, 0); }
   tdScenery();
   // everyone starts by the egg
   const P = localP(); if (P) { const a = Math.random()*Math.PI*2; P.body.position.set(Math.cos(a)*6, groundH(Math.cos(a)*6, Math.sin(a)*6) + .5, Math.sin(a)*6); P.body.velocity.set(0, 0, 0); G.yaw = Math.atan2(TD.px[0], TD.pz[0]); G.pitch = -.18; }
-  tdHud(); toast('🎈 Balloon Defense! Balloons follow the sandy path to the egg. Pop them all. Enter (or the button) starts round 1.');
+  tdHud(); renderTray(); toast('🎈 Balloon Defense! Balloons follow the sandy path to the egg. Pop them, and buy turrets in the Skills bar (right side) with the money you earn. Enter (or the button) starts round 1.');
 }
 function tdClear(){ ttClearAll(); for (const b of TD.list || []) if (b.blimpG && b.blimpG.parent) b.blimpG.parent.remove(b.blimpG); TD.list = []; TD.on = false; if (TD.im) for (const k in TD.im) TD.im[k].count = 0; }
-function tdAskWave(){ if (!tdOn() || TD.state !== 'build') return; if (tdAuth()) tdStartWave(); else netSend({t:'tdgo'}); }
+function tdAskWave(){ if (!tdOn() || !(TD.state === 'build' || TD.state === 'wave') || TD.wave >= TD_ROUNDS) return; if (tdAuth()) tdStartWave(); else netSend({t:'tdgo'}); }
 function tdStartWave(){
-  if (!tdOn() || TD.state !== 'build' || TD.wave >= TD_ROUNDS) return;
-  TD.wave++; TD.state = 'wave'; TD.t = 0; TD.queue = [];
-  for (const [type, count, gap, start] of TD_WAVES[TD.wave - 1]) for (let i = 0; i < count; i++) TD.queue.push({at:(start || 0) + i*gap, t:type});
+  if (!tdOn() || !(TD.state === 'build' || TD.state === 'wave') || TD.wave >= TD_ROUNDS) return;
+  // sent early, on top of the round still going: that round's bonus is paid now, the new balloons queue up behind
+  const early = TD.state === 'wave'; if (early) TD.cash = (TD.cash || 0) + 100 + 20*TD.wave; else { TD.t = 0; TD.queue = []; }
+  TD.wave++; TD.state = 'wave';
+  for (const [type, count, gap, start] of TD_WAVES[TD.wave - 1]) for (let i = 0; i < count; i++) TD.queue.push({at:TD.t + (start || 0) + i*gap, t:type});
   TD.queue.sort((a, b) => a.at - b.at);
-  TD.hpK = 1 + .045*(TD.wave - 1); TD.spK = 1 + .012*(TD.wave - 1);
+  TD.hpK = 1 + .045*(TD.wave - 1) + .03*Math.max(0, TD.wave - 20); TD.spK = Math.min(1.9, 1 + .012*(TD.wave - 1));   // past round 20 they toughen faster
   sfx('trumpet'); tdHud(); tdSend(true);
   toast(`🎈 Round ${TD.wave}${TD.wave === TD_ROUNDS ? ' (the last one!)' : ''}: ${TD_WAVES[TD.wave - 1].map(g => g[1] + ' ' + TDT[g[0]].n).join(', ')}`);
 }
@@ -5202,9 +5254,9 @@ function tdFrame(dt){
   if (!tdOn()) { if (TD.im && TD.im.body.count) tdClear(); return; }
   if (tdAuth() && !TD.over) {
     if (TD.state === 'wave') {
-      TD.t += dt;
+      const fdt = dt*(TD.speed || 1); TD.t += fdt;
       while (TD.queue.length && TD.queue[0].at <= TD.t) tdSpawn(TD.queue.shift().t, 0);
-      for (const b of TD.list) { if (b.dead) continue; const T = TDT[b.t]; b.d += T.sp*TD.speedK*TD.spK*dt*(b.stunT > 0 ? 0 : b.slowT > 0 ? .5 : 1); if (b.stunT > 0) b.stunT -= dt; if (b.slowT > 0) b.slowT -= dt;
+      for (const b of TD.list) { if (b.dead) continue; const T = TDT[b.t]; b.d += T.sp*TD.speedK*TD.spK*fdt*(b.stunT > 0 ? 0 : b.slowT > 0 ? .5 : 1); if (b.stunT > 0) b.stunT -= fdt; if (b.slowT > 0) b.slowT -= fdt;
         if (b.d >= TD.len) { b.dead = true; if (b.blimpG && b.blimpG.parent) b.blimpG.parent.remove(b.blimpG); tdLeak(T); } }
       tdFastHits();
       TD.list = TD.list.filter(b => !b.dead);
@@ -5213,7 +5265,7 @@ function tdFrame(dt){
     TD.sendT -= dt; if (TD.sendT <= 0) { TD.sendT = TD.list.length > 150 ? .16 : .11; tdSend(false); }
   } else if (!tdAuth()) {
     // between the host's reports, keep them gliding along the path
-    for (const b of TD.list) if (!b.dead) b.d = Math.min(TD.len, b.d + TDT[b.t].sp*TD.speedK*(TD.spK || 1)*dt);
+    for (const b of TD.list) if (!b.dead) b.d = Math.min(TD.len, b.d + TDT[b.t].sp*TD.speedK*(TD.spK || 1)*dt*(TD.speed || 1));
   }
   for (const b of TD.list) { if (b.dead) continue; tdAt(b.d, b.pos); b.flash = Math.max(0, b.flash - dt); }
   tdDraw(dt); tdMapFrame(dt); ttFrame(dt);
@@ -5256,7 +5308,7 @@ function tdMapFrame(dt){
   const ex = tdmX(0), ey = tdmY(0), lf = TD.lives/TD_LIVES; g.fillStyle = lf > .5 ? '#FFF7E0' : lf > .2 ? '#FFD84D' : '#FF6A5A'; g.strokeStyle = '#4A2A00'; g.lineWidth = 3;
   g.beginPath(); g.ellipse(ex, ey, 10, 13, 0, 0, Math.PI*2); g.fill(); g.stroke();
   // turrets: little squares in their class colour (gold pips = upgrades)
-  for (const t of TT.list) { const x = tdmX(t.x), y = tdmY(t.z), D = TT_DEFS[t.k]; g.fillStyle = D.cls === 'pain' ? '#7A5CC8' : D.cls === 'bomber' ? '#6B7A4A' : '#D9A520'; g.strokeStyle = '#1A1A1A'; g.lineWidth = 2; g.fillRect(x - 6, y - 6, 12, 12); g.strokeRect(x - 6, y - 6, 12, 12); if (t.lvl) { g.fillStyle = '#FFD84D'; g.fillRect(x - 6, y + 7, 12*t.lvl/5, 3); } }
+  for (const t of TT.list) { const x = tdmX(t.x), y = tdmY(t.z), D = TT_DEFS[t.k]; g.fillStyle = D.cls === 'pain' ? '#7A5CC8' : D.cls === 'bomber' ? '#6B7A4A' : D.cls === 'avatar' ? '#FF6A1F' : '#D9A520'; g.strokeStyle = '#1A1A1A'; g.lineWidth = 2; g.fillRect(x - 6, y - 6, 12, 12); g.strokeRect(x - 6, y - 6, 12, 12); if (t.lvl) { g.fillStyle = '#FFD84D'; g.fillRect(x - 6, y + 7, 12*t.lvl/5, 3); } }
   // balloons: the leader (closest to the egg) is ringed
   let lead = null; for (const b of TD.list) if (!b.dead && (!lead || b.d > lead.d)) lead = b;
   const live = TD.list.filter(b => !b.dead).sort((a, b) => a.d - b.d);
@@ -5269,7 +5321,7 @@ function tdMapFrame(dt){
     g.fillStyle = me ? '#FFE033' : '#5AB4FF'; g.strokeStyle = '#1A1A1A'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(x + dx*s0, y + dy*s0); g.lineTo(x - dx*s0*.6 - dy*s0*.55, y - dy*s0*.6 + dx*s0*.55); g.lineTo(x - dx*s0*.25, y - dy*s0*.25); g.lineTo(x - dx*s0*.6 + dy*s0*.55, y - dy*s0*.6 - dx*s0*.55); g.closePath(); g.fill(); g.stroke(); }
   // the numbers
   const onPath = live.length, queued = TD.queue ? TD.queue.length : 0, rnd = Math.max(1, TD.wave);
-  let html = `🎈 Round <b>${rnd}/${TD_ROUNDS}</b> · ❤️ <b>${TD.lives}</b> · 💰 <b>${TD.cash | 0}</b> · 🏗️ ${TT.list.length}<br>`;
+  let html = `🎈 Round <b>${rnd}/${TD_ROUNDS}</b> · ❤️ <b>${TD.lives}</b> · 💰 <b>${ttMoney()}</b> · 🏗️ ${TT.list.length}<br>`;
   if (TD.state === 'wave') { html += `On the path <b>${onPath}</b>${queued ? ` · still coming <b>${queued}</b>` : ''}<br>`;
     if (lead) { const pct = Math.round(lead.d/TD.len*100), left = Math.max(0, Math.round(TD.len - lead.d)); html += `<span style="color:#C4200E">Closest: ${TDT[lead.t].n} · ${pct}% of the way · ${left} m to the egg</span>`; } }
   else if (TD.wave < TD_ROUNDS) { const nx = TD_WAVES[TD.wave]; html += `Next: ${nx.map(w => w[1] + ' ' + TDT[w[0]].n).join(', ')}`; }
@@ -5304,11 +5356,11 @@ function tdShowEnd(){
 function tdSend(force){
   if (!NET.peer || !NET.host) return;
   const b = []; for (const q of TD.list) if (!q.dead) b.push(q.id, q.t, Math.round(q.d*10), Math.round(Math.max(0, q.hp)));
-  netBroadcast({t:'td', c:TD.cash | 0, tt:ttPack(), w:TD.wave, s:TD.state, l:TD.lives, p:TD.pops, a:TD.auto ? 1 : 0, k:+(TD.hpK || 1).toFixed(3), v:+(TD.spK || 1).toFixed(3), b});
+  netBroadcast({t:'td', c:TD.cash | 0, i:TD.inf ? 1 : 0, f:TD.speed || 1, tt:ttPack(), w:TD.wave, s:TD.state, l:TD.lives, p:TD.pops, a:TD.auto ? 1 : 0, k:+(TD.hpK || 1).toFixed(3), v:+(TD.spK || 1).toFixed(3), b});
 }
 function tdApply(m){
   const was = TD.state, old = new Map(TD.list.map(b => [b.id, b]));
-  if (typeof m.c === 'number') TD.cash = m.c; if (Array.isArray(m.tt)) ttSync(m.tt);
+  if (typeof m.c === 'number') TD.cash = m.c; TD.inf = !!m.i; TD.speed = m.f === 2 || m.f === 4 ? m.f : 1; if (Array.isArray(m.tt)) ttSync(m.tt);
   TD.wave = m.w | 0; TD.state = m.s; TD.lives = m.l | 0; TD.pops = m.p | 0; TD.auto = !!m.a; TD.hpK = +m.k || 1; TD.spK = +m.v || 1;
   const list = []; const a = Array.isArray(m.b) ? m.b : [];
   for (let i = 0; i + 3 < a.length; i += 4) {
@@ -5329,7 +5381,7 @@ function tdApply(m){
 /* ---------- drawing: glossy, outlined, bobbing balloons (instanced), blimps with health bars, confetti pops ---------- */
 function tdMeshes(){
   if (TD.im) return TD.im;
-  const N = 800, mk = (geo, mat, col) => { const m = new THREE.InstancedMesh(geo, mat, N); if (col) m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(N*3), 3); m.count = 0; m.frustumCulled = false; m.userData.noRay = true; scene.add(m); return m; };
+  const N = 1600, mk = (geo, mat, col) => { const m = new THREE.InstancedMesh(geo, mat, N); if (col) m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(N*3), 3); m.count = 0; m.frustumCulled = false; m.userData.noRay = true; scene.add(m); return m; };
   const body = new THREE.SphereGeometry(1, 16, 12); body.scale(.86, 1, .86);
   const knot = new THREE.ConeGeometry(.16, .26, 6); knot.translate(0, -1.08, 0);
   const shine = new THREE.SphereGeometry(.2, 8, 6); shine.scale(.8, 1.3, .5); shine.translate(-.38, .42, .62);
@@ -5344,7 +5396,7 @@ function tdDraw(dt){
   for (const b of TD.list) {
     if (b.dead) continue; const T = TDT[b.t];
     if (T.blimp) { tdBlimp(b, T); continue; }
-    if (n >= 800) break;
+    if (n >= 1600) break;
     b.ph += dt*2.2; const sc = T.s*big*TD_SIZE, y = b.pos.y + Math.sin(b.ph)*.18;
     _tdE.set(Math.sin(b.ph*.7)*.12, 0, Math.cos(b.ph*.9)*.12); _tdQ.setFromEuler(_tdE);
     _tdS.set(sc, sc, sc); _tdM.compose(V3(b.pos.x, y, b.pos.z), _tdQ, _tdS);
@@ -5397,9 +5449,10 @@ function tdScenery(){
 function tdHudShow(on){
   let h = document.getElementById('tdHud');
   if (!h) { h = document.createElement('div'); h.id = 'tdHud'; h.style.cssText = 'position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 70px);transform:translateX(-50%);z-index:7;display:none;text-align:center;font:900 16px/1.2 var(--display,system-ui),system-ui,sans-serif;pointer-events:none';
-    h.innerHTML = '<div id="tdStat" style="display:inline-flex;gap:14px;align-items:center;padding:7px 16px;border-radius:999px;background:linear-gradient(180deg,#FFF3A8,#FFC93C);color:#4A2A00;border:4px solid #4A2A00;box-shadow:0 4px 0 #4A2A00"></div><div style="margin-top:8px;display:flex;gap:8px;justify-content:center"><button id="tdGo" class="btn" style="pointer-events:auto;font-size:18px;padding:10px 22px;background:linear-gradient(180deg,#7CF06A,#2EB33C);color:#fff;border:4px solid #1F5F1A;box-shadow:0 4px 0 #1F5F1A;text-shadow:0 2px 0 #1F5F1A">▶ Start</button><button id="tdAuto" class="btn" style="pointer-events:auto;background:#fff;color:#4A2A00;border:3px solid #4A2A00"></button></div>';
+    h.innerHTML = '<div id="tdStat" style="display:inline-flex;gap:14px;align-items:center;padding:7px 16px;border-radius:999px;background:linear-gradient(180deg,#FFF3A8,#FFC93C);color:#4A2A00;border:4px solid #4A2A00;box-shadow:0 4px 0 #4A2A00"></div><div style="margin-top:8px;display:flex;gap:8px;justify-content:center"><button id="tdGo" class="btn" style="pointer-events:auto;font-size:18px;padding:10px 22px;background:linear-gradient(180deg,#7CF06A,#2EB33C);color:#fff;border:4px solid #1F5F1A;box-shadow:0 4px 0 #1F5F1A;text-shadow:0 2px 0 #1F5F1A">▶ Start</button><button id="tdAuto" class="btn" style="pointer-events:auto;background:#fff;color:#4A2A00;border:3px solid #4A2A00"></button><button id="tdSpeed" class="btn" style="pointer-events:auto;background:#fff;color:#4A2A00;border:3px solid #4A2A00"></button></div>';
     document.body.appendChild(h);
     $('tdGo').onclick = e => { e.stopPropagation(); tdAskWave(); };
+    $('tdSpeed').onclick = e => { e.stopPropagation(); if (tdAuth()) { TD.speed = TD.speed === 1 ? 2 : TD.speed === 2 ? 4 : 1; tdHud(); tdSend(true); sfx('click'); } else toast('Only the host can change the speed.'); };
     $('tdAuto').onclick = e => { e.stopPropagation(); if (tdAuth()) { TD.auto = !TD.auto; TD.autoT = 0; tdHud(); tdSend(true); } else toast('Only the host can turn auto-start on.'); };
   }
   h.style.display = on ? 'block' : 'none';
@@ -5409,9 +5462,10 @@ function tdHud(){
   if (!document.getElementById('tdHud') || !tdOn()) return;
   const st = $('tdStat'), go = $('tdGo'), au = $('tdAuto');
   const left = TD.state === 'wave' ? TD.list.filter(b => !b.dead).length + (TD.queue ? TD.queue.length : 0) : 0;
-  st.innerHTML = `<span>🎈 Round ${Math.max(1, TD.wave)}/${TD_ROUNDS}</span><span>❤️ ${TD.lives}</span><span>💰 ${TD.cash | 0}</span><span>💥 ${(TD.pops || 0).toLocaleString()}</span>${TD.state === 'wave' && tdAuth() ? `<span>🎯 ${left} left</span>` : ''}`;
-  const showGo = TD.state === 'build' && TD.wave < TD_ROUNDS && !TD.over; go.style.display = showGo ? '' : 'none'; go.textContent = `▶ Start round ${TD.wave + 1}`;
-  au.style.display = TD.over ? 'none' : ''; au.textContent = TD.auto ? '⏩ Auto: on' : '⏩ Auto: off';
+  st.innerHTML = `<span>🎈 Round ${Math.max(1, TD.wave)}/${TD_ROUNDS}</span><span>❤️ ${TD.lives}</span><span>💰 ${ttMoney()}</span><span>💥 ${(TD.pops || 0).toLocaleString()}</span>${TD.state === 'wave' && tdAuth() ? `<span>🎯 ${left} left</span>` : ''}`;
+  const showGo = (TD.state === 'build' || TD.state === 'wave') && TD.wave < TD_ROUNDS && !TD.over; go.style.display = showGo ? '' : 'none'; go.textContent = TD.state === 'wave' ? `⏭ Send round ${TD.wave + 1} now` : `▶ Start round ${TD.wave + 1}`;
+  au.style.display = TD.over ? 'none' : ''; au.textContent = TD.auto ? '🔁 Auto: on' : '🔁 Auto: off';
+  const spB = $('tdSpeed'); if (spB) { const v = TD.speed || 1; spB.style.display = TD.over ? 'none' : ''; spB.textContent = v === 1 ? '▶ Speed 1×' : v === 2 ? '⏩ Speed 2×' : '⏭ Speed 4×'; spB.style.background = v === 1 ? '#fff' : v === 2 ? '#FFE9A0' : '#FFB02E'; }
   $('phase').innerHTML = `🎈 Balloon Defense<small>Round ${Math.max(1, TD.wave)} of ${TD_ROUNDS}</small>`;
 }
 
@@ -14311,7 +14365,7 @@ function hostHandle(c, m){
     case 'cast': if (!castOK(c, m)) break; replayCast(m); netBroadcast(m, c); break;
     case 'death': if (m.id !== c.peer) break; if (m.by && !NET.players[m.by]) m.by = null; onDeath(m); break;
     case 'edone': if (eggOn() && isDef(c.peer)) eggReady(c.peer); break;
-    case 'tdgo': if (tdOn() && TD.state === 'build') tdStartWave(); break;
+    case 'tdgo': if (tdOn() && (TD.state === 'build' || TD.state === 'wave')) tdStartWave(); break;
     case 'ttb': case 'ttu': case 'tts': ttHostMsg(m); break;
     case 'erole': if (eggOn() && m.id === c.peer && (m.r === 'def' || m.r === 'atk')) eggRole(c.peer, m.r, true); break;
     case 'egu': if (eggOn() && m.id === c.peer) eggGaveUp(c.peer); break;
@@ -14365,7 +14419,8 @@ function netTick(dt){
 
 /* ---------- menus and HUD ---------- */
 const ME = {name:'', team:'blue', look:Math.floor(Math.random()*LOOK_COUNT), mode:(() => { try { const m = localStorage.getItem('ca-mode2') || 'egg'; return normMode(m); } catch (e) { return 'egg'; } })(),
-  cdOn:(() => { try { return localStorage.getItem('ca-cd') === 'on'; } catch (e) { return false; } })()};
+  cdOn:(() => { try { return localStorage.getItem('ca-cd') === 'on'; } catch (e) { return false; } })(),
+  tdInf:(() => { try { return localStorage.getItem('ca-tdinf') === 'on'; } catch (e) { return false; } })()};
 function myInfo(){ ME.name = clean(($('nameIn') && $('nameIn').value) || ME.name || 'Player'); try { localStorage.setItem('ca-name', ME.name); } catch (e) {} return {id:null, name:ME.name, team:ME.team, look:ME.look}; }
 function lobbyMsg(t){ const e = $('lobbyMsg'); if (e) e.textContent = t; }
 function showPvPTitle(){
@@ -14379,7 +14434,7 @@ function showPvPTitle(){
       <button class="btn" id="tBlue" style="background:var(--blue);color:#fff">Blue team</button><button class="btn" id="tRed" style="background:var(--red);color:#fff">Red team</button>
       <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="btn" id="mEgg" style="background:#FFF3DC;color:#3B2A1A">🥚 Alpha Mode</button><button class="btn" id="mTD" style="background:linear-gradient(180deg,#FFE14D,#FF9A2E);color:#4A2A00">🎈 Balloon Defense</button><button class="btn" id="mTennis" style="background:linear-gradient(180deg,#F4FF9A,#C6E83A);color:#24320A">🎾 Pain Tennis</button></div>
       <p class="muted" id="modeDesc" style="grid-column:1/-1;margin:0;font-size:14px"></p>
-      <button class="btn" id="cdB"></button><button class="btn" id="pixB"></button>
+      <button class="btn" id="cdB"></button><button class="btn" id="pixB"></button><button class="btn" id="infB" style="grid-column:1/-1"></button>
     </div>
     <div class="actions">
       <button class="btn primary" id="hostB" ${online ? '' : 'disabled'}>Host a match</button>
@@ -14402,8 +14457,11 @@ function showPvPTitle(){
     $('modeDesc').textContent = m === 'egg' ? `Alpha Mode: one player defends the egg with 20 protection powers and builds for as long as they like, then presses Ready. Everyone else attacks until the egg breaks or they give up. Everyone takes a turn defending.`
       : m === 'tennis' ? 'Pain Tennis: two Pain players, the whole island one giant tennis court full of junk, a 12 m net and a clock. Fling everything over the net with your gravity powers. When time runs out, the side with fewer things on it wins. Practising alone, the far side throws back on its own.'
       : m === 'swarm' ? 'Swarm (single-player): spawn 5 to 100 enemies that chase you, then try every class’s powers on them. Use Practice alone.'
-      : 'Balloon Defense: balloons float along a winding path to crack the egg. Pop them with Pain, Bomber and Swordsman powers. 20 rounds, each one harder: more balloons, bigger, tougher, faster. Play alone or together.';
+      : 'Balloon Defense: balloons float along a winding path to crack the egg. Pop them with Pain, Bomber and Swordsman powers. 100 rounds, each one harder: more balloons, bigger, tougher, faster. Play alone or together.';
+    if ($('infB')) { $('infB').style.display = m === 'td' ? '' : 'none'; setInf(ME.tdInf); }
     if ($('cdB')) setCd(ME.cdOn); };
+  function setInf(on){ ME.tdInf = on; try { localStorage.setItem('ca-tdinf', on ? 'on' : 'off'); } catch (e) {} $('infB').textContent = on ? '💰 Infinite money: on' : '💰 Infinite money: off'; $('infB').style.background = on ? 'linear-gradient(180deg,#FFF3A8,#FFC93C)' : ''; }
+  $('infB').onclick = () => setInf(!ME.tdInf);
   function setCd(on){ ME.cdOn = on; try { localStorage.setItem('ca-cd', on ? 'on' : 'off'); } catch (e) {} $('cdB').disabled = false; $('cdB').textContent = on ? '⏱️ Cooldowns: on' : '⏱️ Cooldowns: off (spam everything)'; }
   setMode(ME.mode); setCd(ME.cdOn); $('cdB').onclick = () => setCd(!ME.cdOn);
   $('mEgg').onclick = () => setMode('egg'); $('mTD').onclick = () => setMode('td'); $('mTennis').onclick = () => setMode('tennis');
@@ -14565,6 +14623,7 @@ function renderTray(){
     t.innerHTML = `<div class="bar sticker"><div class="tl">${guardActive() ? 'Defender' : classInfo(G.cls).name}</div><div class="skills" style="--cols:${Math.ceil(shown.length/2)}">${shown.map(([id,sp]) => `<button class="skill" data-sp="${id}" aria-pressed="${G.targeting===id}"${GUARD[id] && sp.lim && ((G.egg && G.egg.left2 && G.egg.left2[id]) | 0) >= sp.lim ? ' style="opacity:.4"' : ''} title="${sp.name} (${sp.key})" aria-label="${sp.name}"><span class="si">${sp.e}</span><span class="sn">${SHORT[id] || sp.name}</span>${GUARD[id] && sp.lim ? `<sup>${(G.egg && G.egg.left2 && G.egg.left2[id]) | 0}/${sp.lim}</sup>` : sp.ammo ? `<sup>×${G.nades | 0}</sup>` : sp.ult ? '<sup>ULT</sup>' : ''}<kbd>${sp.key}</kbd></button>`).join('')}</div></div>`;
     t.querySelectorAll('[data-sp]').forEach(b => b.onclick = e => { e.stopPropagation(); useSpecial(b.dataset.sp); });
     if (G.pvp && !guardActive()) addClassButton(t);
+    if (tdOn() && !guardActive()) ttTray(t);
     if (eggOn() && G.phase === 'attack' && !G.egg.over && !amDefender()) { const gb = document.createElement('button'); gb.className = 'btn'; gb.textContent = G.egg.iGaveUp ? '🏳️ Gave up' : '🏳️ Give up'; gb.disabled = !!G.egg.iGaveUp; gb.style.alignSelf = 'center'; gb.onclick = e => { e.stopPropagation(); eggGiveUp(); }; t.querySelector('.bar').appendChild(gb); }
     if (eggOn() && (G.phase === 'attack' || G.phase === 'build') && !G.egg.over) { const sb = document.createElement('button'); sb.className = 'btn'; sb.textContent = amDefender() ? '⚔️ Attack (Y)' : '🛡️ Defend (Y)'; sb.style.alignSelf = 'center'; sb.onclick = e => { e.stopPropagation(); eggSwitchRole(); }; t.querySelector('.bar').appendChild(sb); }
     if (guardActive() && G.phase === 'build') { const db = document.createElement('button'); db.className = 'btn primary'; db.textContent = G.egg.ready[G.localKey] ? `✅ Ready (${defIds().filter(k => G.egg.ready[k]).length}/${defIds().length})` : '✅ Ready (F)'; db.disabled = !!G.egg.ready[G.localKey]; db.style.alignSelf = 'center'; db.onclick = e => { e.stopPropagation(); eggDone(); }; t.querySelector('.bar').appendChild(db);
@@ -14675,7 +14734,7 @@ canvas.addEventListener('pointerdown', e => {
     return;
   }
   if (!inPlay()) return;
-  if (e.button === 2 && TT.place) { TT.place = null; ttGhostHide(); ttPanel(); toast('🏗️ Put away.'); return; }
+  if (e.button === 2 && TT.place) { TT.place = null; TT.shop = false; ttGhostHide(); ttPanel(); toast('🏗️ Put away.'); return; }
   if (e.button === 2) { if (G.phase === 'attack' && painKit() && PAIN.circBuild) { PAIN.circBuild = false; toast('➰ Path set. The circuit stays until you press G again.'); return; }
     if (G.phase === 'attack' && painKit() && !(G.targeting && PAIN_SKILLS[G.targeting])) { tkGrabToggle(); return; } if (G.targeting) { G.targeting = null; renderTray(); toast('Skill put away.'); } rdrag = {x:e.clientX, y:e.clientY}; return; }
   if (e.button !== 0) return;
@@ -14745,7 +14804,7 @@ addEventListener('keydown', e => {
   if (['arrowup','arrowdown','arrowleft','arrowright'].includes(k)) e.preventDefault();
   if (k === 'e' && !e.repeat) { const P = activeChar(); if (P && P.stun <= 0) { const lb = typeof nearLoot === 'function' ? nearLoot(P) : null; if (lb) openLoot(lb, true); else grabNearest(P); } }
   if (k === 'y' && !e.repeat && eggOn() && (G.phase === 'attack' || G.phase === 'build')) { eggSwitchRole(); return; }
-  if (k === 'enter' && !e.repeat && tdOn() && TD.state === 'build') { tdAskWave(); return; }   // anyone: switch sides
+  if (k === 'enter' && !e.repeat && tdOn() && (TD.state === 'build' || TD.state === 'wave')) { tdAskWave(); return; }   // anyone: switch sides
   if ((G.phase === 'attack' || G.phase === 'build') && guardActive()) { if (e.repeat) return; if (guardKeyDown(k)) return; if (G.phase === 'build' && (k === 'f' || k === 'enter')) finishBuild(); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'bomber') { bomberKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'avatar') { avatarKeyDown(k); return; }

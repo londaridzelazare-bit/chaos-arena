@@ -445,6 +445,13 @@ Host-authoritative: guests `ttRequest` -> ttb/ttu/tts -> `ttHostMsg`; td snapsho
 Damage only when tdAuth (`ttHurt`/`ttArea`/`ttLine`), visuals everywhere. b.slowT ×.5 / b.stunT ×0 in tdFrame. Input: capture keydown
 listener (`ttKey`: Y shop, 1-5 pick, Esc, U/K on the aimed turret `TT.aimed`), `ttClick` first in actionDown, right-click cancels.
 `ttCanPlace`: path ≥4.6, egg ≥8, turrets ≥4.5. Minimap draws turrets as class-coloured squares with a level bar. Tests t64/t65/t66.
+TD v2 (2026-10-10.7): the shop lives in the Skills bar (`ttTray` appended by renderTray when tdOn; `#ttSec`, `ttTrayRefresh` keyed
+on cash/count/place/shop; tdStart calls renderTray because startMatch draws the bar before TD.on). Click a [data-tt] button or Y then
+1-5 (`ttPick`); placing/cancelling closes TT.shop so digits go back to skills. Genos turrets a_* (cls 'avatar'); TT_CLS built from cls.
+Infinite money: title toggle `infB` (ME.tdInf, localStorage ca-tdinf, TD only) -> host TD.inf; `ttCan`/`ttMoney` (∞); snapshot `i`.
+Speed: TD.speed 1/2/4 (host button `tdSpeed`, snapshot `f`) scales spawn clock, balloon moves, slow/stun timers, turret cd and planes.
+Early rounds: tdStartWave also works in state 'wave' (queues the next round at TD.t + offsets, pays the current round's bonus).
+100 rounds: rounds 21-100 generated after TD_WAVES; hpK +.03/round past 20, spK capped 1.9; balloon instances N 1600. Tests t68/t69.
 
 ## Defender kit (Alpha Mode) — rebuilt 2026-10-06
 
