@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-10.3';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-10.4';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -434,9 +434,9 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = PIXEL.on ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9ED8F5);
-const FOG = {near:40, far:235};   // distance haze; rain thickens it (rainLight)
+const FOG = {near:70, far:900};   // distance haze; rain thickens it (rainLight). Far enough that things thrown high into the sky stay visible
 scene.fog = new THREE.Fog(0x9ED8F5, FOG.near, FOG.far);
-const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.15, 5000);   // a very high sky: nothing high up disappears
 const hemi = new THREE.HemisphereLight(0xDCEBFF, 0x6E8C52, 0.58); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xFFEFD6, 0.8);
 sun.position.set(18, 30, 12); sun.castShadow = true;
@@ -464,7 +464,7 @@ function sp(r,c,x=0,y=0,z=0,p,detail=1){ const m=new THREE.Mesh(new THREE.Icosah
 function cone(r,h,c,x=0,y=0,z=0,p,seg=6){ const m=new THREE.Mesh(new THREE.ConeGeometry(r,h,seg), M3(c)); m.position.set(x,y,z); m.castShadow=true; if(p)p.add(m); return m; }
 
 /* sea + island (permanent) */
-const sea = new THREE.Mesh(new THREE.PlaneGeometry(1200,1200), new THREE.MeshLambertMaterial({color:0x4FB3E8}));
+const sea = new THREE.Mesh(new THREE.PlaneGeometry(9000,9000), new THREE.MeshLambertMaterial({color:0x4FB3E8}));
 sea.rotation.x = -Math.PI/2; sea.position.y = -7; scene.add(sea);
 const ISL = 140;   // half the play area's side: 280 x 280 m (it was 140 x 140)
 const MAPK = (ISL/70)*(ISL/70);   // how many times more ground than the original map: scales prop and animal counts
@@ -4010,7 +4010,7 @@ const skyMat = new THREE.ShaderMaterial({
   vertexShader:'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
   fragmentShader:'varying vec3 vP; uniform vec3 top; uniform vec3 mid; uniform vec3 bot; void main(){ float h = vP.y; vec3 c = h > 0.0 ? mix(mid, top, pow(clamp(h, 0.0, 1.0), 0.6)) : mix(mid, bot, clamp(-h*4.0, 0.0, 1.0)); gl_FragColor = vec4(c, 1.0); }'
 });
-const skyDome = new THREE.Mesh(new THREE.SphereGeometry(440, 32, 16), skyMat); skyDome.renderOrder = -10; skyDome.frustumCulled = false; scene.add(skyDome);
+const skyDome = new THREE.Mesh(new THREE.SphereGeometry(4400, 32, 16), skyMat); skyDome.renderOrder = -10; skyDome.frustumCulled = false; scene.add(skyDome);
 const sunDisk = new THREE.Mesh(new THREE.CircleGeometry(16, 32), new THREE.MeshBasicMaterial({color:0xFFF4D0, fog:false}));
 const sunGlow = new THREE.Mesh(new THREE.CircleGeometry(34, 32), new THREE.MeshBasicMaterial({color:0xFFE9A8, fog:false, transparent:true, opacity:.35, depthWrite:false}));
 scene.add(sunGlow); scene.add(sunDisk);
@@ -5656,7 +5656,7 @@ function updateCore(core, dt){
 function moveCore(core, dt){
   core.off.addScaledVector(core.vel, dt); core.vel.multiplyScalar(Math.exp(-1.1*dt));
   const p = core.g.position.copy(core.base).add(core.off);
-  if (p.y > 70) { core.off.y -= p.y - 70; p.y = 70; core.vel.y = Math.min(0, core.vel.y); }
+  if (p.y > 600) { core.off.y -= p.y - 600; p.y = 600; core.vel.y = Math.min(0, core.vel.y); }
   for (const ax of ['x', 'z']) if (Math.abs(p[ax]) > ISL - 2) { const lim = Math.sign(p[ax])*(ISL - 2); core.off[ax] += lim - p[ax]; p[ax] = lim; core.vel[ax] *= -.3; }
   return p.y - core.shell*.6 < groundH(p.x, p.z) && core.vel.y < -3;
 }
@@ -7158,7 +7158,7 @@ function painZeroG(){
       b.force.y += g*b.mass;   // no gravity: thrown things keep flying straight
       const sp = Math.hypot(b.velocity.x, b.velocity.y, b.velocity.z);
       if (sp < 6) { if (b.position.y - groundH(b.position.x, b.position.z) < b._zgH) b.velocity.y = lerp(b.velocity.y, 1.6, .03); else b.velocity.y *= .985; b.velocity.x *= .99; b.velocity.z *= .99; b.angularVelocity.x = lerp(b.angularVelocity.x, .3, .01); }
-      if (b.position.y > 95) b.velocity.y = Math.min(0, b.velocity.y);
+      if (b.position.y > 600) b.velocity.y = Math.min(0, b.velocity.y);
     }
   }});
   PAIN.fx.push({owner:key, update(dt){ if (PAIN.zeroG !== Z) return false; Z.scan -= dt; if (Z.scan <= 0) { Z.scan = 1; grab(); } return true; }});   // new things (rubble, wreckage) float too
@@ -7186,7 +7186,7 @@ function zeroGMove(P, c, dt, input){
     // free flight in the direction you look
     const sp = 20, v = f.multiplyScalar(mz).addScaledVector(r, mx).add(V3(0, upDown, 0)); if (v.lengthSq() > 1) v.normalize();
     b.velocity.x = lerp(b.velocity.x, v.x*sp, .1); b.velocity.y = lerp(b.velocity.y, v.y*sp, .1); b.velocity.z = lerp(b.velocity.z, v.z*sp, .1);
-    if (b.position.y > 90) b.velocity.y = Math.min(0, b.velocity.y);
+    if (b.position.y > 600) b.velocity.y = Math.min(0, b.velocity.y);
     if (Math.hypot(mx, mz) > .1) P.moveFace = Math.atan2(v.x, v.z);
   } else {
     // floating: no gravity, a little paddling, slow drift
@@ -8297,7 +8297,7 @@ function guidedFrame(dt){
       else if (g.t > .25) { for (const e of bEnemies(k, g.team)) if (segDist(prev, g.p, V3(e.pos.x, e.pos.y + 1, e.pos.z)) < .9) { hit = g.p.clone(); break; }
         if (!hit && egg && egg.alive && segDist(prev, g.p, egg.body.position) < .8) hit = g.p.clone();
         if (!hit && ((typeof wildSegHit === 'function' && wildSegHit(prev, g.p, .4)) || bSolid(g.p, .3))) hit = prev.clone(); }
-      if (!hit && (g.t > 14 || Math.abs(g.p.x) > ISL + 20 || Math.abs(g.p.z) > ISL + 20 || g.p.y > 140)) hit = g.p.clone();
+      if (!hit && (g.t > 14 || Math.abs(g.p.x) > ISL + 20 || Math.abs(g.p.z) > ISL + 20 || g.p.y > 900)) hit = g.p.clone();
       if (hit) { localCast('b_guidex', hit); continue; }
     } else {
       // everyone else follows the caster's reports
