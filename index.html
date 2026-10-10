@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-10.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-10.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -530,7 +530,7 @@ function genTerrain(seed){
     const k = smooth(16, 34, r) * edge, k2 = smooth(45, 80, r) * edge;
     // the original rolling ground, plus wide hills further out on the big map
     terrH[v] = (tNoise(x, z, terrSeed)*2.1 + (Math.sin(x*.017 + terrSeed*2)*Math.cos(z*.02 - terrSeed) + .6*Math.sin((x + z)*.011 + terrSeed))*3.4*k2)*k; terrDmg[v] = 0;
-    if (G.pvp && G.mode === 'td') { const pd = TD.pd ? TD.pd[v] : 99; terrH[v] *= .55*smooth(8, 26, r); if (pd < 8) terrH[v] = lerp(terrH[v], terrH[v]*.35 - .12, 1 - smooth(3.6, 8, pd)); }
+    if (G.pvp && G.mode === 'td') { const pd = TD.pd ? TD.pd[v] : 99; terrH[v] = pd < 4 ? -.08*(1 - smooth(2.6, 4, pd)) : 0; }   // Balloon Defense: flat ground
     if (G.pvp && G.mode === 'egg') { terrH[v] *= smooth(42, 62, r); if (r > RIVER[0] - 1.2 && r < RIVER[1] + 1.2) terrH[v] = Math.min(terrH[v], -1.7*smooth(RIVER[0] - 1.2, RIVER[0] + .4, r)*(1 - smooth(RIVER[1] - .4, RIVER[1] + 1.2, r))); }   // Alpha Mode: flat arena, river channel
   }
   syncTerrain();
@@ -1062,7 +1062,8 @@ function buildRound(seed, keepChars){
   const defSpawn = new THREE.Vector3(Math.cos(sa+Math.PI)*3, .3, Math.sin(sa+Math.PI)*3);
   const LIM = ISL - 4, taken = [];
   const free = (p, r) => p.distanceTo(atkSpawn) > r + 4 && !(G.pvp && G.mode === 'egg' && Math.hypot(p.x, p.z) < LAVA[1] + 6 + r) && !(G.pvp && G.mode === 'td' && (tdPathDist(p.x, p.z) < r + 5 || Math.hypot(p.x, p.z) < 9 + r)) && taken.every(t => Math.hypot(t.x-p.x, t.z-p.z) > t.r + r);
-  const place = (r, minR) => { for (let k=0;k<60;k++){ const a = rr(0,Math.PI*2), d = rr(minR, LIM - r); const p = new THREE.Vector3(Math.cos(a)*d, 0, Math.sin(a)*d); if (free(p, r)) { taken.push({x:p.x, z:p.z, r}); return p; } } return null; };
+  const place = (r, minR) => { if (G.pvp && G.mode === 'td' && rand() > (r < 1.3 ? .03 : .05)) return null;   // Balloon Defense: a simple, open map
+    for (let k=0;k<60;k++){ const a = rr(0,Math.PI*2), d = rr(minR, LIM - r); const p = new THREE.Vector3(Math.cos(a)*d, 0, Math.sin(a)*d); if (free(p, r)) { taken.push({x:p.x, z:p.z, r}); return p; } } return null; };
   const hillCols = G.map.ice ? [0xBFE6FA,0xD5F0FF] : G.map.bouncy ? [0xF093CC,0xFAB8DF] : [0x62A844,0x74B852,0x5E9E40];
   const addTree = (x, z, s) => {
     const gy = groundH(x, z), r0 = rand(), kind = r0 < .45 ? 'pine' : r0 < .75 ? 'oak' : r0 < .9 ? 'birch' : 'dead';   // one merged mesh per tree (WORLD)
@@ -1092,7 +1093,7 @@ function buildRound(seed, keepChars){
   const nF = Math.round((5 + Math.floor(rand()*4))*MAPK);
   for (let i=0;i<nF;i++){
     const c = place(6, 18); if (!c) continue;
-    const n = 6 + Math.floor(rand()*7);
+    const n = G.pvp && G.mode === 'td' ? 2 + Math.floor(rand()*2) : 6 + Math.floor(rand()*7);
     for (let k=0;k<n;k++){ const a = rr(0,Math.PI*2), d = rr(0,6); addTree(c.x + Math.cos(a)*d, c.z + Math.sin(a)*d, rr(.8,1.5)); }
   }
   for (let i=0;i<18*MAPK*.7;i++){ const p = place(1.5, 15); if (p) addTree(p.x, p.z, rr(.8,1.4)); }
@@ -4222,7 +4223,7 @@ const tuftXZ = [], flowerXZ = [];
 for (let i=0;i<1600*MAPK*.7;i++){ const a = Math.random()*Math.PI*2, r = 12 + Math.sqrt(Math.random())*(ISL - 14); tuftXZ.push([clamp(Math.cos(a)*r + (Math.random() - .5)*6, -ISL + 1, ISL - 1), clamp(Math.sin(a)*r + (Math.random() - .5)*6, -ISL + 1, ISL - 1), Math.random()*6, .7 + Math.random()*.8, 1]); }
 for (let i=0;i<420*MAPK*.8;i++){ let x = (Math.random() - .5)*(ISL*2 - 4), z = (Math.random() - .5)*(ISL*2 - 4); if (Math.hypot(x, z) < 12) x += 14; flowerXZ.push([x, z, 0, .8 + Math.random()*.5, 1]); }
 function placeInst(inst, list){ const d = new THREE.Object3D(); list.forEach((q, i) => { d.position.set(q[0], groundH(q[0], q[1]), q[1]); d.rotation.set(0, q[2], 0); d.scale.setScalar(q[4] ? q[3] : .0001); d.updateMatrix(); inst.setMatrixAt(i, d.matrix); }); inst.instanceMatrix.needsUpdate = true; }
-function placeGrass(){ tuftXZ.forEach(q => q[4] = 1); flowerXZ.forEach(q => q[4] = 1); placeInst(tufts, tuftXZ); placeInst(flowers, flowerXZ); }
+function placeGrass(){ const few = G.pvp && G.mode === 'td'; tuftXZ.forEach((q, i) => q[4] = few && i % 6 ? 0 : 1); flowerXZ.forEach((q, i) => q[4] = few && i % 6 ? 0 : 1); placeInst(tufts, tuftXZ); placeInst(flowers, flowerXZ); }
 function hideGrass(p, r){
   let ch = false; for (const q of tuftXZ) if (q[4] && Math.hypot(q[0] - p.x, q[1] - p.z) < r) { q[4] = 0; ch = true; }
   for (const q of flowerXZ) if (q[4] && Math.hypot(q[0] - p.x, q[1] - p.z) < r) { q[4] = 0; ch = true; }
@@ -4690,8 +4691,10 @@ const TD_WAVES = [   // groups of [type, count, seconds apart, start after]
 ];
 const TD_LIVES = 200, TD_ROUNDS = TD_WAVES.length, TD_FLY = 2.1, TD_SIZE = .65, TD_SLOW = .6;   // every balloon is drawn and hit at 65% size and moves at 60% speed
 const TD = {on:false, list:[], pd:null};
-// the path: it winds in from the edge of the island in a spiral and ends at the egg
-const TD_PTS = [[118,-40],[85,-25],[70,10],[80,45],[55,72],[15,70],[-25,75],[-60,60],[-78,25],[-60,-5],[-30,-35],[10,-40],[40,-20],[45,15],[20,35],[-15,30],[-25,5],[-10,-12],[-2.6,-2.6]];
+// the path: a spiral that winds in from the edge of the island, two and a half times round, to the egg in the middle
+const TD_PTS = (() => { const out = [], R0 = 118, R1 = 6, turns = 2.6, a0 = -.35, N = 150;
+  for (let i = 0; i <= N; i++) { const u = i/N, a = a0 + u*turns*Math.PI*2, r = R0 + (R1 - R0)*u; out.push([Math.cos(a)*r, Math.sin(a)*r]); }
+  const a1 = a0 + turns*Math.PI*2 + .35; out.push([Math.cos(a1)*3, Math.sin(a1)*3]); return out; })();
 function tdBuildPath(){
   const curve = new THREE.CatmullRomCurve3(TD_PTS.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal');
   const len = curve.getLength(), n = Math.ceil(len/.5), pts = curve.getSpacedPoints(n);
@@ -4789,7 +4792,62 @@ function tdFrame(dt){
     for (const b of TD.list) if (!b.dead) b.d = Math.min(TD.len, b.d + TDT[b.t].sp*TD.speedK*(TD.spK || 1)*dt);
   }
   for (const b of TD.list) { if (b.dead) continue; tdAt(b.d, b.pos); b.flash = Math.max(0, b.flash - dt); }
-  tdDraw(dt);
+  tdDraw(dt); tdMapFrame(dt);
+}
+/* ---------- the minimap: the whole island from above (north up; right is the way you face when you look north). The path,
+   the egg, every balloon in its colour (blimps bigger, the one closest to the egg ringed), the players as arrows (you in
+   yellow), and the numbers under it: round, lives, balloons on the path, how close the leader is, what comes next ---------- */
+const TDMAP = {};
+function tdMapEl(){
+  if (TDMAP.el) return TDMAP;
+  const wrap = document.createElement('div'); wrap.id = 'tdMap';
+  wrap.style.cssText = 'position:fixed;right:12px;top:calc(env(safe-area-inset-top,0px) + 64px);z-index:6;width:254px;padding:8px;border-radius:16px;background:rgba(255,247,214,.94);border:3px solid #4A2A00;box-shadow:0 4px 0 #4A2A00;font:800 12px/1.35 Nunito,system-ui,sans-serif;color:#4A2A00;pointer-events:none;display:none';
+  const cv = document.createElement('canvas'); cv.width = cv.height = 476; cv.style.cssText = 'width:238px;height:238px;display:block;border-radius:10px';
+  const info = document.createElement('div'); info.style.cssText = 'margin-top:6px';
+  wrap.append(cv, info); document.body.appendChild(wrap);
+  Object.assign(TDMAP, {el:wrap, cv, ctx:cv.getContext('2d'), info, base:null, t:0}); return TDMAP;
+}
+const TDM_N = 476, tdmX = x => TDM_N/2 - x*TDM_N/(2*ISL), tdmY = z => TDM_N/2 - z*TDM_N/(2*ISL);
+function tdMapBase(){
+  const c = document.createElement('canvas'); c.width = c.height = TDM_N; const g = c.getContext('2d'), k = TDM_N/(2*ISL);
+  g.fillStyle = '#3FA9E8'; g.fillRect(0, 0, TDM_N, TDM_N);
+  g.fillStyle = '#7FD36A'; g.fillRect(4, 4, TDM_N - 8, TDM_N - 8);
+  g.strokeStyle = 'rgba(0,0,0,.06)'; g.lineWidth = 1; for (let i = 0; i < TDM_N; i += 24) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, TDM_N); g.moveTo(0, i); g.lineTo(TDM_N, i); g.stroke(); }
+  const path = () => { g.beginPath(); for (let i = 0; i < TD.px.length; i += 3) { const x = tdmX(TD.px[i]), y = tdmY(TD.pz[i]); i ? g.lineTo(x, y) : g.moveTo(x, y); } g.lineTo(tdmX(TD.px[TD.px.length - 1]), tdmY(TD.pz[TD.pz.length - 1])); };
+  g.lineCap = g.lineJoin = 'round';
+  path(); g.strokeStyle = '#9C8A62'; g.lineWidth = 7.2*k + 3; g.stroke();
+  path(); g.strokeStyle = '#F2D58A'; g.lineWidth = 5.4*k; g.stroke();
+  // start gate
+  const sx = tdmX(TD.px[0]), sy = tdmY(TD.pz[0]); g.fillStyle = '#FF3B3B'; g.strokeStyle = '#4A2A00'; g.lineWidth = 3; g.beginPath(); g.arc(sx, sy, 9, 0, Math.PI*2); g.fill(); g.stroke();
+  g.fillStyle = '#FFF'; g.font = '900 13px Nunito, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('S', sx, sy + 1);
+  return c;
+}
+const tdHex = c => '#' + c.toString(16).padStart(6, '0');
+function tdMapFrame(dt){
+  const M = tdMapEl(); if (!tdOn()) return;
+  M.t -= dt; if (M.t > 0) return; M.t = .1;   // 10 times a second is plenty
+  if (!M.base || M.baseLen !== TD.len) { M.base = tdMapBase(); M.baseLen = TD.len; }
+  const g = M.ctx; g.drawImage(M.base, 0, 0);
+  // the egg
+  const ex = tdmX(0), ey = tdmY(0), lf = TD.lives/TD_LIVES; g.fillStyle = lf > .5 ? '#FFF7E0' : lf > .2 ? '#FFD84D' : '#FF6A5A'; g.strokeStyle = '#4A2A00'; g.lineWidth = 3;
+  g.beginPath(); g.ellipse(ex, ey, 10, 13, 0, 0, Math.PI*2); g.fill(); g.stroke();
+  // balloons: the leader (closest to the egg) is ringed
+  let lead = null; for (const b of TD.list) if (!b.dead && (!lead || b.d > lead.d)) lead = b;
+  const live = TD.list.filter(b => !b.dead).sort((a, b) => a.d - b.d);
+  for (const b of live) { const T = TDT[b.t], x = tdmX(b.pos.x), y = tdmY(b.pos.z);
+    if (T.blimp) { g.fillStyle = tdHex(T.c); g.strokeStyle = '#1A1A1A'; g.lineWidth = 2.5; g.beginPath(); g.ellipse(x, y, T.blimp === 1 ? 11 : 14, T.blimp === 1 ? 6 : 8, -tdDir(b.d) + Math.PI/2, 0, Math.PI*2); g.fill(); g.stroke(); g.fillStyle = '#FFF'; g.font = '900 10px Nunito, sans-serif'; g.fillText(T.blimp === 1 ? 'M' : 'B', x, y + 1); }
+    else { g.fillStyle = b.t === 8 ? `hsl(${(G.t*180 + b.id*47) % 360},100%,58%)` : b.t === 7 ? '#E8E8E8' : tdHex(T.c); g.strokeStyle = '#1A1A1A'; g.lineWidth = 2; g.beginPath(); g.arc(x, y, 4 + Math.min(3, T.s*1.6), 0, Math.PI*2); g.fill(); g.stroke(); } }
+  if (lead) { const x = tdmX(lead.pos.x), y = tdmY(lead.pos.z), pr = 11 + Math.sin(G.t*8)*2.5; g.strokeStyle = '#FF2A2A'; g.lineWidth = 3; g.beginPath(); g.arc(x, y, pr, 0, Math.PI*2); g.stroke(); }
+  // players: arrows the way they face (you: yellow and bigger)
+  for (const k in chars) { const P = chars[k]; if (!P || P.alive === false) continue; const me = k === G.localKey, f = me ? G.yaw : P.face, x = tdmX(P.body.position.x), y = tdmY(P.body.position.z), dx = -Math.sin(f), dy = -Math.cos(f), s0 = me ? 13 : 10;
+    g.fillStyle = me ? '#FFE033' : '#5AB4FF'; g.strokeStyle = '#1A1A1A'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(x + dx*s0, y + dy*s0); g.lineTo(x - dx*s0*.6 - dy*s0*.55, y - dy*s0*.6 + dx*s0*.55); g.lineTo(x - dx*s0*.25, y - dy*s0*.25); g.lineTo(x - dx*s0*.6 + dy*s0*.55, y - dy*s0*.6 - dx*s0*.55); g.closePath(); g.fill(); g.stroke(); }
+  // the numbers
+  const onPath = live.length, queued = TD.queue ? TD.queue.length : 0, rnd = Math.max(1, TD.wave);
+  let html = `🎈 Round <b>${rnd}/${TD_ROUNDS}</b> · ❤️ <b>${TD.lives}</b> · 💥 ${(TD.pops || 0).toLocaleString()}<br>`;
+  if (TD.state === 'wave') { html += `On the path <b>${onPath}</b>${queued ? ` · still coming <b>${queued}</b>` : ''}<br>`;
+    if (lead) { const pct = Math.round(lead.d/TD.len*100), left = Math.max(0, Math.round(TD.len - lead.d)); html += `<span style="color:#C4200E">Closest: ${TDT[lead.t].n} · ${pct}% of the way · ${left} m to the egg</span>`; } }
+  else if (TD.wave < TD_ROUNDS) { const nx = TD_WAVES[TD.wave]; html += `Next: ${nx.map(w => w[1] + ' ' + TDT[w[0]].n).join(', ')}`; }
+  if (M.info.innerHTML !== html) M.info.innerHTML = html;
 }
 function tdLeak(T){
   const lost = T.rbe; TD.lives = Math.max(0, TD.lives - lost);
@@ -4902,8 +4960,8 @@ function tdScenery(){
   for (const s0 of [-1, 1]) for (let i = 0; i < 6; i++) bx(1, 1, 1, cols[(i + (s0 > 0 ? 2 : 0)) % 5], s0*4, .5 + i, 0, gate);
   for (let i = 0; i < 9; i++) bx(1, 1, 1, cols[i % 5], -4 + i, 6.5, 0, gate);
   const sign = textSprite(); sign.userData.set('🎈 START', '#FFFFFF'); sign.position.set(0, 8.2, 0); sign.scale.set(6, 2.2, 1); gate.add(sign);
-  for (let d = 18; d < TD.len - 12; d += 22) { const q = tdAt(d), dir = tdDir(d), side = (Math.floor(d/22) % 2 ? 1 : -1)*4.4, fx0 = q.x + Math.cos(dir)*side, fz0 = q.z - Math.sin(dir)*side, fy = groundH(fx0, fz0);
-    const pole = new THREE.Group(); pole.position.set(fx0, fy, fz0); bx(.12, 3, .12, 0xF2F2F2, 0, 1.5, 0, pole); const fl = bx(.9, .55, .06, cols[Math.floor(d/22) % 5], .45, 2.7, 0, pole); fl.rotation.y = .3; g.add(pole); }
+  for (let d = 18; d < TD.len - 12; d += 45) { const q = tdAt(d), dir = tdDir(d), side = (Math.floor(d/45) % 2 ? 1 : -1)*4.4, fx0 = q.x + Math.cos(dir)*side, fz0 = q.z - Math.sin(dir)*side, fy = groundH(fx0, fz0);
+    const pole = new THREE.Group(); pole.position.set(fx0, fy, fz0); bx(.12, 3, .12, 0xF2F2F2, 0, 1.5, 0, pole); const fl = bx(.9, .55, .06, cols[Math.floor(d/45) % 5], .45, 2.7, 0, pole); fl.rotation.y = .3; g.add(pole); }
   const ring = new THREE.Mesh(new THREE.TorusGeometry(4.2, .22, 8, 48), M3(0xFFD84D)); ring.rotation.x = Math.PI/2; ring.position.set(0, groundH(0, 0) + .15, 0); g.add(ring);
   mergeToon(g, [sign]); addOutline(g); g.traverse(o => o.userData.noRay = true); roundGroup.add(g);
 }
@@ -4918,6 +4976,7 @@ function tdHudShow(on){
     $('tdAuto').onclick = e => { e.stopPropagation(); if (tdAuth()) { TD.auto = !TD.auto; TD.autoT = 0; tdHud(); tdSend(true); } else toast('Only the host can turn auto-start on.'); };
   }
   h.style.display = on ? 'block' : 'none';
+  const M = tdMapEl(); M.el.style.display = on ? 'block' : 'none'; M.base = null;
 }
 function tdHud(){
   if (!document.getElementById('tdHud') || !tdOn()) return;

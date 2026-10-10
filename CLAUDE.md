@@ -435,6 +435,9 @@ circuit riders) and `tdFastHits` (any body over 11 m/s). Drawing: instanced glos
 blimps as merged meshes with health bars, confetti pops (`tdPopFX`), a start gate and flags (`tdScenery`), HUD `#tdHud`.
 Only Pain, Bomber, Swordsman; everyone is team blue; the egg is static and only balloons crack it (`G.tdBreak`).
 Balloon size/speed (2026-10-10): TD_SIZE .65 scales hit radii, instanced balloons and blimp groups; TD_SLOW .6 scales TD.speedK (a red takes ~110 s on round 1).
+Balloon map (2026-10-10): TD_PTS is a generated 2.6-turn spiral (R 118 → 6, ~1026 m), genTerrain makes TD ground flat (path -.08),
+`place` keeps only ~3-5% of scattered things in TD (forest clusters 2-3 trees), grass tufts 1 in 6, flags every 45 m. Minimap `#tdMap`
+(`tdMapEl`/`tdMapBase`/`tdMapFrame`, 10 Hz, north up with right = -x): path, egg, balloons, leader ring, players; round/lives/closest/next.
 
 ## Defender kit (Alpha Mode) — rebuilt 2026-10-06
 
