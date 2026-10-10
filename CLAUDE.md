@@ -438,6 +438,13 @@ Balloon size/speed (2026-10-10): TD_SIZE .65 scales hit radii, instanced balloon
 Balloon map (2026-10-10): TD_PTS is a generated 2.6-turn spiral (R 118 → 6, ~1026 m), genTerrain makes TD ground flat (path -.08),
 `place` keeps only ~3-5% of scattered things in TD (forest clusters 2-3 trees), grass tufts 1 in 6, flags every 45 m. Minimap `#tdMap`
 (`tdMapEl`/`tdMapBase`/`tdMapFrame`, 10 Hz, north up with right = -x): path, egg, balloons, leader ring, players; round/lives/closest/next.
+TURRETS (2026-10-10, module before PAIN TENNIS, TD only): TT_DEFS = 5 per class (p_*, b_*, s_*), each 5 ups [name, cost, mods]
+(dmg/rate/moab multiply; range/splash/pierce/multi/push/slow/stun add); kinds shot/lob/pulse/dot/beam/plane; `ttStats` applies ups.
+Cash TD.cash: TT_START 650, +TT_POP 2 per layer popped, round bonus 100+20·wave; sell 70% (`ttSell`). Turrets are static, unbreakable.
+Host-authoritative: guests `ttRequest` -> ttb/ttu/tts -> `ttHostMsg`; td snapshot carries `c` (cash) and `tt` (`ttPack`/`ttSync`).
+Damage only when tdAuth (`ttHurt`/`ttArea`/`ttLine`), visuals everywhere. b.slowT ×.5 / b.stunT ×0 in tdFrame. Input: capture keydown
+listener (`ttKey`: Y shop, 1-5 pick, Esc, U/K on the aimed turret `TT.aimed`), `ttClick` first in actionDown, right-click cancels.
+`ttCanPlace`: path ≥4.6, egg ≥8, turrets ≥4.5. Minimap draws turrets as class-coloured squares with a level bar. Tests t64/t65/t66.
 
 ## Defender kit (Alpha Mode) — rebuilt 2026-10-06
 

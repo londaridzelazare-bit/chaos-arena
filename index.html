@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-10.5';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-10.6';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -4660,6 +4660,280 @@ function startMatch(seed, list, score, mode, cdOn, eg){
     : NET.peer ? `⚔️ Match on! First team to ${WIN_SCORE} knockouts wins.` : '⚔️ Practice mode: try every skill on the map.');
 }
 
+/* ===================================== TURRETS (Balloon Defense only) =====================================
+   Popping balloons earns cash (shared by the team: TD.cash, 2 per layer, plus a bonus for every round). Y opens the turret
+   shop for your class (5 turrets each for Pain, Bomber and Swordsman), 1-5 picks one, Click places it (right-click
+   cancels). Turrets fire on their own, can't be destroyed or moved, only sold (70% back). Aim at a turret: U upgrades it
+   (5 upgrades each, every one a new power or a big boost), K sells it. The host owns the cash and the turrets: clients
+   ask ('ttb' build, 'ttu' upgrade, 'tts' sell), the host's 'td' snapshot carries them (c, tt). Every screen draws the
+   turrets firing at its own balloons; only the host's shots do damage. */
+const TT_START = 650, TT_POP = 2, TT_MAX = 40;
+// kind: shot (hits the first balloon in range), lob (a shell / rock that lands later), pulse (everything round it), dot
+// (keeps burning everything in range), beam (a line through the first balloon), plane (circles, bombing the path)
+// mods per upgrade: dmg ×, rate ×, moab ×, range +, splash +, pierce +, multi +, push +, slow + (s), stun + (s)
+const TT_DEFS = {
+  p_pylon: {cls:'pain', name:'Gravity Pylon', e:'🔮', cost:250, kind:'shot', look:'pylon', fx:'orb', col:0x9D6BFF, range:24, rate:1.5, dmg:10,
+    ups:[['Denser Orbs', 150, {dmg:1.6}], ['Twin Orbs', 300, {multi:1}], ['Gravity Well', 500, {splash:3}], ['Piercing Singularity', 1200, {pierce:4, dmg:1.5}], ['Event Horizon', 4000, {push:5, dmg:2, rate:1.5, moab:3}]]},
+  p_shinra:{cls:'pain', name:'Shinra Obelisk', e:'✋', cost:400, kind:'pulse', look:'obelisk', col:0xC9B8FF, range:9, rate:.5, dmg:12, push:4,
+    ups:[['Wider Repulsion', 200, {range:3}], ['Stronger Push', 450, {push:4, dmg:1.5}], ['Rapid Pulse', 700, {rate:1.8}], ['Shinra Tensei', 1600, {range:4, dmg:2}], ['Almighty Push', 5000, {range:6, push:8, dmg:2.5, moab:2}]]},
+  p_core:  {cls:'pain', name:'Chibaku Core', e:'🌑', cost:600, kind:'dot', look:'core', col:0x2A1F3D, range:10, rate:4, dmg:2, slow:.3,
+    ups:[['Heavier Core', 300, {dmg:1.7}], ['Wider Pull', 600, {range:4}], ['Gravity Drag', 900, {slow:.6, push:.4}], ['Moon Forge', 2000, {dmg:2, moab:3}], ['Catastrophe', 6000, {range:6, dmg:2.5}]]},
+  p_spire: {cls:'pain', name:'Bansho Spire', e:'🪨', cost:500, kind:'lob', look:'spire', fx:'rock', col:0x6E6672, range:30, rate:.6, dmg:25, splash:4,
+    ups:[['Bigger Rocks', 300, {splash:2, dmg:1.4}], ['Rock Rain', 700, {multi:2}], ['Faster Pull', 900, {rate:1.7}], ['Boulders', 2000, {dmg:2, splash:3, moab:2}], ['Planetary Devastation', 6500, {multi:3, dmg:2}]]},
+  p_rod:   {cls:'pain', name:'Rod Sniper', e:'📍', cost:350, kind:'shot', look:'rod', fx:'rod', col:0x8E8A99, range:60, rate:.8, dmg:30, pierce:1, moab:1.5,
+    ups:[['Sharper Rods', 250, {dmg:1.6}], ['Stun Rods', 500, {stun:.6}], ['Rod Volley', 900, {multi:2}], ['Piercing Rods', 1700, {pierce:5}], ['Chakra Storm', 5500, {rate:2.5, dmg:2, moab:3}]]},
+  b_mg:    {cls:'bomber', name:'Machine Gun Nest', e:'🔫', cost:300, kind:'shot', look:'mg', fx:'bullet', col:0x6B7A4A, range:20, rate:6, dmg:4,
+    ups:[['Faster Belt', 200, {rate:1.5}], ['AP Rounds', 400, {dmg:1.6, moab:1.5}], ['Twin Guns', 700, {multi:1}], ['Minigun', 1500, {rate:2}], ['Gatling Fortress', 5000, {multi:2, dmg:1.8, range:6}]]},
+  b_mortar:{cls:'bomber', name:'Mortar', e:'💣', cost:450, kind:'lob', look:'mortar', fx:'shell', col:0x5A6340, range:45, rate:.7, dmg:22, splash:4.5,
+    ups:[['Bigger Shells', 300, {splash:2}], ['Fast Reload', 500, {rate:1.6}], ['Cluster Shells', 900, {multi:2}], ['Napalm', 1800, {dmg:1.8, slow:1}], ['Artillery Battery', 6000, {multi:3, dmg:2}]]},
+  b_missile:{cls:'bomber', name:'Missile Pods', e:'🚀', cost:600, kind:'shot', look:'missile', fx:'missile', col:0x4E5A6B, range:40, rate:.9, dmg:18, splash:2.5, moab:1.5,
+    ups:[['Bigger Warheads', 350, {splash:1.5, dmg:1.3}], ['Twin Pods', 700, {multi:1}], ['Seeker Swarm', 1200, {multi:2, rate:1.3}], ['Bunker Busters', 2500, {moab:3, dmg:2}], ['ICBM Silo', 7000, {splash:5, dmg:3}]]},
+  b_flak:  {cls:'bomber', name:'Flak Cannon', e:'💥', cost:400, kind:'shot', look:'flak', fx:'flak', col:0x7A6E52, range:26, rate:1.6, dmg:8, splash:3,
+    ups:[['Shrapnel', 250, {splash:1.5}], ['Rapid Flak', 500, {rate:1.6}], ['Proximity Fuses', 900, {pierce:3}], ['Heavy Flak', 1800, {dmg:2}], ['Sky Wall', 5500, {multi:3, rate:1.5}]]},
+  b_air:   {cls:'bomber', name:'Airfield', e:'✈️', cost:900, kind:'plane', look:'airfield', col:0x8A8F98, range:30, rate:1.5, dmg:14, splash:4,
+    ups:[['Second Pass', 500, {rate:1.5}], ['Heavy Bombs', 900, {dmg:1.6, splash:1}], ['Twin Bombers', 1500, {multi:1}], ['Firebombs', 2500, {dmg:1.7, splash:2, slow:1}], ['Carpet Bombing', 8000, {multi:2, rate:2}]]},
+  s_blades:{cls:'sword', name:'Blade Spinner', e:'🌀', cost:350, kind:'pulse', look:'blades', col:0xDCE3EA, range:6, rate:2.5, dmg:8,
+    ups:[['Longer Blades', 200, {range:2}], ['Faster Spin', 400, {rate:1.6}], ['Twin Rotors', 800, {dmg:1.7}], ['Razor Storm', 1500, {range:3}], ['Whirlwind of Swords', 5000, {dmg:2, rate:1.5, range:2}]]},
+  s_throw: {cls:'sword', name:'Sword Thrower', e:'🗡️', cost:300, kind:'shot', look:'thrower', fx:'sword', col:0xE0B040, range:26, rate:1.2, dmg:12, pierce:2,
+    ups:[['Sharper Swords', 200, {dmg:1.5}], ['Longer Throw', 400, {range:8, pierce:2}], ['Twin Throws', 800, {multi:1}], ['Ricochet', 1500, {pierce:6}], ['Rain of Blades', 5000, {multi:3, dmg:1.8}]]},
+  s_gate:  {cls:'sword', name:'Babylon Gate', e:'🌟', cost:700, kind:'shot', look:'gate', fx:'sword', col:0xFFD84D, range:32, rate:.8, dmg:12, multi:3,
+    ups:[['More Gates', 450, {multi:2}], ['Golden Swords', 800, {dmg:1.6}], ['Rapid Fire', 1300, {rate:1.7}], ['Black Swords', 2500, {moab:3, dmg:1.5}], ['Gate of Babylon', 8000, {multi:6, rate:1.5}]]},
+  s_shrine:{cls:'sword', name:'Slash Shrine', e:'⛩️', cost:500, kind:'beam', look:'shrine', col:0xBFE9FF, range:24, rate:.9, dmg:14, splash:1.6,
+    ups:[['Wider Slash', 300, {splash:1}], ['Faster Slashes', 600, {rate:1.6}], ['Cross Slash', 1000, {multi:1}], ['Radial Slash', 2000, {dmg:2, range:6}], ['World Severance', 7000, {dmg:3, moab:2, range:20}]]},
+  s_excal: {cls:'sword', name:'Excalibur Pillar', e:'✨', cost:1200, kind:'beam', look:'excal', col:0xFFF1A8, range:40, rate:.25, dmg:60, splash:2.5, moab:2,
+    ups:[['Brighter Light', 700, {dmg:1.4}], ['Quick Charge', 1200, {rate:1.5}], ['Twin Beams', 2000, {multi:1}], ['Holy Sword', 3500, {dmg:2, moab:2}], ['Excalibur!', 10000, {dmg:2.5, splash:2, rate:1.5}]]}
+};
+const TT_CLS = {pain:Object.keys(TT_DEFS).filter(k => TT_DEFS[k].cls === 'pain'), bomber:Object.keys(TT_DEFS).filter(k => TT_DEFS[k].cls === 'bomber'), sword:Object.keys(TT_DEFS).filter(k => TT_DEFS[k].cls === 'sword')};
+const TT = {list:[], seq:0, shop:false, place:null, aimed:null, hudT:0, cashShown:-1};
+function ttStats(t){
+  const D = TT_DEFS[t.k], S = {range:D.range, rate:D.rate, dmg:D.dmg, splash:D.splash || 0, pierce:D.pierce || 0, multi:D.multi || 1, push:D.push || 0, slow:D.slow || 0, stun:D.stun || 0, moab:D.moab || 1};
+  for (let i = 0; i < t.lvl; i++) { const m = D.ups[i][2]; for (const k in m) { if (k === 'dmg' || k === 'rate' || k === 'moab') S[k] *= m[k]; else S[k] += m[k]; } }
+  return S;
+}
+const ttSpent = t => TT_DEFS[t.k].cost + TT_DEFS[t.k].ups.slice(0, t.lvl).reduce((a, u) => a + u[1], 0);
+const ttSell = t => Math.floor(ttSpent(t)*.7);
+function ttCanPlace(x, z, ignore){
+  if (Math.abs(x) > ISL - 5 || Math.abs(z) > ISL - 5) return 'Too close to the sea.';
+  if (tdPathDist(x, z) < 4.6) return 'Not on the path.';
+  if (Math.hypot(x, z) < 8) return 'Too close to the egg.';
+  if (TT.list.some(t => t !== ignore && Math.hypot(t.x - x, t.z - z) < 4.5)) return 'Too close to another turret.';
+  if (TT.list.length >= TT_MAX) return `${TT_MAX} turrets is the most.`;
+  return '';
+}
+
+/* ---------- looks ---------- */
+function ttMesh(t){
+  const D = TT_DEFS[t.k], g = new THREE.Group(), head = new THREE.Group(), clsCol = D.cls === 'pain' ? 0x3A2E52 : D.cls === 'bomber' ? 0x4A4A3A : 0x5A5040;
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.75, .7, 16), M3(clsCol)); base.position.y = .35; g.add(base);
+  bx(2.4, .12, 2.4, D.col, 0, .76, 0, g);
+  head.position.y = .8; g.add(head);
+  const L = D.look;
+  if (L === 'pylon') { bx(.5, 2.4, .5, 0x4A3A6A, 0, 1.2, 0, head); const o = new THREE.Mesh(new THREE.IcosahedronGeometry(.55, 2), new THREE.MeshBasicMaterial({color:0x07040C})); o.position.y = 3; head.add(o); const r = new THREE.Mesh(new THREE.SphereGeometry(.6, 20, 14), bubbleMat(0xC9B8FF)); r.position.y = 3; head.add(r); t.orb = o; }
+  else if (L === 'obelisk') { const m = new THREE.Mesh(new THREE.CylinderGeometry(.35, .9, 4, 4), M3(0x4A3A6A)); m.position.y = 2; m.rotation.y = Math.PI/4; head.add(m); const c = new THREE.Mesh(new THREE.OctahedronGeometry(.45), new THREE.MeshBasicMaterial({color:0xD9CCFF})); c.position.y = 4.4; head.add(c); t.orb = c; }
+  else if (L === 'core') { const o = new THREE.Mesh(new THREE.IcosahedronGeometry(.9, 3), new THREE.MeshBasicMaterial({color:0x050308})); o.position.y = 2.6; head.add(o); const r = new THREE.Mesh(new THREE.SphereGeometry(.95, 24, 16), bubbleMat(0xFFFFFF)); r.position.y = 2.6; head.add(r); t.orb = o; for (const s of [-1, 1]) bx(.2, 1.4, .2, 0x3A2E52, s*.7, .7, 0, head); }
+  else if (L === 'spire') { const m = new THREE.Mesh(new THREE.ConeGeometry(.9, 3.2, 6), M3(0x5B5560)); m.position.y = 1.6; head.add(m); const r = new THREE.Mesh(PAIN_ROCK, M3(0x6E6672)); r.scale.setScalar(.7); r.position.y = 4; head.add(r); t.orb = r; }
+  else if (L === 'rod') { bx(.4, 3, .4, 0x55505E, 0, 1.5, 0, head); for (const a of [-.4, 0, .4]) { const rd = bx(.08, .08, 2.2, 0x8E8A99, Math.sin(a)*.3, 2.6, .6, head); rd.rotation.y = a; } }
+  else if (L === 'mg') { bx(1.2, .8, 1.2, 0x5B6340, 0, .6, 0, head); bx(.16, .16, 1.6, 0x2A2A2A, -.2, .8, .9, head); bx(.16, .16, 1.6, 0x2A2A2A, .2, .8, .9, head); bx(1.6, .5, .2, 0x6B7A4A, 0, .9, -.4, head); }
+  else if (L === 'mortar') { const tb = new THREE.Mesh(new THREE.CylinderGeometry(.32, .38, 1.8, 12), M3(0x3E4430)); tb.position.set(0, 1, .2); tb.rotation.x = .5; head.add(tb); bx(1, .4, 1, 0x5A6340, 0, .2, 0, head); }
+  else if (L === 'missile') { bx(1.4, .9, 1.2, 0x4E5A6B, 0, .9, 0, head); for (let i = 0; i < 4; i++) { const c = new THREE.Mesh(new THREE.CylinderGeometry(.14, .14, .3, 8), M3(0xE8332E)); c.rotation.x = Math.PI/2; c.position.set(-.35 + (i % 2)*.7, .75 + Math.floor(i/2)*.35, .62); head.add(c); } }
+  else if (L === 'flak') { bx(1.1, .7, 1.1, 0x7A6E52, 0, .5, 0, head); for (const s of [-1, 1]) { const b = bx(.18, .18, 2, 0x333333, s*.22, 1, .6, head); b.rotation.x = -.5; } }
+  else if (L === 'airfield') { bx(2.2, .1, 5, 0x3A3A3A, 0, .1, 0, head); for (let i = -2; i <= 2; i++) bx(.14, .02, .5, 0xFFFFFF, 0, .17, i*.9, head); bx(.7, 1.6, .7, 0xB0B0B0, 1.3, .8, -1.6, head); }
+  else if (L === 'blades') { bx(.3, 1.6, .3, 0x9AA3AD, 0, .8, 0, head); const rot = new THREE.Group(); rot.position.y = 1.4; head.add(rot); for (let i = 0; i < 4; i++) { const s = swordOne(1.1); s.rotation.z = Math.PI/2; s.rotation.y = i*Math.PI/2; rot.add(s); } t.spin = rot; }
+  else if (L === 'thrower') { bx(.8, 1.4, .8, 0x6B5A3A, 0, .7, 0, head); const s = swordOne(1.2); s.position.set(0, 1.4, .3); s.rotation.x = .9; head.add(s); }
+  else if (L === 'gate') { const r = new THREE.Mesh(new THREE.TorusGeometry(1.1, .14, 8, 24), M3(0xE0B040)); r.position.y = 2.2; head.add(r); const v = new THREE.Mesh(new THREE.CircleGeometry(1, 24), addBlend(0xFFE9A0)); v.material.opacity = .5; v.position.y = 2.2; head.add(v); bx(.3, 1.2, .3, 0xC9A030, 0, .6, 0, head); }
+  else if (L === 'shrine') { for (const s of [-1, 1]) bx(.2, 2.4, .2, 0xC4300E, s*.8, 1.2, 0, head); bx(2.2, .2, .3, 0xC4300E, 0, 2.4, 0, head); bx(1.8, .14, .26, 0x2A1A14, 0, 2.05, 0, head); const s0 = swordOne(.9); s0.position.set(0, .2, 0); head.add(s0); }
+  else if (L === 'excal') { bx(.9, 1.4, .9, 0xBDB5A6, 0, .7, 0, head); const s = swordOne(2.2); s.position.y = 1.2; head.add(s); const gl = new THREE.Mesh(new THREE.CylinderGeometry(.08, .08, 4, 6), addBlend(0xFFF1A8)); gl.position.y = 3.4; gl.material.opacity = .5; head.add(gl); t.orb = gl; }
+  // level pips and a name tag
+  t.pips = []; for (let i = 0; i < 5; i++) { const a = i/5*Math.PI*2, pp = new THREE.Mesh(new THREE.SphereGeometry(.16, 8, 6), M3(0x2A2A2A)); pp.position.set(Math.cos(a)*1.45, .8, Math.sin(a)*1.45); g.add(pp); t.pips.push(pp); }
+  const lab = textSprite(); lab.position.y = 5.2; lab.scale.set(3.2, 1.2, 1); g.add(lab); t.lab = lab;
+  addOutline(g); noRayAll(g); t.g = g; t.head = head;
+  const gy = groundH(t.x, t.z); g.position.set(t.x, gy, t.z); roundGroup.add(g);
+  const b = new CANNON.Body({mass:0, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(1.3, 1.5, 1.3))); b.position.set(t.x, gy + 1.5, t.z); b.tag = 'turret'; world.addBody(b); t.body = b;
+  ttRelabel(t);
+}
+function ttRelabel(t){ const D = TT_DEFS[t.k]; t.lab.userData.set(`${D.e} ${D.name} ${'★'.repeat(t.lvl)}${'☆'.repeat(5 - t.lvl)}`, '#FFFFFF'); t.pips.forEach((p, i) => p.material = M3(i < t.lvl ? 0xFFD84D : 0x2A2A2A)); }
+function ttRemove(t){ if (t.g && t.g.parent) t.g.parent.remove(t.g); if (t.body && t.body.world) world.removeBody(t.body); (t.planes || []).forEach(p => { if (p.m.parent) p.m.parent.remove(p.m); }); }
+function ttClearAll(){ TT.list.forEach(ttRemove); TT.list = []; TT.place = null; TT.shop = false; ttGhostHide(); ttPanel(); }
+
+/* ---------- the host: build, upgrade, sell ---------- */
+function ttAdd(k, x, z, id, lvl){ const t = {id:id || ++TT.seq, k, x, z, lvl:lvl || 0, cd:Math.random()*.3}; TT.seq = Math.max(TT.seq, t.id); ttMesh(t); TT.list.push(t); return t; }
+function ttBuild(k, x, z){
+  const D = TT_DEFS[k]; if (!D || !tdOn()) return 'No such turret.';
+  const why = ttCanPlace(x, z); if (why) return why;
+  if ((TD.cash | 0) < D.cost) return `Not enough cash: ${D.name} costs 💰${D.cost}.`;
+  TD.cash -= D.cost; ttAdd(k, x, z); sfx('place'); sfx('thud'); tdSend(true); return '';
+}
+function ttUpgrade(id){
+  const t = TT.list.find(q => q.id === id); if (!t) return 'That turret is gone.'; if (t.lvl >= 5) return 'Fully upgraded.';
+  const u = TT_DEFS[t.k].ups[t.lvl]; if ((TD.cash | 0) < u[1]) return `Not enough cash: ${u[0]} costs 💰${u[1]}.`;
+  TD.cash -= u[1]; t.lvl++; ttRelabel(t); ttUpFX(t); tdSend(true); return '';
+}
+function ttSellIt(id){ const i = TT.list.findIndex(q => q.id === id); if (i < 0) return; const t = TT.list[i]; TD.cash += ttSell(t); ttRemove(t); TT.list.splice(i, 1); sfx('pop'); tdSend(true); }
+function ttUpFX(t){ sparkle(V3(t.x, groundH(t.x, t.z) + 3, t.z), 0xFFD84D); sfx('holy'); }
+// the snapshot: [id, kind index, x*10, z*10, level, ...]
+const TT_KEYS = Object.keys(TT_DEFS);
+function ttPack(){ const a = []; for (const t of TT.list) a.push(t.id, TT_KEYS.indexOf(t.k), Math.round(t.x*10), Math.round(t.z*10), t.lvl); return a; }
+function ttSync(a){
+  if (!Array.isArray(a)) return; const seen = new Set();
+  for (let i = 0; i + 4 < a.length; i += 5) { const id = a[i], k = TT_KEYS[a[i + 1]], x = a[i + 2]/10, z = a[i + 3]/10, lvl = a[i + 4] | 0; if (!k) continue; seen.add(id);
+    let t = TT.list.find(q => q.id === id); if (!t) { t = ttAdd(k, x, z, id, lvl); sfx('place'); } else if (t.lvl !== lvl) { t.lvl = lvl; ttRelabel(t); ttUpFX(t); } }
+  for (let i = TT.list.length - 1; i >= 0; i--) if (!seen.has(TT.list[i].id)) { ttRemove(TT.list[i]); TT.list.splice(i, 1); }
+}
+function ttRequest(kind, payload){
+  if (tdAuth()) { const why = kind === 'b' ? ttBuild(payload.k, payload.x, payload.z) : kind === 'u' ? ttUpgrade(payload.id) : (ttSellIt(payload.id), ''); if (why) cdToast2('🏗️ ' + why); return; }
+  netSend(Object.assign({t:'tt' + kind}, payload));
+}
+function ttHostMsg(m){
+  if (!tdOn() || !tdAuth()) return;
+  if (m.t === 'ttb' && typeof m.k === 'string' && isFinite(m.x) && isFinite(m.z)) ttBuild(m.k, +m.x, +m.z);
+  else if (m.t === 'ttu') ttUpgrade(m.id | 0);
+  else if (m.t === 'tts') ttSellIt(m.id | 0);
+}
+
+/* ---------- firing (every screen draws it; only the host's shots do damage) ---------- */
+const ttFirst = (t, S, n, skip) => { const out = []; for (const b of TD.list) { if (b.dead || (skip && skip.has(b))) continue; if (Math.hypot(b.pos.x - t.x, b.pos.z - t.z) <= S.range + b.R) out.push(b); } out.sort((a, b) => b.d - a.d); return out.slice(0, n); };
+function ttHurt(b, S, dmg){
+  if (!tdAuth() || b.dead) return; const T = TDT[b.t];
+  if (S.stun > 0 && !T.blimp) b.stunT = Math.max(b.stunT || 0, S.stun);
+  if (S.slow > 0) b.slowT = Math.max(b.slowT || 0, S.slow);
+  if (S.push > 0) b.d = Math.max(0, b.d - S.push*(T.blimp ? .25 : 1));
+  tdHit(b, dmg*(T.blimp ? S.moab : 1));
+}
+function ttArea(at, R, S, dmg){ if (!tdAuth()) return; for (const b of TD.list.slice()) { if (b.dead) continue; if (Math.hypot(b.pos.x - at.x, b.pos.y - at.y, b.pos.z - at.z) < R + b.R) ttHurt(b, S, dmg); } }
+function ttLine(a, dir, L, W, S, dmg, hit){ if (!tdAuth()) return; const e = a.clone().addScaledVector(dir, L); for (const b of TD.list.slice()) { if (b.dead || (hit && hit.has(b))) continue; if (segDist(a, e, b.pos) < W + b.R) { if (hit) hit.add(b); ttHurt(b, S, dmg); } } }
+function ttTracer(a, b, col, w, life){ const d = b.clone().sub(a), m = new THREE.Mesh(new THREE.BoxGeometry(w || .08, w || .08, d.length()), addBlend(col)); m.position.copy(a).addScaledVector(d, .5); m.lookAt(b); m.userData.noRay = true; roundGroup.add(m); booms.push({t:0, parts:[m], custom(bm){ m.material.opacity = Math.max(0, .9*(1 - bm.t/(life || .12))); return bm.t > (life || .12); }}); }
+function ttFlyer(mesh, a, b, dur, arc, onLand){ mesh.position.copy(a); mesh.userData.noRay = true; roundGroup.add(mesh); booms.push({t:0, parts:[mesh], custom(bm){ const k = Math.min(1, bm.t/dur); mesh.position.lerpVectors(a, b, k); mesh.position.y += Math.sin(k*Math.PI)*(arc || 0); if (k < 1) mesh.lookAt(b); if (k >= 1) { if (onLand) onLand(); return true; } return false; }}); }
+function ttFire(t, S){
+  const D = TT_DEFS[t.k], gy = groundH(t.x, t.z), o = V3(t.x, gy + (D.look === 'airfield' ? 1 : 3.2), t.z);
+  if (D.kind === 'shot') {
+    const tg = ttFirst(t, S, Math.round(S.multi)); if (!tg.length) return false;
+    t.head.rotation.y = Math.atan2(tg[0].pos.x - t.x, tg[0].pos.z - t.z);
+    for (const b of tg) {
+      const p = b.pos.clone(), dir = p.clone().sub(o).normalize();
+      if (D.fx === 'orb') ttFlyer(new THREE.Mesh(avGeo().s, new THREE.MeshBasicMaterial({color:0x2A1440})), o.clone(), p, .12, 0, () => { sparkle(p, 0xB69CFF); if (S.splash) warpPulse(p, S.splash*2, .25, .02); });
+      else if (D.fx === 'rod') { const m = new THREE.Mesh(new THREE.BoxGeometry(.07, .07, 1.6), M3(0x8E8A99)); ttFlyer(m, o.clone(), p, .12); }
+      else if (D.fx === 'sword') { const s = swordOne(.9); ttFlyer(s, o.clone(), p.clone().addScaledVector(dir, 3), .2); }
+      else if (D.fx === 'missile') { const m = new THREE.Mesh(new THREE.ConeGeometry(.16, .7, 6).rotateX(Math.PI/2), M3(0xE8332E)); ttFlyer(m, o.clone(), p, .35, 4, () => boomVisual(p.clone(), false, .35, {ball:0xFF8A3A, core:0xFFF3B0, ring:0xFFB02E})); }
+      else if (D.fx === 'flak') { ttTracer(o, p, 0xFFE9A0, .06); puff(p, 0x555555, .9); }
+      else ttTracer(o, p, 0xFFF3B0, .05, .08);
+      ttHurt(b, S, S.dmg);
+      if (S.splash) ttArea(p, S.splash, S, S.dmg*.6);
+      if (S.pierce) { const hit = new Set([b]); ttLine(o, dir, S.range + 4, .8, S, S.dmg*.8, hit); }
+    }
+    if (D.fx === 'bullet' && Math.random() < .5) sfx('zap'); else if (Math.random() < .5) sfx(D.fx === 'missile' ? 'rocket' : D.fx === 'sword' ? 'slash' : 'zapHit');
+    return true;
+  }
+  if (D.kind === 'lob') {
+    const tg = ttFirst(t, S, Math.round(S.multi)); if (!tg.length) return false;
+    for (const b of tg) { const p = V3(b.pos.x, groundH(b.pos.x, b.pos.z) + 1, b.pos.z).addScaledVector(V3(Math.sin(tdDir(b.d)), 0, Math.cos(tdDir(b.d))), 3);
+      const m = D.fx === 'rock' ? new THREE.Mesh(PAIN_ROCK, M3(0x6E6672)) : new THREE.Mesh(new THREE.SphereGeometry(.3, 8, 6), M3(0x2A2A2A)); if (D.fx === 'rock') m.scale.setScalar(.5 + S.splash*.08);
+      ttFlyer(m, o.clone(), p, .7, 10, () => { boomVisual(p.clone(), false, .2 + S.splash*.06, D.fx === 'rock' ? {ball:0x6E6672, core:0xC9B8FF, ring:0xD9CCFF} : undefined); ttArea(p, S.splash, S, S.dmg); sfx('bboom'); }); }
+    return true;
+  }
+  if (D.kind === 'pulse') {
+    const any = ttFirst(t, S, 1); if (!any.length) return false;
+    const c = V3(t.x, gy + 2, t.z);
+    if (D.look === 'blades') { for (let i = 0; i < 2; i++) slashArc(V3(t.x, gy + 2, t.z), Math.random()*6.28, S.range, {span:Math.PI*1.2, col:0xE6F4FF, life:.18, grow0:.9, grow:.2}); sfx('slash'); }
+    else { warpPulse(c, S.range*1.4, .35, .04); sfx('shinra'); }
+    ttArea(c, S.range, S, S.dmg); return true;
+  }
+  if (D.kind === 'dot') {
+    const any = ttFirst(t, S, 1); if (!any.length) return false;
+    ttArea(V3(t.x, gy + 2, t.z), S.range, S, S.dmg); if (Math.random() < .2) warpPulseIn(V3(t.x, gy + 3, t.z), S.range, .4, .02); return true;
+  }
+  if (D.kind === 'beam') {
+    const tg = ttFirst(t, S, Math.round(S.multi)); if (!tg.length) return false;
+    t.head.rotation.y = Math.atan2(tg[0].pos.x - t.x, tg[0].pos.z - t.z);
+    for (const b of tg) { const dir = b.pos.clone().sub(o).normalize(), e = o.clone().addScaledVector(dir, S.range + 6);
+      ttTracer(o, e, D.look === 'excal' ? 0xFFF6C8 : 0xBFE9FF, D.look === 'excal' ? .9 + S.splash*.2 : .35, D.look === 'excal' ? .4 : .2);
+      ttLine(o, dir, S.range + 6, S.splash, S, S.dmg, new Set()); }
+    sfx(D.look === 'excal' ? 'holy' : 'slashH'); return true;
+  }
+  return false;
+}
+// the airfield's planes: each one flies at the leading balloon in range and bombs it; with nothing in range they circle the field
+function ttPlanes(t, S, dt){
+  const n = Math.round(S.multi); t.planes = t.planes || [];
+  while (t.planes.length < n) { const m = new THREE.Group(); bx(.5, .5, 2.6, 0xB0B0B0, 0, 0, 0, m); bx(3.4, .1, .8, 0x9AA3AD, 0, 0, .2, m); bx(1.2, .1, .4, 0x9AA3AD, 0, .2, -1.1, m); bx(.08, .6, .4, 0x9AA3AD, 0, .4, -1.1, m); addOutline(m); noRayAll(m); roundGroup.add(m); t.planes.push({m, a:t.planes.length*Math.PI, cd:0, p:V3(t.x, 16, t.z), h:0}); }
+  const tg = ttFirst(t, S, n);
+  t.planes.forEach((pl, i) => {
+    const b = tg[i % Math.max(1, tg.length)], want = b ? V3(b.pos.x, 16, b.pos.z) : V3(t.x + Math.cos(pl.a += dt*.8)*10, 16, t.z + Math.sin(pl.a)*10);
+    const dx = want.x - pl.p.x, dz = want.z - pl.p.z, dist = Math.hypot(dx, dz), sp = 26*dt;
+    if (dist > .01) { const k = Math.min(1, sp/dist); pl.p.x += dx*k; pl.p.z += dz*k; pl.h = Math.atan2(dx, dz); }
+    pl.m.position.copy(pl.p); pl.m.rotation.y = pl.h; pl.m.rotation.z = b ? 0 : -.3;
+    pl.cd -= dt; if (!b || pl.cd > 0 || dist > S.splash + 2) return;
+    pl.cd = 1/S.rate; const gnd = V3(pl.p.x, groundH(pl.p.x, pl.p.z) + 2, pl.p.z);
+    const bomb = new THREE.Mesh(new THREE.SphereGeometry(.25, 8, 6), M3(0x222222)); ttFlyer(bomb, V3(pl.p.x, 15.5, pl.p.z), gnd, .45, 0, () => { boomVisual(gnd.clone(), false, .2 + S.splash*.06); ttArea(gnd, S.splash + 1, S, S.dmg); sfx('bboom'); });
+  });
+}
+function ttFrame(dt){
+  if (!tdOn()) { if (TT.list.length) ttClearAll(); return; }
+  const fighting = TD.state === 'wave';
+  for (const t of TT.list) {
+    const S = ttStats(t), D = TT_DEFS[t.k];
+    if (t.spin) t.spin.rotation.y += dt*(4 + S.rate);
+    if (t.orb) { t.orb.rotation.y += dt*2; t.orb.position.y = (D.look === 'excal' ? 3.4 : D.look === 'obelisk' ? 4.4 : D.look === 'spire' ? 4 : D.look === 'core' ? 2.6 : 3) + Math.sin(G.t*2 + t.id)*.12; }
+    if (D.kind === 'plane') { if (fighting) ttPlanes(t, S, dt); else if (t.planes) t.planes.forEach(p => { p.a += dt*.5; p.m.position.set(t.x + Math.cos(p.a)*3, groundH(t.x, t.z) + 1.2, t.z + Math.sin(p.a)*3); }); continue; }
+    t.cd -= dt; if (t.cd > 0 || !fighting) continue;
+    if (ttFire(t, S)) t.cd = 1/S.rate; else t.cd = .15;
+  }
+  ttUI(dt);
+}
+
+/* ---------- input and UI ---------- */
+function ttAimedTurret(){
+  const dir = new THREE.Vector3(); camera.getWorldDirection(dir); let best = null, bd = 2.6;
+  for (const t of TT.list) { const c = V3(t.x, groundH(t.x, t.z) + 2, t.z), w = c.clone().sub(camera.position), along = w.dot(dir); if (along < 0 || along > 70) continue; const off = w.addScaledVector(dir, -along).length(); if (off < bd) { bd = off; best = t; } }
+  return best;
+}
+function ttKey(code){
+  if (!tdOn() || G.phase !== 'attack' || G.matchOver) return false;
+  if (code === 'KeyY') { TT.shop = !TT.shop; if (!TT.shop) { TT.place = null; ttGhostHide(); } sfx('click'); ttPanel(); return true; }
+  if (TT.shop && /^Digit[1-5]$/.test(code)) { const list = TT_CLS[G.cls] || TT_CLS.pain, k = list[+code.slice(5) - 1]; if (k) { TT.place = k; toast(`${TT_DEFS[k].e} ${TT_DEFS[k].name} (💰${TT_DEFS[k].cost}): Click to place it, right-click cancels.`); ttPanel(); } return true; }
+  if (code === 'Escape' && (TT.shop || TT.place)) { TT.shop = false; TT.place = null; ttGhostHide(); ttPanel(); return true; }
+  if ((code === 'KeyU' || code === 'KeyK') && TT.aimed) { if (code === 'KeyU') ttRequest('u', {id:TT.aimed.id}); else ttRequest('s', {id:TT.aimed.id}); return true; }
+  return false;
+}
+function ttClick(){
+  if (!tdOn() || !TT.place) return false;
+  const h = crosshairHit(); if (!h || !h.point) { cdToast2('🏗️ Aim at the ground.'); return true; }
+  const why = ttCanPlace(h.point.x, h.point.z); if (why) { cdToast2('🏗️ ' + why); return true; }
+  if ((TD.cash | 0) < TT_DEFS[TT.place].cost) { cdToast2(`🏗️ Not enough cash: ${TT_DEFS[TT.place].name} costs 💰${TT_DEFS[TT.place].cost}.`); return true; }
+  ttRequest('b', {k:TT.place, x:+h.point.x.toFixed(1), z:+h.point.z.toFixed(1)});
+  TT.place = null; ttGhostHide(); ttPanel(); return true;
+}
+const TTG = {};
+function ttGhostHide(){ if (TTG.m) TTG.m.visible = false; if (TTG.ring) TTG.ring.visible = false; }
+function ttGhost(){
+  if (!TT.place) { ttGhostHide(); return; }
+  if (!TTG.m) { TTG.m = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.75, 3, 16), new THREE.MeshBasicMaterial({color:0x5BD15B, transparent:true, opacity:.4, depthWrite:false})); TTG.m.userData.noRay = true; scene.add(TTG.m); TTG.ring = groundRing(0x5BD15B, .85); }
+  const h = crosshairHit(); if (!h || !h.point) { ttGhostHide(); return; }
+  const p = h.point, ok = !ttCanPlace(p.x, p.z) && (TD.cash | 0) >= TT_DEFS[TT.place].cost, col = ok ? 0x5BD15B : 0xFF3B30, D = TT_DEFS[TT.place];
+  TTG.m.visible = true; TTG.m.position.set(p.x, groundH(p.x, p.z) + 1.5, p.z); TTG.m.material.color.setHex(col); TTG.ring.material.color.setHex(col); TTG.ring.set(p.x, p.z, D.range, .3);
+}
+function ttPanel(){
+  let e = document.getElementById('ttPanel');
+  if (!e) { e = document.createElement('div'); e.id = 'ttPanel'; e.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:7;width:300px;padding:10px 12px;border-radius:16px;background:rgba(255,247,214,.95);border:3px solid #4A2A00;box-shadow:0 4px 0 #4A2A00;font:800 13px/1.35 Nunito,system-ui,sans-serif;color:#4A2A00;pointer-events:none;display:none'; document.body.appendChild(e); }
+  if (!tdOn() || !TT.shop) { e.style.display = 'none'; return; }
+  const list = TT_CLS[G.cls] || TT_CLS.pain, cash = TD.cash | 0;
+  e.innerHTML = `<div style="font-size:16px;margin-bottom:4px">🏗️ ${classInfo(G.cls).name} turrets · 💰 ${cash}</div>` + list.map((k, i) => { const D = TT_DEFS[k], can = cash >= D.cost; return `<div style="padding:3px 6px;border-radius:8px;${TT.place === k ? 'background:#FFE08A;' : ''}${can ? '' : 'opacity:.5;'}"><b>${i + 1}</b> ${D.e} ${D.name} <span style="float:right">💰${D.cost}</span><br><small style="font-weight:700">${D.kind === 'plane' ? 'bombs the path from the air' : D.kind === 'pulse' ? 'hits everything around it' : D.kind === 'dot' ? 'burns everything in range' : D.kind === 'lob' ? 'shells land on the path' : D.kind === 'beam' ? 'cuts a line through them' : 'shoots the first balloon'} · range ${D.range} m</small></div>`; }).join('') + '<div style="margin-top:6px;font-size:12px">1-5 pick · Click place · right-click cancel · Y close · aim at a turret: U upgrade, K sell</div>';
+  e.style.display = 'block';
+}
+function ttUI(dt){
+  ttGhost();
+  // the turret you look at: its card and its range
+  TT.aimed = TT.place ? null : ttAimedTurret();
+  let c = document.getElementById('ttCard');
+  if (!c) { c = document.createElement('div'); c.id = 'ttCard'; c.style.cssText = 'position:fixed;left:50%;top:calc(50% + 40px);transform:translateX(-50%);z-index:7;padding:8px 12px;border-radius:14px;background:rgba(255,247,214,.95);border:3px solid #4A2A00;font:800 13px/1.35 Nunito,system-ui,sans-serif;color:#4A2A00;pointer-events:none;display:none;text-align:center'; document.body.appendChild(c); }
+  if (!TTG.aimRing) TTG.aimRing = groundRing(0xFFD84D, .7);
+  const t = TT.aimed;
+  if (t) { const D = TT_DEFS[t.k], S = ttStats(t), nx = D.ups[t.lvl];
+    const html = `${D.e} <b>${D.name}</b> ${'★'.repeat(t.lvl)}${'☆'.repeat(5 - t.lvl)} · range ${Math.round(S.range)} m<br>${nx ? `<b>U</b> upgrade: ${nx[0]} (💰${nx[1]})${(TD.cash | 0) < nx[1] ? ' <span style="color:#C4200E">not enough cash</span>' : ''}` : 'Fully upgraded'} · <b>K</b> sell for 💰${ttSell(t)}`;
+    if (c.innerHTML !== html) c.innerHTML = html; c.style.display = 'block'; TTG.aimRing.set(t.x, t.z, S.range, .3); }
+  else { c.style.display = 'none'; TTG.aimRing.visible = false; }
+  TT.hudT -= dt; if (TT.hudT <= 0) { TT.hudT = .25; if (TT.cashShown !== (TD.cash | 0)) { TT.cashShown = TD.cash | 0; tdHud(); if (TT.shop) ttPanel(); } }
+}
+
 /* ===================================== PAIN TENNIS (G.mode === 'tennis') =====================================
    Two Pain players, one on each side of a giant tennis court covered in junk. A countdown, then the clock runs: throw,
    push, pull and fling everything you can over the net. When time is up, the side with FEWER things on it wins. People
@@ -4863,14 +5137,14 @@ function tdDir(d){ const i = clamp(Math.floor(d/TD.step), 0, TD.px.length - 2); 
 /* ---------- a round's worth of state ---------- */
 function tdStart(){
   tdClear();
-  Object.assign(TD, {on:true, wave:0, state:'build', lives:TD_LIVES, pops:0, list:[], queue:[], t:0, seq:0, sendT:0, auto:TD.auto || false, autoT:0, over:false, net:{}, grid:new Map()});
+  ttClearAll(); Object.assign(TD, {on:true, cash:TT_START, wave:0, state:'build', lives:TD_LIVES, pops:0, list:[], queue:[], t:0, seq:0, sendT:0, auto:TD.auto || false, autoT:0, over:false, net:{}, grid:new Map()});
   if (egg) { const b = egg.body; b.type = CANNON.Body.STATIC; b.mass = 0; b.updateMassProperties(); b.velocity.set(0, 0, 0); }
   tdScenery();
   // everyone starts by the egg
   const P = localP(); if (P) { const a = Math.random()*Math.PI*2; P.body.position.set(Math.cos(a)*6, groundH(Math.cos(a)*6, Math.sin(a)*6) + .5, Math.sin(a)*6); P.body.velocity.set(0, 0, 0); G.yaw = Math.atan2(TD.px[0], TD.pz[0]); G.pitch = -.18; }
   tdHud(); toast('🎈 Balloon Defense! Balloons follow the sandy path to the egg. Pop them all. Enter (or the button) starts round 1.');
 }
-function tdClear(){ for (const b of TD.list || []) if (b.blimpG && b.blimpG.parent) b.blimpG.parent.remove(b.blimpG); TD.list = []; TD.on = false; if (TD.im) for (const k in TD.im) TD.im[k].count = 0; }
+function tdClear(){ ttClearAll(); for (const b of TD.list || []) if (b.blimpG && b.blimpG.parent) b.blimpG.parent.remove(b.blimpG); TD.list = []; TD.on = false; if (TD.im) for (const k in TD.im) TD.im[k].count = 0; }
 function tdAskWave(){ if (!tdOn() || TD.state !== 'build') return; if (tdAuth()) tdStartWave(); else netSend({t:'tdgo'}); }
 function tdStartWave(){
   if (!tdOn() || TD.state !== 'build' || TD.wave >= TD_ROUNDS) return;
@@ -4889,9 +5163,9 @@ function tdHit(b, dmg){
   b.hp -= dmg; b.flash = .12;
   let over = -b.hp, guard = 0;
   while (b.hp <= 0 && !b.dead && guard++ < 20) {
-    const T = TDT[b.t]; tdPopFX(b.pos, T, T.blimp ? 3 : 1); TD.pops++;
+    const T = TDT[b.t]; tdPopFX(b.pos, T, T.blimp ? 3 : 1); TD.pops++; TD.cash = (TD.cash || 0) + TT_POP;
     if (!T.ch.length) { b.dead = true; break; }
-    if (T.ch.length === 1) { b.t = T.ch[0]; const N = TDT[b.t]; b.hp = N.hp*TD.hpK - over; b.R = .75*N.s; over = -b.hp; continue; }   // the next colour, same balloon
+    if (T.ch.length === 1) { b.t = T.ch[0]; const N = TDT[b.t]; b.hp = N.hp*TD.hpK - over; b.R = .75*N.s*TD_SIZE; over = -b.hp; continue; }   // the next colour, same balloon
     b.dead = true; if (b.blimpG && b.blimpG.parent) b.blimpG.parent.remove(b.blimpG);
     T.ch.forEach((c, k) => { const nb = tdSpawn(c, b.d + (k - (T.ch.length - 1)/2)*1.4); if (over > 0) tdHit(nb, Math.min(over*.5, TDT[c].hp*TD.hpK*.9)); });   // one big hit can't wipe out a whole family
   }
@@ -4930,7 +5204,7 @@ function tdFrame(dt){
     if (TD.state === 'wave') {
       TD.t += dt;
       while (TD.queue.length && TD.queue[0].at <= TD.t) tdSpawn(TD.queue.shift().t, 0);
-      for (const b of TD.list) { if (b.dead) continue; const T = TDT[b.t]; b.d += T.sp*TD.speedK*TD.spK*dt;
+      for (const b of TD.list) { if (b.dead) continue; const T = TDT[b.t]; b.d += T.sp*TD.speedK*TD.spK*dt*(b.stunT > 0 ? 0 : b.slowT > 0 ? .5 : 1); if (b.stunT > 0) b.stunT -= dt; if (b.slowT > 0) b.slowT -= dt;
         if (b.d >= TD.len) { b.dead = true; if (b.blimpG && b.blimpG.parent) b.blimpG.parent.remove(b.blimpG); tdLeak(T); } }
       tdFastHits();
       TD.list = TD.list.filter(b => !b.dead);
@@ -4942,7 +5216,7 @@ function tdFrame(dt){
     for (const b of TD.list) if (!b.dead) b.d = Math.min(TD.len, b.d + TDT[b.t].sp*TD.speedK*(TD.spK || 1)*dt);
   }
   for (const b of TD.list) { if (b.dead) continue; tdAt(b.d, b.pos); b.flash = Math.max(0, b.flash - dt); }
-  tdDraw(dt); tdMapFrame(dt);
+  tdDraw(dt); tdMapFrame(dt); ttFrame(dt);
 }
 /* ---------- the minimap: the whole island from above (north up; right is the way you face when you look north). The path,
    the egg, every balloon in its colour (blimps bigger, the one closest to the egg ringed), the players as arrows (you in
@@ -4981,6 +5255,8 @@ function tdMapFrame(dt){
   // the egg
   const ex = tdmX(0), ey = tdmY(0), lf = TD.lives/TD_LIVES; g.fillStyle = lf > .5 ? '#FFF7E0' : lf > .2 ? '#FFD84D' : '#FF6A5A'; g.strokeStyle = '#4A2A00'; g.lineWidth = 3;
   g.beginPath(); g.ellipse(ex, ey, 10, 13, 0, 0, Math.PI*2); g.fill(); g.stroke();
+  // turrets: little squares in their class colour (gold pips = upgrades)
+  for (const t of TT.list) { const x = tdmX(t.x), y = tdmY(t.z), D = TT_DEFS[t.k]; g.fillStyle = D.cls === 'pain' ? '#7A5CC8' : D.cls === 'bomber' ? '#6B7A4A' : '#D9A520'; g.strokeStyle = '#1A1A1A'; g.lineWidth = 2; g.fillRect(x - 6, y - 6, 12, 12); g.strokeRect(x - 6, y - 6, 12, 12); if (t.lvl) { g.fillStyle = '#FFD84D'; g.fillRect(x - 6, y + 7, 12*t.lvl/5, 3); } }
   // balloons: the leader (closest to the egg) is ringed
   let lead = null; for (const b of TD.list) if (!b.dead && (!lead || b.d > lead.d)) lead = b;
   const live = TD.list.filter(b => !b.dead).sort((a, b) => a.d - b.d);
@@ -4993,7 +5269,7 @@ function tdMapFrame(dt){
     g.fillStyle = me ? '#FFE033' : '#5AB4FF'; g.strokeStyle = '#1A1A1A'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(x + dx*s0, y + dy*s0); g.lineTo(x - dx*s0*.6 - dy*s0*.55, y - dy*s0*.6 + dx*s0*.55); g.lineTo(x - dx*s0*.25, y - dy*s0*.25); g.lineTo(x - dx*s0*.6 + dy*s0*.55, y - dy*s0*.6 - dx*s0*.55); g.closePath(); g.fill(); g.stroke(); }
   // the numbers
   const onPath = live.length, queued = TD.queue ? TD.queue.length : 0, rnd = Math.max(1, TD.wave);
-  let html = `🎈 Round <b>${rnd}/${TD_ROUNDS}</b> · ❤️ <b>${TD.lives}</b> · 💥 ${(TD.pops || 0).toLocaleString()}<br>`;
+  let html = `🎈 Round <b>${rnd}/${TD_ROUNDS}</b> · ❤️ <b>${TD.lives}</b> · 💰 <b>${TD.cash | 0}</b> · 🏗️ ${TT.list.length}<br>`;
   if (TD.state === 'wave') { html += `On the path <b>${onPath}</b>${queued ? ` · still coming <b>${queued}</b>` : ''}<br>`;
     if (lead) { const pct = Math.round(lead.d/TD.len*100), left = Math.max(0, Math.round(TD.len - lead.d)); html += `<span style="color:#C4200E">Closest: ${TDT[lead.t].n} · ${pct}% of the way · ${left} m to the egg</span>`; } }
   else if (TD.wave < TD_ROUNDS) { const nx = TD_WAVES[TD.wave]; html += `Next: ${nx.map(w => w[1] + ' ' + TDT[w[0]].n).join(', ')}`; }
@@ -5006,9 +5282,9 @@ function tdLeak(T){
   if (TD.lives <= 0) tdEnd(false);
 }
 function tdWaveDone(){
-  TD.state = 'build'; TD.autoT = 0; sfx('win');
+  TD.state = 'build'; TD.autoT = 0; sfx('win'); const bonus = 100 + 20*TD.wave; TD.cash = (TD.cash || 0) + bonus;
   if (TD.wave >= TD_ROUNDS) { tdEnd(true); return; }
-  toast(`🎉 Round ${TD.wave} cleared! ${TD.auto ? 'The next one starts in a moment.' : 'Enter (or the button) starts the next one.'}`); tdHud(); tdSend(true);
+  toast(`🎉 Round ${TD.wave} cleared! +💰${bonus}. ${TD.auto ? 'The next one starts in a moment.' : 'Enter (or the button) starts the next one.'}`); tdHud(); tdSend(true);
 }
 function tdEnd(win){
   if (TD.over) return; TD.over = true; TD.state = win ? 'won' : 'lost'; tdSend(true); tdShowEnd();
@@ -5028,10 +5304,11 @@ function tdShowEnd(){
 function tdSend(force){
   if (!NET.peer || !NET.host) return;
   const b = []; for (const q of TD.list) if (!q.dead) b.push(q.id, q.t, Math.round(q.d*10), Math.round(Math.max(0, q.hp)));
-  netBroadcast({t:'td', w:TD.wave, s:TD.state, l:TD.lives, p:TD.pops, a:TD.auto ? 1 : 0, k:+(TD.hpK || 1).toFixed(3), v:+(TD.spK || 1).toFixed(3), b});
+  netBroadcast({t:'td', c:TD.cash | 0, tt:ttPack(), w:TD.wave, s:TD.state, l:TD.lives, p:TD.pops, a:TD.auto ? 1 : 0, k:+(TD.hpK || 1).toFixed(3), v:+(TD.spK || 1).toFixed(3), b});
 }
 function tdApply(m){
   const was = TD.state, old = new Map(TD.list.map(b => [b.id, b]));
+  if (typeof m.c === 'number') TD.cash = m.c; if (Array.isArray(m.tt)) ttSync(m.tt);
   TD.wave = m.w | 0; TD.state = m.s; TD.lives = m.l | 0; TD.pops = m.p | 0; TD.auto = !!m.a; TD.hpK = +m.k || 1; TD.spK = +m.v || 1;
   const list = []; const a = Array.isArray(m.b) ? m.b : [];
   for (let i = 0; i + 3 < a.length; i += 4) {
@@ -5132,7 +5409,7 @@ function tdHud(){
   if (!document.getElementById('tdHud') || !tdOn()) return;
   const st = $('tdStat'), go = $('tdGo'), au = $('tdAuto');
   const left = TD.state === 'wave' ? TD.list.filter(b => !b.dead).length + (TD.queue ? TD.queue.length : 0) : 0;
-  st.innerHTML = `<span>🎈 Round ${Math.max(1, TD.wave)}/${TD_ROUNDS}</span><span>❤️ ${TD.lives}</span><span>💥 ${(TD.pops || 0).toLocaleString()}</span>${TD.state === 'wave' && tdAuth() ? `<span>🎯 ${left} left</span>` : ''}`;
+  st.innerHTML = `<span>🎈 Round ${Math.max(1, TD.wave)}/${TD_ROUNDS}</span><span>❤️ ${TD.lives}</span><span>💰 ${TD.cash | 0}</span><span>💥 ${(TD.pops || 0).toLocaleString()}</span>${TD.state === 'wave' && tdAuth() ? `<span>🎯 ${left} left</span>` : ''}`;
   const showGo = TD.state === 'build' && TD.wave < TD_ROUNDS && !TD.over; go.style.display = showGo ? '' : 'none'; go.textContent = `▶ Start round ${TD.wave + 1}`;
   au.style.display = TD.over ? 'none' : ''; au.textContent = TD.auto ? '⏩ Auto: on' : '⏩ Auto: off';
   $('phase').innerHTML = `🎈 Balloon Defense<small>Round ${Math.max(1, TD.wave)} of ${TD_ROUNDS}</small>`;
@@ -13681,6 +13958,8 @@ addEventListener('keydown', e => {
   else if (e.code === 'KeyG') { e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) swarmGod(); }
 }, true);
 
+addEventListener('keydown', e => { if (e.repeat || !G.pvp || G.mode !== 'td') return; if (document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return; if (ttKey(e.code)) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);   // turrets (Balloon Defense)
+
 /* casting, locally and for other players */
 function runSkill(id, p, x){
   if (x && x.tp && p) teleSwallowFX(p);
@@ -14033,6 +14312,7 @@ function hostHandle(c, m){
     case 'death': if (m.id !== c.peer) break; if (m.by && !NET.players[m.by]) m.by = null; onDeath(m); break;
     case 'edone': if (eggOn() && isDef(c.peer)) eggReady(c.peer); break;
     case 'tdgo': if (tdOn() && TD.state === 'build') tdStartWave(); break;
+    case 'ttb': case 'ttu': case 'tts': ttHostMsg(m); break;
     case 'erole': if (eggOn() && m.id === c.peer && (m.r === 'def' || m.r === 'atk')) eggRole(c.peer, m.r, true); break;
     case 'egu': if (eggOn() && m.id === c.peer) eggGaveUp(c.peer); break;
   }
@@ -14208,7 +14488,7 @@ function renderPhase(){
   const map = {title:'Egg Defense', intro:`Round ${G.round}`, build:`${teamName(G.defender)} builds`, handoff:'Swap players', attack: G.pvp ? (G.mode === 'pain' ? 'Pain' : 'Chaos Arena') : `${teamName(attacker())} attacks`, end:'Round over'};
   if (eggOn()) { eggHud(true); eggHelp(); $('tAct').textContent = G.phase === 'build' && amDefender() ? 'Place' : 'Shoot'; return; }
   if (G.pvp && G.mode === 'tennis') { const help = $('help'); help.style.display = 'block'; help.innerHTML = painHelp() + '<br>🎾 Fling everything over the net: when the clock runs out, the side with fewer things wins. Knocked off the court, it drops back on your side.'; $('phase').innerHTML = '🎾 Pain Tennis<small>Fewer things on your side wins</small>'; $('tAct').textContent = 'Cast'; return; }
-  if (G.pvp && G.mode === 'td') { tdHud(); const help = $('help'); help.style.display = 'block'; help.innerHTML = (G.cls === 'bomber' ? bomberHelp() : G.cls === 'sword' ? swordHelp() : G.cls === 'avatar' ? avatarHelp() : painHelp()) + '<br><b>Enter</b> start the next round · <b>Tab</b> switch class'; $('tAct').textContent = 'Cast'; return; }
+  if (G.pvp && G.mode === 'td') { tdHud(); const help = $('help'); help.style.display = 'block'; help.innerHTML = (G.cls === 'bomber' ? bomberHelp() : G.cls === 'sword' ? swordHelp() : G.cls === 'avatar' ? avatarHelp() : painHelp()) + '<br><b>Enter</b> start the next round · <b>Y</b> turrets (1-5 pick, Click place; aim at one: <b>U</b> upgrade, <b>K</b> sell) · <b>Tab</b> switch class'; $('tAct').textContent = 'Cast'; return; }
   $('phase').innerHTML = map[G.phase] + (G.phase==='build' ? `<small>Place your protection</small>` : G.phase==='attack' ? (G.mode === 'swarm' ? '<small>Swarm mode</small>' : G.pvp ? `<small>First team to ${WIN_SCORE}</small>` : `<small>Break the egg!</small>`) : '');
   const help = $('help');
   if (G.phase === 'build') { help.style.display = 'block'; help.innerHTML = '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run, <b>Shift ×2</b> dash, <b>Space ×2</b> double jump<br><b>Click</b> place, <b>R</b> rotate, <b>1–3</b> or scroll to pick<br><b>E</b> pick up or put down, <b>click</b> while carrying to throw<br>Protection: press its key (see the Protection bar)<br><b>F</b> done building'; }
@@ -14368,6 +14648,7 @@ addEventListener('blur', () => { G.mx = G.my = null; });
 function actionDown(){
   ensureAudio();
   const P = activeChar(); if (!P || P.stun > 0) return;
+  if (ttClick()) { G.skipUp = true; return; }   // placing a turret (Balloon Defense)
   if (P.carry) { dropCarry(P, true); G.skipUp = true; return; }
   if (G.phase === 'attack' && painKit() && PAIN.circBuild && !G.targeting && circuitClick()) { G.skipUp = true; return; }   // placing the Falling Circuit
   if (G.phase === 'attack' && painKit() && G.targeting && PAIN_SKILLS[G.targeting] && PAIN_SKILLS[G.targeting].kind === 'aimcharge') { chargeStart(G.targeting, 'mouse'); return; }   // hold to charge the selected gravity ring
@@ -14394,6 +14675,7 @@ canvas.addEventListener('pointerdown', e => {
     return;
   }
   if (!inPlay()) return;
+  if (e.button === 2 && TT.place) { TT.place = null; ttGhostHide(); ttPanel(); toast('🏗️ Put away.'); return; }
   if (e.button === 2) { if (G.phase === 'attack' && painKit() && PAIN.circBuild) { PAIN.circBuild = false; toast('➰ Path set. The circuit stays until you press G again.'); return; }
     if (G.phase === 'attack' && painKit() && !(G.targeting && PAIN_SKILLS[G.targeting])) { tkGrabToggle(); return; } if (G.targeting) { G.targeting = null; renderTray(); toast('Skill put away.'); } rdrag = {x:e.clientX, y:e.clientY}; return; }
   if (e.button !== 0) return;
