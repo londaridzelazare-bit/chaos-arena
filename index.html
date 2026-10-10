@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-11.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-11.3';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -4811,6 +4811,7 @@ Object.assign(TT_DEFS, {   // Genos (class id 'avatar'): fire
   a_sun:    {cls:'avatar', name:'Sun Shrine', e:'☀️', cost:650, kind:'pulse', look:'sun', col:0xFFD84D, range:9, rate:.6, dmg:16,
     ups:[['Brighter Sun', 350, {dmg:1.5}], ['Bigger Flares', 700, {range:3}], ['Solar Pulse', 1100, {rate:1.7}], ['Corona', 2300, {range:4, dmg:1.8}], ['Supernova', 7500, {range:6, dmg:2.5, moab:2}]]}
 });
+for (const k in TT_DEFS) { const U = TT_DEFS[k].ups; U[3][1] = Math.round(U[3][1]*1.5/50)*50; U[4][1] = Math.round(U[4][1]*1.6/50)*50; }   // the top two tiers cost more
 const TT_CLS = {}; for (const k in TT_DEFS) (TT_CLS[TT_DEFS[k].cls] = TT_CLS[TT_DEFS[k].cls] || []).push(k);
 // infinite money (a menu toggle the host picks before the match)
 const ttCan = c => !!TD.inf || (TD.cash | 0) >= c;   // can I afford it (my wallet)
@@ -4824,7 +4825,7 @@ const ttMoney = () => TD.inf ? '∞' : (TD.cash | 0).toLocaleString();
 const TT = {list:[], seq:0, shop:false, place:null, aimed:null, hudT:0, cashShown:-1};
 function ttStats(t){
   const D = TT_DEFS[t.k], S = {range:D.range, rate:D.rate, dmg:D.dmg, splash:D.splash || 0, pierce:D.pierce || 0, multi:D.multi || 1, push:D.push || 0, slow:D.slow || 0, stun:D.stun || 0, moab:D.moab || 1};
-  for (let i = 0; i < t.lvl; i++) { const m = D.ups[i][2]; for (const k in m) { if (k === 'dmg' || k === 'rate' || k === 'moab') S[k] *= m[k]; else S[k] += m[k]; } }
+  for (let i = 0; i < t.lvl; i++) { const m = D.ups[i][2]; for (const k in m) { if (k === 'dmg' || k === 'rate' || k === 'moab') S[k] *= Math.pow(m[k], .7); else if (k === 'multi' || k === 'pierce') S[k] += m[k]*.6; else if (k === 'splash') S[k] += m[k]*.8; else S[k] += m[k]; } }   // upgrades are damped (fully upgraded turrets were far too strong)
   return S;
 }
 const ttSpent = t => TT_DEFS[t.k].cost + TT_DEFS[t.k].ups.slice(0, t.lvl).reduce((a, u) => a + u[1], 0);
@@ -4908,11 +4909,11 @@ function ttSellIt(id, who){
 function ttUpFX(t){ sparkle(V3(t.x, groundH(t.x, t.z) + 3, t.z), 0xFFD84D); sfx('holy'); }
 // the snapshot: [id, kind index, x*10, z*10, level, owner id, ...]
 const TT_KEYS = Object.keys(TT_DEFS);
-function ttPack(){ const a = []; for (const t of TT.list) a.push(t.id, TT_KEYS.indexOf(t.k), Math.round(t.x*10), Math.round(t.z*10), t.lvl, String(t.own)); return a; }
+function ttPack(){ const a = []; for (const t of TT.list) a.push(t.id, TT_KEYS.indexOf(t.k), Math.round(t.x*10), Math.round(t.z*10), t.lvl, String(t.own), Math.round((t.empT || 0)*10)); return a; }
 function ttSync(a){
   if (!Array.isArray(a)) return; const seen = new Set();
-  for (let i = 0; i + 5 < a.length; i += 6) { const id = a[i], k = TT_KEYS[a[i + 1]], x = a[i + 2]/10, z = a[i + 3]/10, lvl = a[i + 4] | 0, own = String(a[i + 5]); if (!k) continue; seen.add(id);
-    let t = TT.list.find(q => q.id === id); if (t) t.own = own; if (!t) { t = ttAdd(k, x, z, id, lvl, own); sfx('place'); } else if (t.lvl !== lvl) { t.lvl = lvl; ttRelabel(t); ttUpFX(t); } }
+  for (let i = 0; i + 6 < a.length; i += 7) { const id = a[i], k = TT_KEYS[a[i + 1]], x = a[i + 2]/10, z = a[i + 3]/10, lvl = a[i + 4] | 0, own = String(a[i + 5]), emp = (a[i + 6] || 0)/10; if (!k) continue; seen.add(id);
+    let t = TT.list.find(q => q.id === id); if (t) { t.own = own; if (!tdAuth()) t.empT = emp; } if (!t) { t = ttAdd(k, x, z, id, lvl, own); t.empT = emp; sfx('place'); } else if (t.lvl !== lvl) { t.lvl = lvl; ttRelabel(t); ttUpFX(t); } }
   for (let i = TT.list.length - 1; i >= 0; i--) if (!seen.has(TT.list[i].id)) { ttRemove(TT.list[i]); TT.list.splice(i, 1); }
 }
 function ttRequest(kind, payload){
@@ -4927,16 +4928,16 @@ function ttHostMsg(m, who){
 }
 
 /* ---------- firing (every screen draws it; only the host's shots do damage) ---------- */
-const ttFirst = (t, S, n, skip) => { const out = []; for (const b of TD.list) { if (b.dead || (skip && skip.has(b))) continue; if (Math.hypot(b.pos.x - t.x, b.pos.z - t.z) <= S.range + b.R) out.push(b); } out.sort((a, b) => b.d - a.d); return out.slice(0, n); };
-function ttHurt(b, S, dmg){
+const ttFirst = (t, S, n, skip) => { const out = []; for (const b of TD.list) { if (b.dead || b.phased || (skip && skip.has(b))) continue; const A = TDT[b.t].ab; if (Math.hypot(b.pos.x - t.x, b.pos.z - t.z) <= (A && A.camo ? S.range*.4 : S.range) + b.R) out.push(b); } out.sort((a, b) => b.d - a.d); return out.slice(0, n); };
+function ttHurt(b, S, dmg, kind){
   if (!tdAuth() || b.dead) return; const T = TDT[b.t];
   if (S.stun > 0 && !T.blimp) b.stunT = Math.max(b.stunT || 0, S.stun);
   if (S.slow > 0) b.slowT = Math.max(b.slowT || 0, S.slow);
   if (S.push > 0) b.d = Math.max(0, b.d - S.push*(T.blimp ? .25 : 1));
-  tdHit(b, dmg*(T.blimp ? S.moab : 1));
+  tdHit(b, dmg*(T.blimp ? S.moab : 1), kind);
 }
-function ttArea(at, R, S, dmg){ if (!tdAuth()) return; for (const b of TD.list.slice()) { if (b.dead) continue; if (Math.hypot(b.pos.x - at.x, b.pos.y - at.y, b.pos.z - at.z) < R + b.R) ttHurt(b, S, dmg); } }
-function ttLine(a, dir, L, W, S, dmg, hit){ if (!tdAuth()) return; const e = a.clone().addScaledVector(dir, L); for (const b of TD.list.slice()) { if (b.dead || (hit && hit.has(b))) continue; if (segDist(a, e, b.pos) < W + b.R) { if (hit) hit.add(b); ttHurt(b, S, dmg); } } }
+function ttArea(at, R, S, dmg, kind){ if (!tdAuth()) return; for (const b of TD.list.slice()) { if (b.dead) continue; if (Math.hypot(b.pos.x - at.x, b.pos.y - at.y, b.pos.z - at.z) < R + b.R) ttHurt(b, S, dmg, kind || 'area'); } }
+function ttLine(a, dir, L, W, S, dmg, hit, kind){ if (!tdAuth()) return; const e = a.clone().addScaledVector(dir, L); for (const b of TD.list.slice()) { if (b.dead || (hit && hit.has(b))) continue; if (segDist(a, e, b.pos) < W + b.R) { if (hit) hit.add(b); ttHurt(b, S, dmg, kind || 'beam'); } } }
 function ttTracer(a, b, col, w, life){ const d = b.clone().sub(a), m = new THREE.Mesh(new THREE.BoxGeometry(w || .08, w || .08, d.length()), addBlend(col)); m.position.copy(a).addScaledVector(d, .5); m.lookAt(b); m.userData.noRay = true; roundGroup.add(m); booms.push({t:0, parts:[m], custom(bm){ m.material.opacity = Math.max(0, .9*(1 - bm.t/(life || .12))); return bm.t > (life || .12); }}); }
 function ttFlyer(mesh, a, b, dur, arc, onLand){ mesh.position.copy(a); mesh.userData.noRay = true; roundGroup.add(mesh); booms.push({t:0, parts:[mesh], custom(bm){ const k = Math.min(1, bm.t/dur); mesh.position.lerpVectors(a, b, k); mesh.position.y += Math.sin(k*Math.PI)*(arc || 0); if (k < 1) mesh.lookAt(b); if (k >= 1) { if (onLand) onLand(); return true; } return false; }}); }
 function ttFire(t, S){
@@ -4952,9 +4953,9 @@ function ttFire(t, S){
       else if (D.fx === 'missile') { const m = new THREE.Mesh(new THREE.ConeGeometry(.16, .7, 6).rotateX(Math.PI/2), M3(0xE8332E)); ttFlyer(m, o.clone(), p, .35, 4, () => boomVisual(p.clone(), false, .35, {ball:0xFF8A3A, core:0xFFF3B0, ring:0xFFB02E})); }
       else if (D.fx === 'flak') { ttTracer(o, p, 0xFFE9A0, .06); puff(p, 0x555555, .9); }
       else ttTracer(o, p, 0xFFF3B0, .05, .08);
-      ttHurt(b, S, S.dmg);
+      ttHurt(b, S, S.dmg, 'shot');
       if (S.splash) ttArea(p, S.splash, S, S.dmg*.6);
-      if (S.pierce) { const hit = new Set([b]); ttLine(o, dir, S.range + 4, .8, S, S.dmg*.8, hit); }
+      if (S.pierce) { const hit = new Set([b]); ttLine(o, dir, S.range + 4, .8, S, S.dmg*.8, hit, 'shot'); }
     }
     if (D.fx === 'bullet' && Math.random() < .5) sfx('zap'); else if (Math.random() < .5) sfx(D.fx === 'missile' ? 'rocket' : D.fx === 'sword' ? 'slash' : 'zapHit');
     return true;
@@ -4976,7 +4977,7 @@ function ttFire(t, S){
   }
   if (D.kind === 'dot') {
     const any = ttFirst(t, S, 1); if (!any.length) return false;
-    ttArea(V3(t.x, gy + 2, t.z), S.range, S, S.dmg); if (D.look === 'brazier') { for (let i = 0; i < 3; i++) { const a = Math.random()*6.28, r = Math.random()*S.range; flameP(V3(t.x + Math.cos(a)*r, gy + .4, t.z + Math.sin(a)*r), V3(0, rr(2, 4), 0), rr(.2, .4), pick(FIRE_COLS), .5); } } else if (Math.random() < .2) warpPulseIn(V3(t.x, gy + 3, t.z), S.range, .4, .02); return true;
+    ttArea(V3(t.x, gy + 2, t.z), S.range, S, S.dmg, 'dot'); if (D.look === 'brazier') { for (let i = 0; i < 3; i++) { const a = Math.random()*6.28, r = Math.random()*S.range; flameP(V3(t.x + Math.cos(a)*r, gy + .4, t.z + Math.sin(a)*r), V3(0, rr(2, 4), 0), rr(.2, .4), pick(FIRE_COLS), .5); } } else if (Math.random() < .2) warpPulseIn(V3(t.x, gy + 3, t.z), S.range, .4, .02); return true;
   }
   if (D.kind === 'beam') {
     const tg = ttFirst(t, S, Math.round(S.multi)); if (!tg.length) return false;
@@ -5012,8 +5013,10 @@ function ttFrame(dt){
     if (t.spin) t.spin.rotation.y += dt*(4 + S.rate);
     if (t.flame) t.flame.scale.set(1, .8 + Math.sin(G.t*12 + t.id)*.25, 1);
     if (t.orb) { t.orb.rotation.y += dt*2; t.orb.position.y = (D.look === 'excal' ? 3.4 : D.look === 'obelisk' ? 4.4 : D.look === 'spire' ? 4 : D.look === 'core' ? 2.6 : 3) + Math.sin(G.t*2 + t.id)*.12; }
-    if (D.kind === 'plane') { if (fighting) ttPlanes(t, S, dt*(TD.speed || 1)); else if (t.planes) t.planes.forEach(p => { p.a += dt*.5; p.m.position.set(t.x + Math.cos(p.a)*3, groundH(t.x, t.z) + 1.2, t.z + Math.sin(p.a)*3); }); continue; }
-    t.cd -= dt*(TD.speed || 1); if (t.cd > 0 || !fighting) continue;
+    if (t.empT > 0) { t.empT -= dt*(TD.speed || 1); if (Math.random() < .12) sparkle(V3(t.x + rr(-1, 1), groundH(t.x, t.z) + rr(1, 4), t.z + rr(-1, 1)), 0x2AFFEA); continue; }   // shut down by an EMP
+    if (t.frostT > 0) { t.frostT -= dt; if (Math.random() < .05) puff(V3(t.x, groundH(t.x, t.z) + 3, t.z), 0xDDF6FF, .5); }
+    if (D.kind === 'plane') { if (fighting) ttPlanes(t, S, dt*(TD.speed || 1)*(t.frostT > 0 ? .5 : 1)); else if (t.planes) t.planes.forEach(p => { p.a += dt*.5; p.m.position.set(t.x + Math.cos(p.a)*3, groundH(t.x, t.z) + 1.2, t.z + Math.sin(p.a)*3); }); continue; }
+    t.cd -= dt*(TD.speed || 1)*(t.frostT > 0 ? .5 : 1); if (t.cd > 0 || !fighting) continue;
     if (ttFire(t, S)) t.cd = 1/S.rate; else t.cd = .15;
   }
   ttUI(dt);
@@ -5085,7 +5088,7 @@ function ttUI(dt){
   if (!TTG.aimRing) TTG.aimRing = groundRing(0xFFD84D, .7);
   const t = TT.aimed;
   if (t) { const D = TT_DEFS[t.k], S = ttStats(t), nx = D.ups[t.lvl];
-    const html = `${D.e} <b>${D.name}</b> ${'★'.repeat(t.lvl)}${'☆'.repeat(5 - t.lvl)} · range ${Math.round(S.range)} m<br>${t.own !== G.localKey ? `Owner: <b>${ttOwnerName(t)}</b>` : `${nx ? `<b>U</b> upgrade: ${nx[0]} (💰${nx[1]})${!ttCan(nx[1]) ? ' <span style="color:#C4200E">not enough cash</span>' : ''}` : 'Fully upgraded'} · <b>K</b> sell for 💰${ttSell(t)}`}`;
+    const html = `${D.e} <b>${D.name}</b> ${'★'.repeat(t.lvl)}${'☆'.repeat(5 - t.lvl)} · range ${Math.round(S.range)} m${t.empT > 0 ? ' · <span style="color:#0A9C93">⚡ shut down</span>' : t.frostT > 0 ? ' · <span style="color:#3A8BD0">❄️ slowed</span>' : ''}<br>${t.own !== G.localKey ? `Owner: <b>${ttOwnerName(t)}</b>` : `${nx ? `<b>U</b> upgrade: ${nx[0]} (💰${nx[1]})${!ttCan(nx[1]) ? ' <span style="color:#C4200E">not enough cash</span>' : ''}` : 'Fully upgraded'} · <b>K</b> sell for 💰${ttSell(t)}`}`;
     if (c.innerHTML !== html) c.innerHTML = html; c.style.display = 'block'; TTG.aimRing.set(t.x, t.z, S.range, .3); }
   else { c.style.display = 'none'; TTG.aimRing.visible = false; }
   TT.hudT -= dt; if (TT.hudT <= 0) { TT.hudT = .25; if (TT.cashShown !== (TD.cash | 0)) { TT.cashShown = TD.cash | 0; tdHud(); } }
@@ -5259,8 +5262,29 @@ const TDT = [
   {n:'Zebra', c:0xD8D8D8, sp:9, hp:14, s:1.18, ch:[5, 6]},
   {n:'Rainbow', c:0xFF00FF, sp:11, hp:16, s:1.28, ch:[7, 7]},
   {n:'Ceramic', c:0xC0661E, sp:8, hp:110, s:1.5, ch:[8, 8]},
-  {n:'MOAB', c:0x2E7BFF, sp:3.4, hp:1300, s:1, ch:[9, 9, 9, 9], blimp:1},
-  {n:'BFB', c:0xE8332E, sp:2.1, hp:5200, s:1, ch:[10, 10, 10, 10], blimp:2}
+  {n:'MOAB', c:0x2E7BFF, c2:0x1B4FB3, sp:3.4, hp:1300, s:1, ch:[9, 9, 9, 9], blimp:1},
+  {n:'BFB', c:0xE8332E, c2:0x9A1F1C, sp:2.1, hp:5200, s:1, ch:[10, 10, 10, 10], blimp:2},
+  // 12-31: tougher balloons, each with a trick (ab). d: what the "new balloon" toast says
+  {n:'Lead', c:0x6E7680, sp:7, hp:45, s:1.05, ch:[5, 5], ab:{armor:6}, d:'armour: weak hits barely scratch it'},
+  {n:'Purple', c:0x8A3BD9, sp:11, hp:30, s:1, ch:[4, 4, 4], ab:{immune:['beam', 'dot']}, d:'immune to beams and fire'},
+  {n:'Camo', c:0x4E7A3A, sp:10, hp:40, s:1.05, ch:[7], ab:{camo:1}, d:'turrets only see it up close'},
+  {n:'Regrow', c:0xFF8FB8, sp:10, hp:60, s:1.1, ch:[8], ab:{regen:.25}, d:'heals itself'},
+  {n:'Bubble', c:0x6FE3FF, sp:9, hp:70, s:1.15, ch:[9], ab:{shield:1, srg:4}, d:'a shield that grows back when it is left alone'},
+  {n:'Ghost', c:0xDCDCF5, sp:11, hp:80, s:1.1, ch:[14, 14], ab:{phase:[2.4, 1.2]}, d:'keeps phasing out, and then nothing can hit it'},
+  {n:'Blink', c:0xB07CFF, sp:9, hp:90, s:1.1, ch:[13, 13], ab:{blink:[3.5, 10]}, d:'teleports forward'},
+  {n:'Rage', c:0xFF5A1F, sp:7, hp:160, s:1.2, ch:[9, 9], ab:{rage:2}, d:'gets faster the more it is hurt'},
+  {n:'Medic', c:0x7CFF9A, sp:8, hp:180, s:1.25, ch:[15, 15], ab:{heal:[2, 11, .12]}, d:'heals the balloons around it'},
+  {n:'Guardian', c:0x3A6BFF, sp:7, hp:220, s:1.3, ch:[16, 16], ab:{aura:12}, d:'balloons near it take half damage'},
+  {n:'Mother', c:0xFFB347, sp:6, hp:320, s:1.6, ch:[9, 9, 9], ab:{spawn:[3, 8]}, d:'keeps dropping balloons behind it'},
+  {n:'EMP', c:0x2AFFEA, sp:9, hp:180, s:1.2, ch:[12, 12], ab:{emp:[16, 3]}, d:'shuts down the turrets near it when it pops'},
+  {n:'Titanium', c:0xA9B4C2, sp:7.5, hp:600, s:1.55, ch:[9, 9], ab:{armor:22}, d:'heavy armour: only big hits hurt'},
+  {n:'Frost', c:0xBDEBFF, sp:8, hp:300, s:1.3, ch:[16, 16], ab:{frost:11}, d:'turrets near it fire at half speed'},
+  {n:'Hydra', c:0x9BE15A, sp:8.5, hp:260, s:1.35, ch:[19, 19, 19], d:'splits into three Rage balloons'},
+  {n:'Golden', c:0xFFD700, sp:15, hp:250, s:1.1, ch:[], ab:{gold:250}, d:'fast! Pop it and everyone gets 💰250'},
+  {n:'Shadow', c:0x2A2D35, c2:0x111216, sp:5.5, hp:2600, s:1, ch:[14, 14, 14, 14], blimp:1, ab:{camo:1}, d:'a camo blimp: turrets only see it up close'},
+  {n:'ZOMG', c:0x9AE34A, c2:0x3E7A1A, sp:1.7, hp:20000, s:1, ch:[11, 11, 11, 11], blimp:3, ab:{armor:30}, d:'an armoured mega-blimp full of BFBs'},
+  {n:'Warden', c:0x6A4A8A, c2:0x3A2650, sp:1.9, hp:12000, s:1, ch:[24, 24, 24, 24], blimp:2, ab:{shield:.5, srg:6, emp:[26, 4]}, d:'shielded, and shuts down turrets when it pops'},
+  {n:'Behemoth', c:0x4A0E0E, c2:0x1A0404, sp:1.2, hp:90000, s:1, ch:[29, 29], blimp:4, ab:{armor:40, quake:[8, 30, 3]}, d:'THE BOSS: its shockwaves shut down turrets'}
 ];
 function tdRBE(i){ const t = TDT[i]; if (t.rbe == null) t.rbe = Math.max(1, Math.round(t.hp/10)) + t.ch.reduce((a, c) => a + tdRBE(c), 0); return t.rbe; }
 TDT.forEach((t, i) => tdRBE(i));
@@ -5271,16 +5295,24 @@ const TD_WAVES = [   // groups of [type, count, seconds apart, start after]
   [[8, 6, 1.2], [7, 16, .7, 3]], [[8, 14, .8], [5, 26, .35, 2]], [[9, 4, 1.6], [8, 10, .8, 4]], [[9, 10, 1.1], [7, 22, .5, 3]],
   [[10, 1, 1], [9, 8, 1.2, 6]], [[9, 20, .7], [8, 20, .6, 4]], [[10, 3, 4], [9, 12, .9, 3]], [[11, 1, 1], [10, 2, 6, 8], [9, 15, .8, 3]]
 ];
-// rounds 21-100 follow a formula (the same on every screen): ceramic and rainbow floods, more and more MOABs, BFBs from
-// round 30, a zebra rush every 5th round and a BFB boss every 10th
-for (let w = 21; w <= 100; w++) { const k = w - 20, g = [];
-  g.push([9, 12 + Math.floor(k*.5), Math.max(.3, .9 - k*.008)]);
-  g.push([8, 14 + Math.floor(k*.6), Math.max(.25, .6 - k*.005), 2]);
-  g.push([10, 1 + Math.floor(k/5), Math.max(1.5, 5 - k*.05), 5]);
-  if (w >= 30) g.push([11, Math.floor((w - 25)/12), Math.max(3.5, 10 - k*.08), 12]);
-  if (w % 5 === 0) g.push([7, 25 + Math.floor(k*.5), .22, 0]);
-  if (w % 10 === 0) g.push([11, Math.floor(w/25), 5, 25]);
-  TD_WAVES.push(g); }
+// rounds 11-100 (the same on every screen): a new kind of balloon every few rounds, fewer balloons but tougher ones
+// (their health keeps climbing with TD.hpK), a blimp every 5th round, a Golden balloon every 7th, the Behemoth at 90 and 100
+TD_WAVES.length = 10;
+{ const INTRO = [[12, 11], [13, 13], [14, 15], [15, 17], [16, 19], [17, 22], [18, 25], [19, 28], [20, 31], [21, 34], [22, 37], [23, 40], [24, 44], [25, 48], [26, 52]];   // [type, first round]
+  const BLIMPS = [[10, 15], [11, 30], [28, 56], [29, 65], [30, 75]];
+  const base = t => { const r = TDT[t].rbe; return r < 40 ? 14 : r < 150 ? 9 : r < 400 ? 6 : 4; };
+  let seed = 7; const rnd = () => (seed = (seed*16807) % 2147483647)/2147483647;
+  for (let w = 11; w <= 100; w++) {
+    const g = [], open = INTRO.filter(q => q[1] <= w), grow = 1 + (w - 11)/120, newest = w > 52 ? open[open.length - 1 - Math.floor(rnd()*6)] : open[open.length - 1], old = open[Math.floor(rnd()*open.length)];   /* once every kind is out, the lead group rotates through the toughest six */
+    g.push([newest[0], Math.round(base(newest[0])*grow), 1.1]);
+    if (old[0] !== newest[0]) g.push([old[0], Math.round(base(old[0])*.7*grow), 1, 4]);
+    if (w < 40) g.push([w < 20 ? 8 : 9, Math.round((w < 20 ? 10 : 6)*grow), .7, 2]);   // classic filler, fading out
+    if (w % 5 === 0) { const bl = BLIMPS.filter(q => q[1] <= w), top = bl[bl.length - 1]; g.push([top[0], 1 + Math.floor((w - top[1])/15), 4, 8]); }
+    if (w % 10 === 0 && w >= 60) { const bl = BLIMPS.filter(q => q[1] <= w); g.push([bl[Math.max(0, bl.length - 2)][0], 2, 5, 14]); }
+    if (w % 7 === 0) g.push([27, w > 50 ? 2 : 1, 3, 6]);
+    if (w === 90 || w === 100) g.push([31, w === 100 ? 2 : 1, 20, 18]);
+    TD_WAVES.push(g);
+  } }
 const TD_LIVES = 200, TD_ROUNDS = TD_WAVES.length, TD_FLY = 2.1, TD_SIZE = .65, TD_SLOW = .6;   // every balloon is drawn and hit at 65% size and moves at 60% speed
 const TD = {on:false, list:[], pd:null};
 Object.defineProperty(TD, 'cash', {get(){ return ttWallet(); }, set(v){ ttWallet(); TD.wallet[G.localKey] = v; }, enumerable:false});   // TD.cash = your own wallet
@@ -5306,7 +5338,7 @@ function tdDir(d){ const i = clamp(Math.floor(d/TD.step), 0, TD.px.length - 2); 
 /* ---------- a round's worth of state ---------- */
 function tdStart(){
   tdClear();
-  ttClearAll(); Object.assign(TD, {on:true, wallet:{}, earned:0, inf:tdAuth() && !!ME.tdInf, speed:TD.speed || 1, wave:0, state:'build', lives:TD_LIVES, pops:0, list:[], queue:[], t:0, seq:0, sendT:0, auto:TD.auto || false, autoT:0, over:false, net:{}, grid:new Map()});
+  ttClearAll(); Object.assign(TD, {on:true, wallet:{}, earned:0, hpK:1, spK:1, inf:tdAuth() && !!ME.tdInf, speed:TD.speed || 1, wave:0, state:'build', lives:TD_LIVES, pops:0, list:[], queue:[], t:0, seq:0, sendT:0, auto:TD.auto || false, autoT:0, over:false, net:{}, grid:new Map()});
   if (egg) { const b = egg.body; b.type = CANNON.Body.STATIC; b.mass = 0; b.updateMassProperties(); b.velocity.set(0, 0, 0); }
   tdScenery();
   // everyone starts by the egg
@@ -5325,18 +5357,60 @@ function tdStartWave(){
   TD.hpK = 1 + .045*(TD.wave - 1) + .03*Math.max(0, TD.wave - 20); TD.spK = Math.min(1.9, 1 + .012*(TD.wave - 1));   // past round 20 they toughen faster
   sfx('trumpet'); tdHud(); tdSend(true);
   toast(`🎈 Round ${TD.wave}${TD.wave === TD_ROUNDS ? ' (the last one!)' : ''}: ${TD_WAVES[TD.wave - 1].map(g => g[1] + ' ' + TDT[g[0]].n).join(', ')}`);
+  { const seen = new Set(TD_WAVES.slice(0, TD.wave - 1).flat().map(g => g[0])); let k = 0; for (const g of TD_WAVES[TD.wave - 1]) if (!seen.has(g[0]) && TDT[g[0]].d) { seen.add(g[0]); const T = TDT[g[0]]; setTimeout(() => toast(`🆕 ${T.n} balloon: ${T.d}`), 1600 + 1800*k++); } }
 }
-function tdSpawn(type, d){ const T = TDT[type], b = {id:++TD.seq, t:type, d:Math.max(0, d), hp:T.hp*TD.hpK, R:(T.blimp ? (T.blimp === 1 ? 3.2 : 4.4) : .75*T.s)*TD_SIZE, ph:Math.random()*6, pos:new THREE.Vector3(), dead:false, flash:0}; tdAt(b.d, b.pos); TD.list.push(b); return b; }
+const tdBL = T => [0, 1, 1.45, 1.9, 2.4][T.blimp] || 1;   // blimp size
+const tdR = T => (T.blimp ? 3.2*tdBL(T) : .75*T.s)*TD_SIZE;
+const tdShMax = T => T.ab && T.ab.shield ? T.ab.shield*T.hp*(TD.hpK || 1) : 0;
+// what every screen draws: 1 shielded, 2 phased out, 4 guarded (the host knows, clients get it in the snapshot)
+const tdFl = b => tdAuth() ? ((b.sh > 0 ? 1 : 0) | (b.phased ? 2 : 0) | (b.guardT > 0 ? 4 : 0)) : (b.fl | 0);
+const tdSpd = (b, T) => T.ab && T.ab.rage ? 1 + T.ab.rage*(1 - clamp(b.hp/(T.hp*(TD.hpK || 1)), 0, 1)) : 1;
+// the balloons' tricks (host only, every frame of a round)
+function tdAbilities(dt){
+  const L = TD.list, hk = TD.hpK || 1;
+  for (const b of L) if (b.guardT > 0) b.guardT -= dt;
+  for (let i = 0; i < L.length; i++) { const b = L[i]; if (b.dead) continue; const T = TDT[b.t], A = T.ab; if (!A) continue; const mx = T.hp*hk;
+    if (A.regen && b.hp < mx) b.hp = Math.min(mx, b.hp + A.regen*mx*dt);
+    if (A.shield) { const sm = A.shield*mx; if ((b.sh || 0) < sm && TD.t - (b.lastHit || -9) > A.srg) b.sh = Math.min(sm, (b.sh || 0) + sm*.5*dt); }
+    if (A.phase) b.phased = (TD.t + b.id*.731) % (A.phase[0] + A.phase[1]) > A.phase[0];
+    b.abT = (b.abT || 0) - dt;
+    if (A.blink && b.abT <= 0) { b.abT = A.blink[0]; const from = b.pos.clone(); b.d = Math.min(TD.len - 6, b.d + A.blink[1]); tdAt(b.d, b.pos); puff(from, 0xB07CFF, .8); puff(b.pos, 0xB07CFF, .8); sfx('portal'); }
+    if (A.heal && b.abT <= 0) { b.abT = A.heal[0]; let n = 0; for (const o of L) { if (o.dead || hdist(o.pos, b.pos) > A.heal[1]) continue; const m2 = TDT[o.t].hp*hk; if (o.hp < m2) { o.hp = Math.min(m2, o.hp + A.heal[2]*m2); n++; } } if (n) sparkle(b.pos, 0x7CFF9A); }
+    if (A.aura) for (const o of L) if (!o.dead && o !== b && hdist(o.pos, b.pos) < A.aura) o.guardT = .3;
+    if (A.spawn && b.abT <= 0) { b.abT = A.spawn[0]; tdSpawn(A.spawn[1], Math.max(0, b.d - 3)); }
+    if (A.frost) for (const t of TT.list) if (Math.hypot(t.x - b.pos.x, t.z - b.pos.z) < A.frost) t.frostT = .3;
+    if (A.quake && b.abT <= 0) { b.abT = A.quake[0]; tdEmp(b.pos, A.quake[1], A.quake[2]); shakeAt(b.pos, .8, 80); }
+  }
+}
+// an EMP: turrets near it stop for a few seconds
+function tdEmp(at, R, dur){
+  let n = 0; for (const t of TT.list) if (Math.hypot(t.x - at.x, t.z - at.z) < R) { t.empT = Math.max(t.empT || 0, dur); n++; }
+  boomVisual(at.clone(), false, .3 + R*.03, {ball:0x2AFFEA, core:0xE8FFFF, ring:0x2AFFEA}); sfx('zapHit');
+  if (n) cdToast2(`⚡ EMP! ${n} turret${n > 1 ? 's' : ''} shut down for ${dur} s.`);
+}
+// a layer popped: some kinds do something about it
+function tdPopAb(b, T){
+  const A = T.ab; if (!A) return;
+  if (A.emp) tdEmp(b.pos, A.emp[0], A.emp[1]);
+  if (A.gold) { ttEarn(A.gold); sparkle(b.pos, 0xFFD700); sparkle(b.pos, 0xFFF3B0); sfx('holy'); toast(`💰 Golden balloon popped: +${A.gold} for everyone!`); }
+}
+function tdSpawn(type, d){ const T = TDT[type], b = {id:++TD.seq, t:type, d:Math.max(0, d), hp:T.hp*TD.hpK, R:tdR(T), ph:Math.random()*6, pos:new THREE.Vector3(), dead:false, flash:0, abT:Math.random()*2}; b.sh = tdShMax(T); tdAt(b.d, b.pos); TD.list.push(b); return b; }
 
 /* ---------- hits (host only: it owns the balloons) ---------- */
-function tdHit(b, dmg){
-  if (!b || b.dead || !(dmg > 0)) return;
+function tdHit(b, dmg, kind){
+  if (!b || b.dead || !(dmg > 0) || b.phased) return;
+  { const A = TDT[b.t].ab;
+    if (A && A.immune && kind && A.immune.includes(kind)) { b.flash = .04; return; }
+    if (b.guardT > 0) dmg *= .5;
+    if (A && A.armor) dmg = Math.max(dmg*.12, dmg - A.armor);
+    b.lastHit = TD.t;
+    if (b.sh > 0) { const a = Math.min(b.sh, dmg); b.sh -= a; dmg -= a; b.flash = .06; if (dmg <= 0) return; } }
   b.hp -= dmg; b.flash = .12;
   let over = -b.hp, guard = 0;
   while (b.hp <= 0 && !b.dead && guard++ < 20) {
-    const T = TDT[b.t]; tdPopFX(b.pos, T, T.blimp ? 3 : 1); TD.pops++; ttEarn(TT_POP);
+    const T = TDT[b.t]; tdPopFX(b.pos, T, T.blimp ? 3 : 1); TD.pops++; ttEarn(TT_POP); tdPopAb(b, T);
     if (!T.ch.length) { b.dead = true; break; }
-    if (T.ch.length === 1) { b.t = T.ch[0]; const N = TDT[b.t]; b.hp = N.hp*TD.hpK - over; b.R = .75*N.s*TD_SIZE; over = -b.hp; continue; }   // the next colour, same balloon
+    if (T.ch.length === 1) { b.t = T.ch[0]; const N = TDT[b.t]; b.hp = N.hp*TD.hpK - over; b.R = tdR(N); b.sh = tdShMax(N); over = -b.hp; continue; }   // the next colour, same balloon
     b.dead = true; if (b.blimpG && b.blimpG.parent) b.blimpG.parent.remove(b.blimpG);
     T.ch.forEach((c, k) => { const nb = tdSpawn(c, b.d + (k - (T.ch.length - 1)/2)*1.4); if (over > 0) tdHit(nb, Math.min(over*.5, TDT[c].hp*TD.hpK*.9)); });   // one big hit can't wipe out a whole family
   }
@@ -5375,16 +5449,16 @@ function tdFrame(dt){
     if (TD.state === 'wave') {
       const fdt = dt*(TD.speed || 1); TD.t += fdt;
       while (TD.queue.length && TD.queue[0].at <= TD.t) tdSpawn(TD.queue.shift().t, 0);
-      for (const b of TD.list) { if (b.dead) continue; const T = TDT[b.t]; b.d += T.sp*TD.speedK*TD.spK*fdt*(b.stunT > 0 ? 0 : b.slowT > 0 ? .5 : 1); if (b.stunT > 0) b.stunT -= fdt; if (b.slowT > 0) b.slowT -= fdt;
+      for (const b of TD.list) { if (b.dead) continue; const T = TDT[b.t]; b.d += T.sp*TD.speedK*TD.spK*fdt*tdSpd(b, T)*(b.stunT > 0 ? 0 : b.slowT > 0 ? .5 : 1); if (b.stunT > 0) b.stunT -= fdt; if (b.slowT > 0) b.slowT -= fdt;
         if (b.d >= TD.len) { b.dead = true; if (b.blimpG && b.blimpG.parent) b.blimpG.parent.remove(b.blimpG); tdLeak(T); } }
-      tdFastHits();
+      tdAbilities(fdt); tdFastHits();
       TD.list = TD.list.filter(b => !b.dead);
       if (!TD.queue.length && !TD.list.length && TD.lives > 0) tdWaveDone();
     } else if (TD.state === 'build' && TD.auto && TD.wave > 0) { TD.autoT += dt; if (TD.autoT > 4) { TD.autoT = 0; tdStartWave(); } }
     TD.sendT -= dt; if (TD.sendT <= 0) { TD.sendT = TD.list.length > 150 ? .16 : .11; tdSend(false); }
   } else if (!tdAuth()) {
     // between the host's reports, keep them gliding along the path
-    for (const b of TD.list) if (!b.dead) b.d = Math.min(TD.len, b.d + TDT[b.t].sp*TD.speedK*(TD.spK || 1)*dt*(TD.speed || 1));
+    for (const b of TD.list) if (!b.dead) b.d = Math.min(TD.len, b.d + TDT[b.t].sp*TD.speedK*(TD.spK || 1)*dt*(TD.speed || 1)*tdSpd(b, TDT[b.t]));
   }
   for (const b of TD.list) { if (b.dead) continue; tdAt(b.d, b.pos); b.flash = Math.max(0, b.flash - dt); }
   tdDraw(dt); tdMapFrame(dt); ttFrame(dt);
@@ -5432,7 +5506,7 @@ function tdMapFrame(dt){
   let lead = null; for (const b of TD.list) if (!b.dead && (!lead || b.d > lead.d)) lead = b;
   const live = TD.list.filter(b => !b.dead).sort((a, b) => a.d - b.d);
   for (const b of live) { const T = TDT[b.t], x = tdmX(b.pos.x), y = tdmY(b.pos.z);
-    if (T.blimp) { g.fillStyle = tdHex(T.c); g.strokeStyle = '#1A1A1A'; g.lineWidth = 2.5; g.beginPath(); g.ellipse(x, y, T.blimp === 1 ? 11 : 14, T.blimp === 1 ? 6 : 8, -tdDir(b.d) + Math.PI/2, 0, Math.PI*2); g.fill(); g.stroke(); g.fillStyle = '#FFF'; g.font = '900 10px Nunito, sans-serif'; g.fillText(T.blimp === 1 ? 'M' : 'B', x, y + 1); }
+    if (T.blimp) { g.fillStyle = tdHex(T.c); g.strokeStyle = '#1A1A1A'; g.lineWidth = 2.5; g.beginPath(); g.ellipse(x, y, 7 + 4*tdBL(T), 4 + 2.2*tdBL(T), -tdDir(b.d) + Math.PI/2, 0, Math.PI*2); g.fill(); g.stroke(); g.fillStyle = '#FFF'; g.font = '900 10px Nunito, sans-serif'; g.fillText(T.n[0], x, y + 1); }
     else { g.fillStyle = b.t === 8 ? `hsl(${(G.t*180 + b.id*47) % 360},100%,58%)` : b.t === 7 ? '#E8E8E8' : tdHex(T.c); g.strokeStyle = '#1A1A1A'; g.lineWidth = 2; g.beginPath(); g.arc(x, y, 4 + Math.min(3, T.s*1.6), 0, Math.PI*2); g.fill(); g.stroke(); } }
   if (lead) { const x = tdmX(lead.pos.x), y = tdmY(lead.pos.z), pr = 11 + Math.sin(G.t*8)*2.5; g.strokeStyle = '#FF2A2A'; g.lineWidth = 3; g.beginPath(); g.arc(x, y, pr, 0, Math.PI*2); g.stroke(); }
   // players: arrows the way they face (you: yellow and bigger)
@@ -5474,7 +5548,7 @@ function tdShowEnd(){
 // the host tells everyone where every balloon is
 function tdSend(force){
   if (!NET.peer || !NET.host) return;
-  const b = []; for (const q of TD.list) if (!q.dead) b.push(q.id, q.t, Math.round(q.d*10), Math.round(Math.max(0, q.hp)));
+  const b = []; for (const q of TD.list) if (!q.dead) b.push(q.id, q.t, Math.round(q.d*10), Math.round(Math.max(0, q.hp)), tdFl(q));
   netBroadcast({t:'td', c:TD.wallet || {}, i:TD.inf ? 1 : 0, f:TD.speed || 1, tt:ttPack(), w:TD.wave, s:TD.state, l:TD.lives, p:TD.pops, a:TD.auto ? 1 : 0, k:+(TD.hpK || 1).toFixed(3), v:+(TD.spK || 1).toFixed(3), b});
 }
 function tdApply(m){
@@ -5482,12 +5556,12 @@ function tdApply(m){
   if (m.c && typeof m.c === 'object') TD.wallet = Object.assign({}, m.c); TD.inf = !!m.i; TD.speed = m.f === 2 || m.f === 4 ? m.f : 1; if (Array.isArray(m.tt)) ttSync(m.tt);
   TD.wave = m.w | 0; TD.state = m.s; TD.lives = m.l | 0; TD.pops = m.p | 0; TD.auto = !!m.a; TD.hpK = +m.k || 1; TD.spK = +m.v || 1;
   const list = []; const a = Array.isArray(m.b) ? m.b : [];
-  for (let i = 0; i + 3 < a.length; i += 4) {
-    const id = a[i], t = a[i + 1] | 0, d = a[i + 2]/10, hp = a[i + 3]; if (!TDT[t]) continue;
+  for (let i = 0; i + 4 < a.length; i += 5) {
+    const id = a[i], t = a[i + 1] | 0, d = a[i + 2]/10, hp = a[i + 3], fl = a[i + 4] | 0; if (!TDT[t]) continue;
     let b = old.get(id);
-    if (b) { if (b.t !== t) tdPopFX(b.pos, TDT[b.t], 1); old.delete(id); if (Math.abs(b.d - d) > 3) b.d = d; else b.d = lerp(b.d, d, .5); b.t = t; if (hp < b.hp) b.flash = .12; b.hp = hp; b.R = (TDT[t].blimp ? (TDT[t].blimp === 1 ? 3.2 : 4.4) : .75*TDT[t].s)*TD_SIZE; }
-    else { b = {id, t, d, hp, R:(TDT[t].blimp ? (TDT[t].blimp === 1 ? 3.2 : 4.4) : .75*TDT[t].s)*TD_SIZE, ph:Math.random()*6, pos:new THREE.Vector3(), dead:false, flash:0}; tdAt(d, b.pos); }
-    list.push(b);
+    if (b) { if (b.t !== t) tdPopFX(b.pos, TDT[b.t], 1); old.delete(id); if (Math.abs(b.d - d) > 3) b.d = d; else b.d = lerp(b.d, d, .5); b.t = t; if (hp < b.hp) b.flash = .12; b.hp = hp; b.R = tdR(TDT[t]); }
+    else { b = {id, t, d, hp, R:tdR(TDT[t]), ph:Math.random()*6, pos:new THREE.Vector3(), dead:false, flash:0}; tdAt(d, b.pos); }
+    b.fl = fl; list.push(b);
   }
   // the ones that are gone popped (or reached the egg)
   for (const b of old.values()) { if (b.blimpG && b.blimpG.parent) b.blimpG.parent.remove(b.blimpG); if (b.d < TD.len - 2) tdPopFX(b.pos, TDT[b.t], TDT[b.t].blimp ? 3 : 1); else sfx('crack'); }
@@ -5506,30 +5580,33 @@ function tdMeshes(){
   const shine = new THREE.SphereGeometry(.2, 8, 6); shine.scale(.8, 1.3, .5); shine.translate(-.38, .42, .62);
   const str = new THREE.BoxGeometry(.035, 1.3, .035); str.translate(0, -1.8, 0);
   TD.im = {outline:mk(body, new THREE.MeshBasicMaterial({color:0x1A1020, side:THREE.BackSide})), body:mk(body, new THREE.MeshToonMaterial({color:0xFFFFFF, gradientMap:TOON}), true),
-    knot:mk(knot, new THREE.MeshToonMaterial({color:0xFFFFFF, gradientMap:TOON}), true), shine:mk(shine, new THREE.MeshBasicMaterial({color:0xFFFFFF, transparent:true, opacity:.85})), str:mk(str, new THREE.MeshBasicMaterial({color:0x3A3030}))};
+    knot:mk(knot, new THREE.MeshToonMaterial({color:0xFFFFFF, gradientMap:TOON}), true), shine:mk(shine, new THREE.MeshBasicMaterial({color:0xFFFFFF, transparent:true, opacity:.85})), str:mk(str, new THREE.MeshBasicMaterial({color:0x3A3030})), bub:mk(body, new THREE.MeshBasicMaterial({color:0xFFFFFF, transparent:true, opacity:.3, depthWrite:false}), true)};
   return TD.im;
 }
 const _tdM = new THREE.Matrix4(), _tdQ = new THREE.Quaternion(), _tdS = new THREE.Vector3(), _tdC = new THREE.Color(), _tdE = new THREE.Euler();
+const TD_CAMO = [0x4E7A3A, 0x6B5A3A, 0x2F4A26], TD_WHITE = new THREE.Color(0xFFFFFF);
 function tdDraw(dt){
   const im = tdMeshes(); let n = 0, n2 = 0; const big = 1 + Math.min(.35, ((TD.hpK || 1) - 1)*.6);   // later rounds: bigger balloons
   for (const b of TD.list) {
     if (b.dead) continue; const T = TDT[b.t];
     if (T.blimp) { tdBlimp(b, T); continue; }
     if (n >= 1600) break;
-    b.ph += dt*2.2; const sc = T.s*big*TD_SIZE, y = b.pos.y + Math.sin(b.ph)*.18;
+    b.ph += dt*2.2; const fl = tdFl(b), sc = T.s*big*TD_SIZE*(fl & 2 ? .85 : 1), y = b.pos.y + Math.sin(b.ph)*.18;
     _tdE.set(Math.sin(b.ph*.7)*.12, 0, Math.cos(b.ph*.9)*.12); _tdQ.setFromEuler(_tdE);
     _tdS.set(sc, sc, sc); _tdM.compose(V3(b.pos.x, y, b.pos.z), _tdQ, _tdS);
     im.body.setMatrixAt(n, _tdM); im.knot.setMatrixAt(n, _tdM); im.shine.setMatrixAt(n, _tdM); im.str.setMatrixAt(n, _tdM);
     _tdS.multiplyScalar(1.09); _tdM.compose(V3(b.pos.x, y, b.pos.z), _tdQ, _tdS); im.outline.setMatrixAt(n, _tdM);
-    if (b.flash > 0) _tdC.setHex(0xFFFFFF); else if (b.t === 8) _tdC.setHSL((G.t*.5 + b.id*.13) % 1, 1, .58); else if (b.t === 7) _tdC.setHex((Math.floor(G.t*6 + b.id) & 1) ? 0xF2F2F2 : 0x3A3A44); else _tdC.setHex(T.c);
+    if (b.flash > 0) _tdC.setHex(0xFFFFFF); else if (b.t === 8) _tdC.setHSL((G.t*.5 + b.id*.13) % 1, 1, .58); else if (b.t === 7) _tdC.setHex((Math.floor(G.t*6 + b.id) & 1) ? 0xF2F2F2 : 0x3A3A44); else if (T.ab && T.ab.camo) _tdC.setHex(TD_CAMO[Math.floor(G.t*2 + b.id*1.7) % 3]); else if (T.ab && T.ab.gold) _tdC.setHSL(.13, 1, .5 + Math.sin(G.t*8 + b.id)*.12); else if (T.ab && T.ab.rage) { const f = 1 - clamp(b.hp/(T.hp*(TD.hpK || 1)), 0, 1); _tdC.setHSL(.03, 1, .45 + Math.sin(G.t*(4 + 14*f))*.12); } else _tdC.setHex(T.c);
+    if (fl & 2) _tdC.lerp(TD_WHITE, .7);
     im.body.setColorAt(n, _tdC); im.knot.setColorAt(n, _tdC); n++;
+    if (fl & 5) { _tdS.set(sc*1.32, sc*1.32, sc*1.32); _tdM.compose(V3(b.pos.x, y, b.pos.z), _tdQ, _tdS); im.bub.setMatrixAt(n2, _tdM); _tdC.setHex(fl & 1 ? 0x9FEFFF : 0x7FA8FF); im.bub.setColorAt(n2, _tdC); n2++; }
   }
-  for (const k in im) { im[k].count = n; im[k].instanceMatrix.needsUpdate = true; if (im[k].instanceColor) im[k].instanceColor.needsUpdate = true; }
+  for (const k in im) { im[k].count = k === 'bub' ? n2 : n; im[k].instanceMatrix.needsUpdate = true; if (im[k].instanceColor) im[k].instanceColor.needsUpdate = true; }
 }
 let TD_BLIMP_GEO = {};
-function tdBlimpGeo(kind){
-  if (TD_BLIMP_GEO[kind]) return TD_BLIMP_GEO[kind];
-  const main = kind === 1 ? 0x2E7BFF : 0xE8332E, dark = kind === 1 ? 0x1B4FB3 : 0x9A1F1C, L = kind === 1 ? 1 : 1.45, parts = [];
+function tdBlimpGeo(T){
+  const kind = T.n; if (TD_BLIMP_GEO[kind]) return TD_BLIMP_GEO[kind];
+  const main = T.c, dark = T.c2 || 0x222222, L = tdBL(T), parts = [];
   parts.push([natAt(new THREE.SphereGeometry(1, 20, 14), 0, 0, 0, 0, 0, 0, 2.2*L, 2.2*L, 4.6*L), main]);
   for (const z of [-1.6, 0, 1.6]) parts.push([natAt(new THREE.CylinderGeometry(2.25*L, 2.25*L, .32, 20), 0, 0, z*L, Math.PI/2, 0, 0), 0xF2F2F2]);
   for (let k = 0; k < 4; k++) { const a = k*Math.PI/2; parts.push([natAt(new THREE.BoxGeometry(.18, 1.7*L, 1.5*L), Math.sin(a)*1.6*L, Math.cos(a)*1.6*L, -4*L, 0, 0, a), dark]); }
@@ -5538,11 +5615,11 @@ function tdBlimpGeo(kind){
   return (TD_BLIMP_GEO[kind] = natGeo(parts));
 }
 function tdBlimp(b, T){
-  if (!b.blimpG) { const g = new THREE.Group(), m = new THREE.Mesh(tdBlimpGeo(T.blimp), NAT_MAT); g.add(m); addOutline(g); const lab = textSprite(); lab.userData.set(T.n, '#FFFFFF'); lab.position.y = 4*(T.blimp === 1 ? 1 : 1.45); lab.scale.set(4, 1.5, 1); g.add(lab);
+  if (!b.blimpG) { const g = new THREE.Group(), m = new THREE.Mesh(tdBlimpGeo(T), NAT_MAT); g.add(m); addOutline(g); const lab = textSprite(); lab.userData.set(T.n, '#FFFFFF'); lab.position.y = 4*tdBL(T); lab.scale.set(4, 1.5, 1); g.add(lab);
     const mkb = c => { const sp0 = new THREE.Sprite(new THREE.SpriteMaterial({color:c, depthTest:false, depthWrite:false})); sp0.center.set(0, .5); sp0.renderOrder = 41; g.add(sp0); return sp0; }; b.bar = {bg:mkb(0x1A1A1A), fill:mkb(0x5BD15B)};
     g.traverse(o => o.userData.noRay = true); roundGroup.add(g); b.blimpG = g; }
-  const g = b.blimpG, k = T.blimp === 1 ? 1 : 1.45; g.scale.setScalar(TD_SIZE); g.position.set(b.pos.x, b.pos.y + 2*k*TD_SIZE + Math.sin(G.t*1.3 + b.id)*.2, b.pos.z);   // (the bar and label live inside the scaled group) g.rotation.y = tdDir(b.d);
-  const f = clamp(b.hp/(T.hp*(TD.hpK || 1)), 0, 1), w = 5*k; b.bar.bg.position.set(-w/2, 5.2*k, 0); b.bar.bg.scale.set(w, .32, 1); b.bar.fill.position.set(-w/2, 5.2*k, 0); b.bar.fill.scale.set(Math.max(.01, w*f), .24, 1); b.bar.fill.material.color.setHex(f > .5 ? 0x5BD15B : f > .25 ? 0xF3C23A : 0xFF4B3E);
+  const g = b.blimpG, k = tdBL(T); g.scale.setScalar(TD_SIZE); g.position.set(b.pos.x, b.pos.y + 2*k*TD_SIZE + Math.sin(G.t*1.3 + b.id)*.2, b.pos.z);   // (the bar and label live inside the scaled group) g.rotation.y = tdDir(b.d);
+  const f = clamp(b.hp/(T.hp*(TD.hpK || 1)), 0, 1), w = 5*k; b.bar.bg.position.set(-w/2, 5.2*k, 0); b.bar.bg.scale.set(w, .32, 1); b.bar.fill.position.set(-w/2, 5.2*k, 0); b.bar.fill.scale.set(Math.max(.01, w*f), .24, 1); b.bar.fill.material.color.setHex(tdFl(b) & 1 ? 0x6FE3FF : f > .5 ? 0x5BD15B : f > .25 ? 0xF3C23A : 0xFF4B3E);
   g.children[0].scale.setScalar(b.flash > 0 ? 1.04 : 1);
 }
 const TD_CONFETTI = [0xFF3B3B, 0x2E9BFF, 0x45D34A, 0xFFE033, 0xFF6EC7, 0xFFFFFF, 0xFF9A2E];

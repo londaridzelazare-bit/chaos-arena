@@ -460,6 +460,13 @@ Wallets (2026-10-11.1): TD.wallet {playerId: cash}; TD.cash is a getter/setter f
 Snapshot `c` = the whole wallet map. Test t73 (two players).
 Co-op (2026-10-11.2): in TD nobody is hurt, flung or stunned: hurt() returns, victimFor -> null, bodyFor ignores other players, knock()
 skips players, stunPlayer (flying-debris Bonk) returns. Tests t74 (two players) / t75 (solo).
+Balloons v2 (2026-10-11.3): TDT 12-31 have tricks in `ab` (armor, immune[kind], camo, regen, shield+srg, phase, blink, rage, heal,
+aura, spawn, emp, frost, gold, quake) and `d` (the debut toast). Host: `tdAbilities(dt)` each wave frame; tdHit(b, dmg, kind) handles
+phased/immune/guard/armor/shield; kinds come from turrets (shot/area/beam/dot; powers untyped). tdPopAb on each popped layer (EMP, gold).
+`tdEmp` sets turret empT (ttFrame skips, sparkles); frostT halves fire. Snapshot balloons stride 5 (+ flags `tdFl`: 1 shield 2 phased
+4 guarded), ttPack stride 7 (+ empT*10). Blimps 1-4 sized by `tdBL`, `tdR` radius, tdBlimpGeo(T) uses T.c/T.c2. Rounds 11-100 generated
+(INTRO table, few but tough balloons; blimp every 5th, Golden every 7th, Behemoth 90/100). Turret balance: dmg/rate/moab ups ^0.7,
+multi/pierce x.6, splash x.8; tiers 4/5 cost x1.5/x1.6. Tests t76 (mechanics), t77 (online flags/EMP).
 
 ## Akatsuki looks (2026-10-10.8)
 CHARS is now 4 looks: Itachi, Pain, Obito, Konan (`aka` key, `collar` height; old perks kept only for the legacy hot-seat mode).
