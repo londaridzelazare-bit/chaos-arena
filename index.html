@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-10.7';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-10.8';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -803,20 +803,122 @@ const AMMO = {
 };
 
 
-/* ---------------- characters (roles + look) ---------------- */
+/* ---------------- Akatsuki looks: Itachi, Pain, Obito, Konan ----------------
+   Every player wears the black Akatsuki cloak (red clouds with white edges, a flared skirt split at the front, a high
+   collar). The cloak's lining (inside the collar and the front slit) is the team colour. The face, hair and headband
+   come from the look (CHARS[i].acc). Details too small to outline (eyes, studs) skip the outline pass. */
+const AKA_BLACK = 0x2A2A3A;   // a touch lighter than black, so the toon shading still shows the folds
+const AKA = {mat:{}};
+function akaCloth(c, side){ const k = c + ':' + side; return AKA.mat[k] || (AKA.mat[k] = pixelGrain(new THREE.MeshToonMaterial({color:c, gradientMap:TOON, flatShading:true, side}), 7)); }
+function akaCloudMat(){
+  if (AKA.mat.cloud) return AKA.mat.cloud;
+  const c = document.createElement('canvas'); c.width = 128; c.height = 72; const x = c.getContext('2d');
+  const puffs = [[30, 46, 17], [52, 32, 20], [78, 30, 19], [100, 42, 16], [66, 48, 17], [16, 52, 11], [112, 54, 10]];
+  x.fillStyle = '#FFFFFF'; for (const [px, py, r] of puffs) { x.beginPath(); x.arc(px, py, r + 5, 0, 7); x.fill(); }
+  x.fillStyle = '#D3121D'; for (const [px, py, r] of puffs) { x.beginPath(); x.arc(px, py, r, 0, 7); x.fill(); }
+  x.strokeStyle = '#FFFFFF'; x.lineWidth = 3; for (const [px, py, r] of puffs.slice(0, 4)) { x.beginPath(); x.arc(px + 2, py + 3, r*.5, Math.PI*1.05, Math.PI*1.95); x.stroke(); }   // the white curls inside
+  const t = new THREE.CanvasTexture(c); t.magFilter = THREE.NearestFilter;
+  return AKA.mat.cloud = new THREE.MeshBasicMaterial({map:t, alphaTest:.5, side:THREE.DoubleSide});
+}
+const AKA_CLOUD_GEO = new THREE.PlaneGeometry(1, .56);
+function akaCloud(p, w, x, y, z, ry){ const m = new THREE.Mesh(AKA_CLOUD_GEO, akaCloudMat()); m.scale.set(w, w, 1); m.position.set(x, y, z); m.rotation.y = ry || 0; m.userData.noRay = true; p.add(m); return m; }
+// small details: no outline (they'd be all outline at this size)
+function akaDot(w, h, d, c, x, y, z, p){ const m = bx(w, h, d, c, x, y, z, p); m.userData.noOutline = true; m.castShadow = false; return m; }
+// the Obito mask: orange, a dark spiral that winds into the one eye hole (over his right eye), a Sharingan in the hole
+function akaMaskMat(){
+  if (AKA.mat.mask) return AKA.mat.mask;
+  const c = document.createElement('canvas'); c.width = 256; c.height = 128; const x = c.getContext('2d');
+  x.fillStyle = '#F08A24'; x.fillRect(0, 0, 256, 128);
+  // SphereGeometry UVs: u = phi/2π (the face, +z, is u .25), v from the top; near the front 1 rad ≈ 40.7 px both ways
+  const cx = 50, cy = 59;
+  x.strokeStyle = '#8E4210'; x.lineWidth = 2.6; x.beginPath();
+  for (let t = 0; t <= 1; t += .004) { const a = t*Math.PI*8.2, r = 7 + t*50, px = cx + Math.cos(a)*r, py = cy + Math.sin(a)*r; if (t === 0) x.moveTo(px, py); else x.lineTo(px, py); }
+  x.stroke();
+  x.fillStyle = '#0A0A0A'; x.beginPath(); x.arc(cx, cy, 6.5, 0, 7); x.fill();
+  x.fillStyle = '#D0101A'; x.beginPath(); x.arc(cx, cy, 3.6, 0, 7); x.fill();
+  x.fillStyle = '#0A0A0A'; x.beginPath(); x.arc(cx, cy, 1.4, 0, 7); x.fill();
+  const t = new THREE.CanvasTexture(c); t.magFilter = THREE.NearestFilter;
+  return AKA.mat.mask = pixelGrain(new THREE.MeshToonMaterial({map:t, gradientMap:TOON}), 7);
+}
+// a forehead protector, scratched through (rogue ninja): 'leaf' (Itachi) or 'rain' (Pain)
+function akaBand(h, mark){
+  bx(.54, .07, .52, 0x1E2638, 0, .13, -.01, h);
+  const plate = bx(.25, .09, .03, 0xB9C0CC, 0, .13, .262, h); plate.castShadow = false;
+  if (mark === 'leaf') { akaDot(.06, .05, .034, 0x5A6070, 0, .135, .265, h); akaDot(.02, .03, .034, 0x5A6070, .035, .12, .265, h); }
+  else for (let i = -1.5; i <= 1.5; i++) akaDot(.012, .06, .034, 0x5A6070, i*.035, .13, .265, h);
+  const sc = akaDot(.24, .014, .036, 0x2A2A30, 0, .13, .268, h); sc.rotation.z = .22;
+}
+// rounded hair: a cap over the top (down to the headband) and a shell round the back and sides
+function akaHair(h, col, top, back, wrap, r){
+  r = r || .275; const mat = akaCloth(col, THREE.DoubleSide);
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 8, 0, Math.PI*2, 0, top), mat); cap.castShadow = true; h.add(cap);
+  const sh = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10, Math.PI - wrap, Math.PI + 2*wrap, 0, back), mat); sh.castShadow = true; h.add(sh);
+}
+function akaSpikes(h, col, n, r0, y0, len, backOnly){
+  const cone = new THREE.ConeGeometry(len*.26, len, 4), mat = M3(col);
+  for (let i = 0; i < n; i++) { const a = i/n*Math.PI*2, r = r0 + (i % 2)*.06; if (backOnly && Math.sin(a) > .35) continue;
+    const m = new THREE.Mesh(cone, mat); m.position.set(Math.cos(a)*r, y0 - (i % 2)*.03, Math.sin(a)*r - .04); m.rotation.set(Math.sin(a)*.95, 0, -Math.cos(a)*.95); m.castShadow = true; h.add(m); }
+  const top = new THREE.Mesh(cone, mat); top.position.set(0, y0 + .06, -.04); h.add(top);
+}
+const AKA_LOOKS = {
+  itachi(h){ const H = 0x14141A;
+    akaHair(h, H, 1.1, 2.35, .45);
+    for (const s of [-1, 1]) { const b = bx(.07, .38, .08, H, s*.185, -.04, .215, h); b.rotation.z = -s*.08; }   // the long bangs framing his face
+    bx(.11, .3, .09, H, 0, -.32, -.27, h);   // low ponytail
+    akaBand(h, 'leaf');
+    for (const s of [-1, 1]) { akaDot(.075, .05, .03, 0xD0101A, s*.09, .03, .238, h); akaDot(.026, .026, .034, 0x111111, s*.09, .03, .241, h); akaDot(.014, .075, .02, 0x8A5A4A, s*.125, -.05, .226, h); }   // Sharingan, tear troughs
+  },
+  pain(h){ const H = 0xE8732A;
+    akaHair(h, H, 1.1, 1.95, .3);
+    akaSpikes(h, H, 14, .13, .29, .3, false);
+    akaBand(h, 'rain');
+    for (const s of [-1, 1]) { akaDot(.08, .066, .03, 0xD6CCEC, s*.09, .03, .238, h); akaDot(.058, .046, .032, 0x6A5A8A, s*.09, .03, .24, h); akaDot(.038, .028, .034, 0xD6CCEC, s*.09, .03, .242, h); akaDot(.014, .012, .036, 0x2A2040, s*.09, .03, .244, h); }   // Rinnegan
+    for (const x of [-.075, -.045, -.015, .015, .045, .075]) akaDot(.022, .022, .03, 0x2A2A33, x, -.045, .238, h);   // the studs across his nose
+    for (const s of [-1, 1]) for (let k = 0; k < 3; k++) akaDot(.026, .022, .022, 0x2A2A33, s*.252, .02 - k*.045, .02, h);   // ears
+  },
+  obito(h){ const H = 0x141418;
+    const m = new THREE.Mesh(new THREE.SphereGeometry(.262, 18, 14), akaMaskMat()); m.castShadow = true; h.add(m);   // the swirl mask covers the whole face
+    akaHair(h, H, .62, 1.9, .1, .28);
+    akaSpikes(h, H, 12, .12, .27, .22, true);
+  },
+  konan(h){ const H = 0x4E58A8;
+    akaHair(h, H, 1.05, 2.2, .55);
+    const fr = bx(.24, .09, .07, H, -.06, .17, .225, h); fr.rotation.z = .18;   // side-swept fringe
+    sp(.13, H, 0, .2, -.2, h, 1);   // the bun
+    for (let i = 0; i < 5; i++) { const a = i/5*Math.PI*2, pt = akaDot(.1, .02, .05, 0xF4F0FA, .16 + Math.cos(a)*.05, .25, -.12 + Math.sin(a)*.05, h); pt.rotation.y = -a; pt.rotation.x = .35; }   // her paper flower
+    akaDot(.04, .04, .04, 0xFFFFFF, .16, .27, -.12, h);
+    for (const s of [-1, 1]) { akaDot(.075, .05, .03, 0xD49A3A, s*.09, .03, .238, h); akaDot(.026, .03, .034, 0x2A1A10, s*.09, .03, .241, h); akaDot(.085, .02, .025, 0x8A5AB0, s*.09, .072, .232, h); }   // amber eyes, lilac shadow
+    akaDot(.02, .02, .03, 0x9A9AA8, 0, -.135, .238, h);   // labret
+  }
+};
+function akaBody(team, cdef, rig){
+  const line = team === 'blue' ? 0x2F6BFF : 0xE8332E, skin = cdef.skin, sandal = 0x3A4260, pants = 0x22283A;
+  const legs = [-1, 1].map(s => { const p = new THREE.Group(); p.position.set(s*.13, .72, 0); bx(.2, .66, .22, pants, 0, -.33, 0, p); bx(.22, .07, .3, sandal, 0, -.685, .04, p); akaDot(.18, .05, .08, skin, 0, -.63, .15, p); bx(.22, .16, .05, sandal, 0, -.6, -.1, p); rig.add(p); return p; });
+  // the cloak: body, a flared skirt split at the front, a high collar; the lining shows the team colour
+  bx(.58, .66, .38, AKA_BLACK, 0, 1.06, 0, rig);
+  const slit = .4, skirt = (r0, r1, mat, sz) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r0, r1, .52, 14, 1, true, slit, Math.PI*2 - 2*slit), mat); m.position.y = .5; m.scale.z = sz; m.castShadow = true; rig.add(m); return m; };
+  skirt(.31, .43, akaCloth(AKA_BLACK, THREE.DoubleSide), .8);
+  skirt(.3, .415, akaCloth(line, THREE.BackSide), .78).userData.noOutline = true;
+  const ch = cdef.collar || .2, cy = 1.38 + ch/2;
+  const col = new THREE.Mesh(new THREE.CylinderGeometry(.27, .3, ch, 12, 1, true), akaCloth(AKA_BLACK, THREE.DoubleSide)); col.position.y = cy; col.castShadow = true; rig.add(col);
+  const cl = new THREE.Mesh(new THREE.CylinderGeometry(.26, .29, ch*.98, 12, 1, true), akaCloth(line, THREE.BackSide)); cl.position.y = cy; cl.userData.noOutline = true; rig.add(cl);
+  // red clouds: a big one on the back, one on the chest, a few round the skirt, one on each sleeve
+  akaCloud(rig, .52, .03, 1.16, -.194, Math.PI); akaCloud(rig, .26, -.13, .96, .194, 0); akaCloud(rig, .2, .17, 1.24, .194, 0);
+  for (const [a, y, w] of [[Math.PI, .46, .36], [Math.PI - 1.45, .42, .28], [Math.PI + 1.35, .54, .26], [1.15, .44, .24], [-1.25, .5, .22]]) {
+    const r = (.31 + (.76 - y)/.52*.12)*1.03; akaCloud(rig, w, Math.sin(a)*r, y, Math.cos(a)*r*.8, a); }
+  const arms = [-1, 1].map(s => { const p = new THREE.Group(); p.position.set(s*.37, 1.32, 0); bx(.18, .5, .2, AKA_BLACK, 0, -.24, 0, p); bx(.22, .14, .24, AKA_BLACK, 0, -.5, 0, p); sp(.09, skin, 0, -.62, 0, p, 0); akaCloud(p, .19, s*.092, -.27, 0, s*Math.PI/2); rig.add(p); return p; });
+  const head = new THREE.Group(); head.position.y = 1.66; rig.add(head);
+  sp(.25, skin, 0, 0, 0, head, 1);
+  (AKA_LOOKS[cdef.aka] || AKA_LOOKS.itachi)(head);
+  return {legs, arms, head};
+}
+
+/* ---------------- characters (look) ---------------- */
 const CHARS = [
-  {name:'Evil Chef', e:'👨‍🍳', skin:0xE8B48F, atk:{txt:'Well-seasoned ammo: everything is 40% heavier.', massMul:1.4}, def:{txt:'Hard-boiled the egg. It is 40% tougher.', eggHard:1.4},
-    acc(h){ bx(.34,.42,.34,0xffffff,0,.36,0,h); sp(.24,0xffffff,0,.62,0,h,1); bx(.22,.05,.04,0x2B1B10,0,-.08,.23,h); }},
-  {name:'Ugly Model', e:'💄', skin:0xF6D2B8, atk:{txt:'Too busy posing to aim. Aim sways, but +2 shots.', sway:1, shots:2}, def:{txt:'Overprepared: one extra of every placeable protection.', more:1},
-    acc(h){ bx(.44,.1,.06,0xFF4FA3,0,.05,.22,h); bx(.14,.05,.04,0xD1103C,0,-.12,.23,h); bx(.5,.5,.2,0xF5D06F,0,.02,-.16,h); bx(.52,.14,.5,0xF5D06F,0,.2,0,h); }},
-  {name:'Gym Bro', e:'💪', skin:0xC98E63, atk:{txt:'Never skips arm day: +35% launch power.', powerMul:1.35}, def:{txt:'Built different: the forcefield starts 50% stronger.', domeBoost:1.5}, arms:1.45,
-    acc(h){ bx(.52,.08,.52,0xE53935,0,.12,0,h); bx(.16,.06,.04,0x111111,.1,.04,.23,h); bx(.16,.06,.04,0x111111,-.1,.04,.23,h); }},
-  {name:'Sleepy Grandpa', e:'👴', skin:0xF0C8A8, atk:{txt:'Only launches grandmas. He says she volunteered.', pool:['grandma']}, def:{txt:'Slow and steady: egg regeneration is active from the start.', regen:1},
-    acc(h){ bx(.5,.1,.5,0x6D6A63,0,.22,.02,h); bx(.3,.05,.16,0x6D6A63,0,.2,.3,h); bx(.26,.07,.05,0xEDEDED,0,-.08,.23,h); bx(.06,.02,.04,0x111111,.09,.05,.24,h); bx(.06,.02,.04,0x111111,-.09,.05,.24,h); }},
-  {name:'Farm Kid', e:'🤠', skin:0x8D5A3B, atk:{txt:'Only launches animals.', pool:['chicken','cow','duck']}, def:{txt:'Farm fortress: starts with a free brick fortress around the egg.', freeFort:1},
-    acc(h){ const b = new THREE.Mesh(new THREE.CylinderGeometry(.46,.46,.05,10), M3(0xE8C25A)); b.position.y=.16; b.castShadow=true; h.add(b); const t = new THREE.Mesh(new THREE.CylinderGeometry(.2,.26,.26,8), M3(0xE8C25A)); t.position.y=.3; h.add(t); bx(.54,.05,.54,0xA0522D,0,.2,0,h).scale.set(.95,1,.95); }},
-  {name:'Conspiracy Uncle', e:'🛸', skin:0xE9C19E, atk:{txt:'Anti-gravity ammo. Shots float more.', antigrav:.5}, def:{txt:'Paranoid: two extra signal jammers and two extra decoy eggs.', paranoid:1},
-    acc(h){ const c = new THREE.Mesh(new THREE.ConeGeometry(.3,.55,5), new THREE.MeshStandardMaterial({color:0xD7DDE3, metalness:.9, roughness:.25, flatShading:true})); c.position.y=.42; c.castShadow=true; h.add(c); bx(.08,.08,.04,0xffffff,.09,.05,.22,h); bx(.08,.08,.04,0xffffff,-.09,.05,.22,h); }}
+  {name:'Itachi', e:'🌙', skin:0xF2D5C0, aka:'itachi', collar:0.17, atk:{txt:'Well-seasoned ammo: everything is 40% heavier.', massMul:1.4}, def:{txt:'Hard-boiled the egg. It is 40% tougher.', eggHard:1.4}},
+  {name:'Pain', e:'🌀', skin:0xF0CDB0, aka:'pain', collar:0.2, atk:{txt:'Too busy posing to aim. Aim sways, but +2 shots.', sway:1, shots:2}, def:{txt:'Overprepared: one extra of every placeable protection.', more:1}},
+  {name:'Obito', e:'🍥', skin:0xF0CDB0, aka:'obito', collar:0.18, atk:{txt:'Never skips arm day: +35% launch power.', powerMul:1.35}, def:{txt:'Built different: the forcefield starts 50% stronger.', domeBoost:1.5}},
+  {name:'Konan', e:'🌸', skin:0xF3D6C4, aka:'konan', collar:0.16, atk:{txt:'Only launches grandmas. He says she volunteered.', pool:['grandma']}, def:{txt:'Slow and steady: egg regeneration is active from the start.', regen:1}}
 ];
 const MAPS = [
   {name:'Sunny Tuesday', e:'☀️', d:'Nothing weird. Suspicious.'},
@@ -863,17 +965,8 @@ const GRP_CHAR = 2, GRP_GRAN = 4;
 
 /* ---------------- player characters ---------------- */
 function makePlayer(team, cdef, pos){
-  const shirt = team === 'blue' ? 0x2F6BFF : 0xFF4B3E, pants = team === 'blue' ? 0x1D3E91 : 0x8E2219;
   const root = new THREE.Group(), rig = new THREE.Group(); root.add(rig);
-  const legs = [-1,1].map(s => { const p = new THREE.Group(); p.position.set(s*.13,.72,0); bx(.2,.66,.22,pants,0,-.33,0,p); bx(.22,.12,.32,0x2A2A2A,0,-.68,.05,p); rig.add(p); return p; });
-  bx(.54,.64,.34,shirt,0,1.06,0,rig); bx(.56,.08,.36,0x2A2A2A,0,.76,0,rig);
-  bx(.2,.2,.02,0xffffff,0,1.12,.18,rig).material = M3(team === 'blue' ? 0xBFD3FF : 0xFFD0CB);
-  const am = cdef.arms || 1;
-  const arms = [-1,1].map(s => { const p = new THREE.Group(); p.position.set(s*(.35+.04*(am-1)),1.32,0); const a = bx(.16*am,.56,.18*am,shirt,0,-.26,0,p); sp(.09*am,cdef.skin,0,-.6,0,p,0); rig.add(p); return p; });
-  const head = new THREE.Group(); head.position.y = 1.66; rig.add(head);
-  sp(.25, cdef.skin, 0,0,0, head, 1);
-  bx(.05,.08,.04,0x111111,.09,.04,.23,head); bx(.05,.08,.04,0x111111,-.09,.04,.23,head);
-  cdef.acc(head);
+  const {legs, arms, head} = akaBody(team, cdef, rig);
   // bazooka
   const baz = new THREE.Group(); baz.position.set(.36,1.5,.05); rig.add(baz);
   const tg = new THREE.CylinderGeometry(.13,.15,1.3,10); tg.rotateX(Math.PI/2); tg.translate(0,0,.25);
@@ -4765,13 +4858,23 @@ function ttMesh(t){
   else if (L === 'sun') { for (const sd of [-1, 1]) bx(.3, 2.2, .3, 0x8A5A2A, sd*.9, 1.1, 0, head); bx(2.3, .25, .4, 0x8A5A2A, 0, 2.3, 0, head); const o = new THREE.Mesh(new THREE.IcosahedronGeometry(.6, 2), new THREE.MeshBasicMaterial({color:0xFFD84D})); o.position.y = 3; head.add(o); t.orb = o; }
   // level pips and a name tag
   t.pips = []; for (let i = 0; i < 5; i++) { const a = i/5*Math.PI*2, pp = new THREE.Mesh(new THREE.SphereGeometry(.16, 8, 6), M3(0x2A2A2A)); pp.position.set(Math.cos(a)*1.45, .8, Math.sin(a)*1.45); g.add(pp); t.pips.push(pp); }
-  const lab = textSprite(); lab.position.y = 5.2; lab.scale.set(3.2, 1.2, 1); g.add(lab); t.lab = lab;
+  const lab = new THREE.Sprite(new THREE.SpriteMaterial({transparent:true, depthWrite:false, depthTest:false})); lab.renderOrder = 40; lab.userData.noRay = true; lab.position.y = 5.2; lab.visible = false; g.add(lab); t.lab = lab;   // shown only while you aim at it
   addOutline(g); noRayAll(g); t.g = g; t.head = head;
   const gy = groundH(t.x, t.z); g.position.set(t.x, gy, t.z); roundGroup.add(g);
   const b = new CANNON.Body({mass:0, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(1.3, 1.5, 1.3))); b.position.set(t.x, gy + 1.5, t.z); b.tag = 'turret'; world.addBody(b); t.body = b;
   ttRelabel(t);
 }
-function ttRelabel(t){ const D = TT_DEFS[t.k]; t.lab.userData.set(`${D.e} ${D.name} ${'★'.repeat(t.lvl)}${'☆'.repeat(5 - t.lvl)}`, '#FFFFFF'); t.pips.forEach((p, i) => p.material = M3(i < t.lvl ? 0xFFD84D : 0x2A2A2A)); }
+// a name tag as wide as its text (long names never get cut off)
+function ttLabelSet(lab, txt){
+  if (lab.userData.txt === txt) return; lab.userData.txt = txt;
+  const c = document.createElement('canvas'), F = '900 44px Nunito, system-ui, sans-serif'; let x = c.getContext('2d'); x.font = F;
+  const w = Math.ceil(x.measureText(txt).width) + 28; c.width = w; c.height = 64; x = c.getContext('2d');
+  x.font = F; x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineWidth = 8; x.strokeStyle = '#05090D'; x.strokeText(txt, w/2, 34); x.fillStyle = '#FFFFFF'; x.fillText(txt, w/2, 34);
+  if (lab.material.map) lab.material.map.dispose();
+  const tex = new THREE.CanvasTexture(c); tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false; lab.material.map = tex; lab.material.needsUpdate = true;
+  lab.scale.set(.95*w/64, .95, 1);
+}
+function ttRelabel(t){ const D = TT_DEFS[t.k]; ttLabelSet(t.lab, `${D.e} ${D.name} ${'★'.repeat(t.lvl)}${'☆'.repeat(5 - t.lvl)}`); t.pips.forEach((p, i) => p.material = M3(i < t.lvl ? 0xFFD84D : 0x2A2A2A)); }
 function ttRemove(t){ if (t.g && t.g.parent) t.g.parent.remove(t.g); if (t.body && t.body.world) world.removeBody(t.body); (t.planes || []).forEach(p => { if (p.m.parent) p.m.parent.remove(p.m); }); }
 function ttClearAll(){ TT.list.forEach(ttRemove); TT.list = []; TT.place = null; TT.shop = false; ttGhostHide(); ttPanel(); }
 
@@ -4946,7 +5049,7 @@ function ttTray(t){
   const bar = t.querySelector('.bar'), list = TT_CLS[G.cls] || []; if (!bar || !list.length) return;
   const sec = document.createElement('div'); sec.id = 'ttSec';
   sec.style.cssText = 'display:flex;flex-direction:column;gap:4px;justify-content:center;border-left:3px dashed var(--edge);padding:0 4px 0 10px;margin-left:2px;border-radius:10px';
-  sec.innerHTML = `<div id="ttHead" style="display:flex;gap:10px;justify-content:space-between;white-space:nowrap;font:900 12px/1.2 var(--display,system-ui),system-ui,sans-serif;color:var(--text)"></div><div class="skills" style="--cols:3">${list.map((k, i) => { const D = TT_DEFS[k]; return `<button class="skill" data-tt="${k}" title="${D.name} (💰${D.cost}): ${ttWhat(D)}, range ${D.range} m. Click it (or Y then ${i + 1}), then click the ground." aria-label="${D.name}"><span class="si">${D.e}</span><span class="sn">${D.name}</span><sup>${D.cost}</sup><kbd>${i + 1}</kbd></button>`; }).join('')}</div>`;
+  sec.innerHTML = `<div id="ttHead" style="display:flex;gap:10px;justify-content:space-between;white-space:nowrap;font:900 12px/1.2 var(--display,system-ui),system-ui,sans-serif;color:var(--text)"></div><div class="skills" style="--cols:3">${list.map((k, i) => { const D = TT_DEFS[k]; return `<button class="skill" data-tt="${k}" title="${D.name} (💰${D.cost}): ${ttWhat(D)}, range ${D.range} m. Click it (or Y then ${i + 1}), then click the ground." aria-label="${D.name}"><span class="si">${D.e}</span><span class="sn">💰${D.cost}</span><kbd>${i + 1}</kbd></button>`; }).join('')}</div>`;
   bar.appendChild(sec);
   sec.querySelectorAll('[data-tt]').forEach(b => b.onclick = e => { e.stopPropagation(); ttPick(b.dataset.tt); });
   TT.trayKey = ''; ttTrayRefresh();
@@ -4962,6 +5065,7 @@ function ttUI(dt){
   ttGhost();
   // the turret you look at: its card and its range
   TT.aimed = TT.place ? null : ttAimedTurret();
+  for (const q of TT.list) if (q.lab) q.lab.visible = q === TT.aimed;
   let c = document.getElementById('ttCard');
   if (!c) { c = document.createElement('div'); c.id = 'ttCard'; c.style.cssText = 'position:fixed;left:50%;top:calc(50% + 40px);transform:translateX(-50%);z-index:7;padding:8px 12px;border-radius:14px;background:rgba(255,247,214,.95);border:3px solid #4A2A00;font:800 13px/1.35 Nunito,system-ui,sans-serif;color:#4A2A00;pointer-events:none;display:none;text-align:center'; document.body.appendChild(c); }
   if (!TTG.aimRing) TTG.aimRing = groundRing(0xFFD84D, .7);
@@ -14418,7 +14522,7 @@ function netTick(dt){
 }
 
 /* ---------- menus and HUD ---------- */
-const ME = {name:'', team:'blue', look:Math.floor(Math.random()*LOOK_COUNT), mode:(() => { try { const m = localStorage.getItem('ca-mode2') || 'egg'; return normMode(m); } catch (e) { return 'egg'; } })(),
+const ME = {name:'', team:'blue', look:(() => { try { const v = localStorage.getItem('ca-look'); if (v != null && +v >= 0 && +v < LOOK_COUNT) return +v; } catch (e) {} return Math.floor(Math.random()*LOOK_COUNT); })(), mode:(() => { try { const m = localStorage.getItem('ca-mode2') || 'egg'; return normMode(m); } catch (e) { return 'egg'; } })(),
   cdOn:(() => { try { return localStorage.getItem('ca-cd') === 'on'; } catch (e) { return false; } })(),
   tdInf:(() => { try { return localStorage.getItem('ca-tdinf') === 'on'; } catch (e) { return false; } })()};
 function myInfo(){ ME.name = clean(($('nameIn') && $('nameIn').value) || ME.name || 'Player'); try { localStorage.setItem('ca-name', ME.name); } catch (e) {} return {id:null, name:ME.name, team:ME.team, look:ME.look}; }
@@ -14431,6 +14535,7 @@ function showPvPTitle(){
     <p>Defend the egg or break it, or team up against waves of balloons. Pick a mode below.</p>
     <div class="rows" style="grid-template-columns:1fr 1fr;align-items:center">
       <label style="grid-column:1/-1;text-align:left;font-size:14px">Your name<br><input id="nameIn" maxlength="14" value="${clean(saved) === 'Player' && !saved ? '' : clean(saved)}" placeholder="Player" style="width:100%;margin-top:4px;padding:10px 12px;border:3px solid var(--edge);border-radius:12px;font:inherit;background:var(--panel);color:var(--text)"></label>
+      <div id="lookRow" style="grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;justify-content:center">${CHARS.map((c, i) => `<button class="btn" data-look="${i}" style="background:#17171F;color:#fff;border-color:#D3121D">${c.e} ${c.name}</button>`).join('')}</div>
       <button class="btn" id="tBlue" style="background:var(--blue);color:#fff">Blue team</button><button class="btn" id="tRed" style="background:var(--red);color:#fff">Red team</button>
       <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="btn" id="mEgg" style="background:#FFF3DC;color:#3B2A1A">🥚 Alpha Mode</button><button class="btn" id="mTD" style="background:linear-gradient(180deg,#FFE14D,#FF9A2E);color:#4A2A00">🎈 Balloon Defense</button><button class="btn" id="mTennis" style="background:linear-gradient(180deg,#F4FF9A,#C6E83A);color:#24320A">🎾 Pain Tennis</button></div>
       <p class="muted" id="modeDesc" style="grid-column:1/-1;margin:0;font-size:14px"></p>
@@ -14446,6 +14551,8 @@ function showPvPTitle(){
     <p class="muted" id="lobbyMsg">${online ? 'Host a match (type a code first to pick your own) and send your friends this page’s link plus the room code.' : 'Online play works when the game is opened from its own website link. Practice works anywhere.'}</p>
     <div class="keys"><kbd>WASD</kbd><span>Move, Shift to Naruto run, Shift×2 to dash</span><kbd>Space</kbd><span>Jump, press again to double jump</span><kbd>Click</kbd><span>Energy blast, or cast the selected skill</span><kbd>Keys</kbd><span>Pick a skill (shown in the Skills bar), right-click to put it away</span></div>
   </div>`);
+  const setLook = i => { ME.look = i; try { localStorage.setItem('ca-look', String(i)); } catch (e) {} document.querySelectorAll('#lookRow [data-look]').forEach(b => b.style.outline = +b.dataset.look === i ? '4px solid var(--yolk)' : 'none'); };
+  setLook(ME.look); document.querySelectorAll('#lookRow [data-look]').forEach(b => b.onclick = () => setLook(+b.dataset.look));
   const setTeam = t => { ME.team = t; $('tBlue').style.outline = t === 'blue' ? '4px solid var(--yolk)' : 'none'; $('tRed').style.outline = t === 'red' ? '4px solid var(--yolk)' : 'none'; };
   setTeam(ME.team);
   $('tBlue').onclick = () => setTeam('blue'); $('tRed').onclick = () => setTeam('red');

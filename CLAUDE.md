@@ -452,6 +452,16 @@ Infinite money: title toggle `infB` (ME.tdInf, localStorage ca-tdinf, TD only) -
 Speed: TD.speed 1/2/4 (host button `tdSpeed`, snapshot `f`) scales spawn clock, balloon moves, slow/stun timers, turret cd and planes.
 Early rounds: tdStartWave also works in state 'wave' (queues the next round at TD.t + offsets, pays the current round's bonus).
 100 rounds: rounds 21-100 generated after TD_WAVES; hpK +.03/round past 20, spK capped 1.9; balloon instances N 1600. Tests t68/t69.
+Turret names (2026-10-10.8): world labels are per-turret sprites sized to the text (`ttLabelSet`), visible only on TT.aimed; the
+Skills-bar buttons show icon + price (full name in the title tooltip).
+
+## Akatsuki looks (2026-10-10.8)
+CHARS is now 4 looks: Itachi, Pain, Obito, Konan (`aka` key, `collar` height; old perks kept only for the legacy hot-seat mode).
+makePlayer calls `akaBody(team, cdef, rig)` (module just before CHARS): Akatsuki cloak (AKA_BLACK 0x2A2A3A, open-cylinder skirt with
+a front slit + collar, BackSide team-colour lining = the team marker), canvas red-cloud decals (`akaCloud`, alphaTest planes, noRay),
+sandals; faces in AKA_LOOKS (sphere-cap hair `akaHair`, `akaSpikes`, `akaBand` scratched headband, `akaDot` = un-outlined details,
+Obito's swirl mask is a canvas texture on a sphere: face at u .25). Look picker `#lookRow` on the title screen, ME.look in
+localStorage ca-look (sent in hello as before). Tests t70-t72.
 
 ## Defender kit (Alpha Mode) — rebuilt 2026-10-06
 
