@@ -591,3 +591,6 @@ GRP_CHAR at the net and round each half), 72 seeded junk objects kind 'junk' (`t
 Score = things on each half (`tnCount`, kinds junk/rubble/debris/slab); fewer wins at TN_T 150 s after a 3.6 s countdown. Out
 of bounds → dropped back on the knocker's side (`tnOut`, b._own). Host sends 'tn' {s, c, r, b} 4/s. Solo: `tnBot` lobs junk
 back. Teams by lobby order (red near z<0, blue far). Pain only (classCycle), hurt() off, flat terrain round the court.
+Pain Tennis v2: the whole island is the court (TN_CW 130 × TN_CL 132), TN_NET 12 m net (physics box), invisible 800 m walls round the
+court for everything (people-only wall only at the net), 160 junk, flat terrain, no grass. Chibaku core/orb: black ball + bubbleMat white rim,
+warp mesh hidden (SpaceWarp only). Genos sun: no particle trail.
