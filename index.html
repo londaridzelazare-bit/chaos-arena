@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-11.4';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-11.5';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -532,7 +532,7 @@ function genTerrain(seed){
     terrH[v] = (tNoise(x, z, terrSeed)*2.1 + (Math.sin(x*.017 + terrSeed*2)*Math.cos(z*.02 - terrSeed) + .6*Math.sin((x + z)*.011 + terrSeed))*3.4*k2)*k; terrDmg[v] = 0;
     if (G.pvp && G.mode === 'td') { const pd = TD.pd ? TD.pd[v] : 99; terrH[v] = pd < 4 ? -.08*(1 - smooth(2.6, 4, pd)) : 0; }   // Balloon Defense: flat ground
     if (G.pvp && G.mode === 'tennis') terrH[v] = 0;   // Pain Tennis: the whole island is a flat court
-    if (G.pvp && G.mode === 'egg') { terrH[v] *= smooth(42, 62, r); if (r > RIVER[0] - 1.2 && r < RIVER[1] + 1.2) terrH[v] = Math.min(terrH[v], -1.7*smooth(RIVER[0] - 1.2, RIVER[0] + .4, r)*(1 - smooth(RIVER[1] - .4, RIVER[1] + 1.2, r))); }   // Alpha Mode: flat arena, river channel
+    if (G.pvp && G.mode === 'egg') { terrH[v] *= smooth(LAVA[1] + 6, LAVA[1] + 26, r); if (r > RIVER[0] - 1.2 && r < RIVER[1] + 1.2) terrH[v] = Math.min(terrH[v], -1.7*smooth(RIVER[0] - 1.2, RIVER[0] + .4, r)*(1 - smooth(RIVER[1] - .4, RIVER[1] + 1.2, r))); }   // Alpha Mode: flat arena, river channel
   }
   syncTerrain();
 }
@@ -5730,8 +5730,8 @@ function eggBuild(left){
 // where you stand after switching sides: outside the rings with a clear view of the egg, or next to the egg
 function practiceStandOutside(){
   // stand where nothing blocks the view of the egg
-  let x = 0, z = 44, best = -1;
-  for (let i = 0; i < 16; i++) { const an = i/16*Math.PI*2, cx = Math.cos(an)*44, cz = Math.sin(an)*44; let clear = 99; for (const pr of props) { if (pr.dead) continue; const t = clamp((pr.x*cx + pr.z*cz)/(44*44), 0, 1); clear = Math.min(clear, Math.hypot(pr.x - cx*t, pr.z - cz*t)); } if (clear > best) { best = clear; x = cx; z = cz; } }
+  let x = 0, z = LAVA[1] + 8, best = -1;
+  for (let i = 0; i < 16; i++) { const an = i/16*Math.PI*2, cx = Math.cos(an)*(LAVA[1] + 8), cz = Math.sin(an)*(LAVA[1] + 8); let clear = 99; for (const pr of props) { if (pr.dead) continue; const t = clamp((pr.x*cx + pr.z*cz)/((LAVA[1] + 8)*(LAVA[1] + 8)), 0, 1); clear = Math.min(clear, Math.hypot(pr.x - cx*t, pr.z - cz*t)); } if (clear > best) { best = clear; x = cx; z = cz; } }
   const P = localP(), b = P.body; b.position.set(x, groundH(x, z) + .4, z); b.velocity.set(0,0,0); aimAtEggFrom(P, .15);
 }
 function standByEgg(){ const P = localP(), b = P.body, a = Math.random()*Math.PI*2; b.position.set(Math.cos(a)*6.5, groundH(Math.cos(a)*6.5, Math.sin(a)*6.5) + .4, Math.sin(a)*6.5); b.velocity.set(0, 0, 0); aimAtEggFrom(P, -.2); }
@@ -8513,7 +8513,15 @@ function bEnemies(key, team){
 }
 function bNearest(key, team, at, R){ let best = null, bd = R; for (const e of bEnemies(key, team)) { const d = hdist(e.pos, at); if (d < bd) { bd = d; best = e; } } return best; }
 // is a point inside a tree, rock, ruin or heavy object?
+// what stops beams, flames and fireballs: walls, wood, rock slabs and other heavy things (not the scenery: fire burns through it)
+function powerSolid(p, r){
+  if (typeof woodSolid === 'function' && woodSolid(p, r)) return true;
+  if (typeof BARS !== 'undefined') for (const b of BARS.list) if (!b.dead && p.y > b.p.y - .3 && p.y < b.p.y + barSize(b).H + r && barContains(b, p.x, p.z, r)) return true;
+  for (const o of objs) { if (o.dead || !(o.body.mass > 300) || isCarried(o)) continue; const bd = o.body; if (bd.aabbNeedsUpdate) bd.computeAABB(); const A = bd.aabb; if (p.x > A.lowerBound.x - r && p.x < A.upperBound.x + r && p.y > A.lowerBound.y - r && p.y < A.upperBound.y + r && p.z > A.lowerBound.z - r && p.z < A.upperBound.z + r) return true; }
+  return false;
+}
 function bSolid(p, r){
+  if (typeof woodSolid === 'function' && woodSolid(p, r)) return true;
   if (typeof BOULD !== 'undefined' && banshoHit(p, r)) return true;
   if (typeof BARS !== 'undefined') for (const b of BARS.list) if (!b.dead && p.y > b.p.y - .3 && p.y < b.p.y + barSize(b).H + r && barContains(b, p.x, p.z, r)) return true;
   for (const pr of props) {
@@ -9320,24 +9328,25 @@ function burnPoolFrame(dt){
 // a ball of fire around `at`: damage, knockback, things set alight, props broken, the egg hit
 function fireArea(key, team, at, R, dmg, kb, up, o){
   o = o || {}; const pf = o.push != null ? o.push : AV_PUSH; kb *= pf; up *= pf;
+  if (fortDomeAbsorb(key, at, dmg)) return;   // Alpha Mode: the forcefield takes it
   summonsTakeArea(at, R, dmg, key, team);
   const P = victimFor(key, team);
-  if (P && !(amDefender() && fortShielded(P.body.position))) { const c = V3(P.body.position.x, P.body.position.y + 1, P.body.position.z), d = c.distanceTo(at); if (d < R) { const away = c.clone().sub(at).setY(0); if (away.lengthSq() < .01) away.set(1, 0, 0); away.normalize(); avHitP(P, key, dmg, o.burn || 4); if (kb > 0 || up > 0) knock(P, away.x*kb, up, away.z*kb, o.stun || .2); } }
+  if (P && !(amDefender() && fortShielded(P.body.position))) { const c = V3(P.body.position.x, P.body.position.y + 1, P.body.position.z), d = c.distanceTo(at); if (d < R && !fortCover(at, c)) { const away = c.clone().sub(at).setY(0); if (away.lengthSq() < .01) away.set(1, 0, 0); away.normalize(); avHitP(P, key, dmg, o.burn || 4); if (kb > 0 || up > 0) knock(P, away.x*kb, up, away.z*kb, o.stun || .2); } }
   PAIN.dummies.forEach(dm => { if (!dm.dead && V3(dm.body.position.x, dm.body.position.y + 1, dm.body.position.z).distanceTo(at) < R) avHitDummy(dm.body, dmg); });
   if (o.objects !== false && (kb > 0 || up > 0)) forEachObject(b => { if (b.tag === 'dummy') return; const d = b.position.distanceTo(at); if (d > R) return; if (b.wakeUp) b.wakeUp(); b.velocity.x += (b.position.x - at.x)/(d || 1)*kb*.6; b.velocity.z += (b.position.z - at.z)/(d || 1)*kb*.6; b.velocity.y += up*.5; if (b.wild) wildBlastHit(b, dmg); });
   if (pf > 0) damageProps(at, R, o.props != null ? o.props : dmg*4);   // only an explosion breaks things
   igniteAt(V3(at.x, at.y, at.z), R*.9); woodFireTouch(at, R, key);   // wood catches: allied fire empowers it, enemy fire burns it away
-  if (eggOn() && egg && egg.alive && eggAuth() && egg.body.position.distanceTo(at) < R*.6 + 1) eggHit(dmg*.5, 'fire');
+  if (eggOn() && egg && egg.alive && eggAuth() && egg.body.position.distanceTo(at) < R*.6 + 1 && !fortCover(at, egg.body.position)) eggHit(dmg*.5, 'fire');
 }
 // along a segment (streams and beams): damage, burn, a shove along it, props broken and lit
 function fireLine(key, team, a, b, W, dmg, kb, o){
-  o = o || {}; const dir = b.clone().sub(a), L = dir.length() || 1; dir.divideScalar(L); woodFireTouchLine(a, b, W, key);
+  o = o || {}; const dir = b.clone().sub(a), L = dir.length() || 1; dir.divideScalar(L); woodFireTouchLine(a, b, W, key); fortDomeAbsorb(key, b, dmg*.6);   // a beam ending on the forcefield wears it down
   const P = victimFor(key, team);
-  if (P && !(amDefender() && fortShielded(P.body.position))) { const q = V3(P.body.position.x, P.body.position.y + 1, P.body.position.z); if (segDist(a, b, q) < W + .5) { avHitP(P, key, dmg, o.burn || 3); } }
+  if (P && !(amDefender() && fortShielded(P.body.position))) { const q = V3(P.body.position.x, P.body.position.y + 1, P.body.position.z); if (segDist(a, b, q) < W + .5 && !fortCover(a, q)) { avHitP(P, key, dmg, o.burn || 3); } }
   PAIN.dummies.forEach(dm => { if (!dm.dead && segDist(a, b, V3(dm.body.position.x, dm.body.position.y + 1, dm.body.position.z)) < W + .6) { avHitDummy(dm.body, dmg); } });
   const n = Math.max(1, Math.min(14, Math.ceil(L/(W*2 + 5))));
   for (let i = 0; i <= n; i++) { const q = a.clone().lerp(b, i/n); if (o.props !== 0) avScorch(q, W + 1.5, o.props || dmg*3); summonsTakeArea(q, W + 1, dmg/(n + 1)*2, key, team); if (o.ignite !== false && i % 2 === 0) igniteAt(q, W + 1); }
-  if (eggOn() && egg && egg.alive && eggAuth() && segDist(a, b, egg.body.position) < W + 1.5) eggHit(dmg*.4, 'fire');
+  if (eggOn() && egg && egg.alive && eggAuth() && segDist(a, b, egg.body.position) < W + 1.5 && !fortCover(a, egg.body.position)) eggHit(dmg*.4, 'fire');
 }
 // does anything stop a flying fireball here?
 function avPropAt(b, r){
@@ -9353,6 +9362,8 @@ function avBlocked(key, team, a, b, r){
   if (avPropAt(b, r) || banshoHit(b, r)) return true;
   for (const bb of world.bodies) { if (bb.mass === 0 || bb.player || bb.tag === 'dummy') continue; if (segDist(a, b, bb.position) < r + Math.min(2.5, (bb.boundingRadius || .5)*.7)) return true; }
   if (typeof tdOn === 'function' && tdOn()) for (const t of TD.list) if (!t.dead && Math.hypot(t.pos.x - b.x, t.pos.y - b.y, t.pos.z - b.z) < t.R + r) return true;
+  if (powerSolid(b, r*.6)) return true; { const w = fortCover(a, b); if (w && w !== 'dome') return true; }   // walls (even thin ones between two steps), wood, slabs
+  if (domeUp() && !inDome(a) && inDome(b)) return true;   // the forcefield
   return false;
 }
 const FIRE_PAL = {ball:0xFF6A1F, core:0xFFF0A0, ring:0xFFB02E}, BLUE_PAL = {ball:0x2A6BFF, core:0xE6F7FF, ring:0x6FD0FF};
@@ -9423,7 +9434,10 @@ function avPrevHide(){ for (const k in AV.prev) if (AV.prev[k]) AV.prev[k].visib
 function avPrevRing(name, col){ if (!AV.prev[name]) AV.prev[name] = groundRing(col, .85); return AV.prev[name]; }
 function avPrevBeam(){ if (!AV.prev.beam) { const m = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 10, 1, true).rotateX(Math.PI/2).translate(0, 0, .5), new THREE.MeshBasicMaterial({color:0xFF5A14, transparent:true, opacity:.22, depthWrite:false, side:THREE.DoubleSide})); m.userData.noRay = true; m.renderOrder = 30; scene.add(m); AV.prev.beam = m; } return AV.prev.beam; }
 function avPrevCone(){ if (!AV.prev.cone) { const m = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 20, 1, true).translate(0, -.5, 0).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:0xFF8A2E, transparent:true, opacity:.16, depthWrite:false, side:THREE.DoubleSide})); m.userData.noRay = true; m.renderOrder = 30; scene.add(m); AV.prev.cone = m; } return AV.prev.cone; }
-function beamEnd(o, dir, L){ const q = o.clone(); for (let s = 0; s < L; s += 2) { q.copy(o).addScaledVector(dir, s); { const rk = s > 1 && banshoHit(q, .3); if (rk) return {p:q.clone(), d:s, hit:false, rock:rk}; } if (q.y <= groundH(q.x, q.z) || Math.abs(q.x) > ISL + 40 || Math.abs(q.z) > ISL + 40) return {p:q, d:s, hit:q.y <= groundH(q.x, q.z)}; } return {p:o.clone().addScaledVector(dir, L), d:L, hit:false}; }
+function beamEnd(o, dir, L){ const q = o.clone(), dome = domeUp() && !inDome(o), pq = o.clone(); for (let s = 0; s < L; s += 2) { q.copy(o).addScaledVector(dir, s); { const w = s > 0 && fortCover(pq, q); pq.copy(q); if (w && w !== 'dome') return {p:q.clone(), d:s, hit:true, wall:true}; } { const rk = s > 1 && banshoHit(q, .3); if (rk) return {p:q.clone(), d:s, hit:false, rock:rk}; } if (q.y <= groundH(q.x, q.z) || Math.abs(q.x) > ISL + 40 || Math.abs(q.z) > ISL + 40) return {p:q, d:s, hit:q.y <= groundH(q.x, q.z)};
+  if (s > 1.5 && powerSolid(q, .25)) return {p:q.clone(), d:s, hit:true, wall:true};   // walls, wood, slabs, props, heavy things stop it
+  if (dome && inDome(q)) return {p:q.clone(), d:s, hit:true, dome:true}; }   // so does the forcefield
+  return {p:o.clone().addScaledVector(dir, L), d:L, hit:false}; }
 // ability numbers as functions of the charge multiplier (shared by the preview and the cast)
 const AVN = {
   ball:  m => ({r:.35*Math.pow(m, .55), R:3 + 1.15*Math.pow(m, .8), dmg:22*Math.pow(m, .85), kb:12 + 2.2*m, sp:46 + m*.8}),
@@ -10281,11 +10295,12 @@ function wdMemo(o, k){ if (!o.memo) return true; const t = o.memo.get(k); if (t 
 // everything around `at`: damage, knockback / launch (o.dir pushes one way, o.pull drags in), props broken, the egg hit
 function woodArea(key, team, at, R, dmg, o){
   o = o || {}; const kb = o.kb || 0, up = o.up || 0, mul = o.mul || 1; dmg *= mul;
+  if (fortDomeAbsorb(key, at, dmg)) return;   // Alpha Mode: the forcefield takes it
   if (dmg > 0) summonsTakeArea(at, R, dmg, key, team);
   const P = victimFor(key, team);
   if (P && !(amDefender() && fortShielded(P.body.position))) {
     const c = V3(P.body.position.x, P.body.position.y + 1, P.body.position.z), d = o.flat ? hdist(c, at) : c.distanceTo(at);
-    if (d < R && (!o.flat || Math.abs(c.y - at.y) < R + 4) && wdMemo(o, 'me')) {
+    if (d < R && (!o.flat || Math.abs(c.y - at.y) < R + 4) && !fortCover(at, c) && wdMemo(o, 'me')) {
       const away = o.dir ? o.dir.clone() : o.pull ? at.clone().sub(c) : c.clone().sub(at); away.y = 0; if (away.lengthSq() < .01) away.set(1, 0, 0); away.normalize();
       const f = 1 - .4*Math.min(1, d/R); if (dmg > 0) painHurt(P, dmg*f, key);
       if (kb || up) knock(P, away.x*kb*f, up*f, away.z*kb*f, o.stun != null ? o.stun : .35);
@@ -10297,7 +10312,7 @@ function woodArea(key, team, at, R, dmg, o){
     b.velocity.x += vx*kb*f*.8; b.velocity.z += vz*kb*f*.8; b.velocity.y += up*f*.85; b._woodT = G.t; if (b.wild) wildBlastHit(b, dmg); });
   if (o.props) damageProps(at, R, o.props*mul);
   if (o.fire) igniteAt(at, R*.8);
-  if (dmg > 0 && eggOn() && egg && egg.alive && eggAuth() && egg.body.position.distanceTo(at) < R*.6 + 1) eggHit(dmg*.4, 'wood');
+  if (dmg > 0 && eggOn() && egg && egg.alive && eggAuth() && egg.body.position.distanceTo(at) < R*.6 + 1 && !fortCover(at, egg.body.position)) eggHit(dmg*.4, 'wood');
 }
 // along a segment (lashes, branches, the guardian's wall)
 function woodLine(key, team, a, b, W, dmg, o){
@@ -10371,6 +10386,17 @@ function wdNearestTree(key, q, maxD){
   for (const s of WD.structs) { if (s.dying || s.owner !== key || !(s.kind === 'forest' || s.kind === 'wforest')) continue;
     for (const t of s.trees) { if (t.gone || !t.grown) continue; const d = Math.hypot(t.x - q.x, t.z - q.z); if (d < bd) { bd = d; best = t; best.s = s; } } }
   return best;
+}
+// is p inside solid wood? (bSolid asks: bombs, fireballs and beams stop on trunks, cage bars and trees)
+function woodSolid(p, r){
+  if (!WD.structs.length && !WD.wtree) return false;
+  for (const s of WD.structs) { if (s.dying) continue;
+    if (s.kind === 'spear') { if (s.solid && hdist(p, s.c) < s.r*.85 + r && p.y < s.top.y && p.y > s.top.y - s.H - 1) return true; }
+    else if (s.kind === 'prison') { if (s.walled && !s.crush && Math.abs(hdist(p, s.c) - s.R) < .5 + r && p.y < s.gy + s.H*.8) return true; }
+    else if (s.kind === 'forest' || s.kind === 'wforest') { if (s.kind === 'forest' && hdist(p, s.c) > s.R + 3) continue;
+      for (const t of s.trees) if (t.grown && !t.gone && Math.abs(t.x - p.x) < 2.5 && Math.abs(t.z - p.z) < 2.5 && Math.hypot(t.x - p.x, t.z - p.z) < t.r*.8 + r && p.y < t.gy + t.H*.8) return true; } }
+  const T = WD.wtree; if (T && T.state !== 'boom' && hdist(p, T.base) < 10 + r && p.y < T.gy + T.H*.3) return true;
+  return false;
 }
 function wdUproot(t){ t.gone = true; if (t.vis) t.vis.hide(); if (t.inst) t.inst(); if (t.body && t.body.world) world.removeBody(t.body); }
 
@@ -13474,7 +13500,8 @@ const BAR_TYPES = {
 };
 const BARS = {list:[], seq:0, destroyed:[], fields:[]};
 function barReset(){ BARS.list = []; BARS.seq = 0; BARS.destroyed = []; BARS.fields = []; G.eggInvulnT = 0; G.barInvulT = 0; G.overdriveT = 0; }
-const barSize = b => ({L:3 + Math.min(b.tier - 1, 8)*.7, H:2 + Math.min(b.tier - 1, 8)*.45, T:.6 + Math.min(b.tier - 1, 8)*.12});
+const barSize = b => b.segL ? {L:b.segL, H:1.9 + Math.min(b.tier - 1, 6)*.2, T:.5 + Math.min(b.tier - 1, 6)*.06}   // ring walls: low and thin, a little taller per combine
+  : ({L:3 + Math.min(b.tier - 1, 8)*.7, H:2 + Math.min(b.tier - 1, 8)*.45, T:.6 + Math.min(b.tier - 1, 8)*.12});
 function barName(b){ const t = Object.entries(b.traits).sort((x, y) => y[1] - x[1]).map(([k]) => k); const base = t.find(k => ['wood', 'stone', 'steel', 'crystal'].includes(k)) || t[0];
   const adj = t.filter(k => k !== base).slice(0, 3).map(k => BAR_TYPES[k].name); return `${adj.join(' ')}${adj.length ? ' ' : ''}${BAR_TYPES[base].name} Wall (tier ${b.tier})`; }
 // a wall that shows every layer it was built from
@@ -13519,13 +13546,13 @@ function placeBarrier(type, pos, rotY, ownerKey, team, rec){
   return b;
 }
 function mergeTrait(b, type, n){
-  b.traits[type] = (b.traits[type] || 0) + n; b.tier += n; const add = BAR_TYPES[type].hp*n; b.maxHp += add; b.hp = Math.min(b.maxHp, b.hp + add);
+  b.traits[type] = (b.traits[type] || 0) + n; b.tier += n; const add = BAR_TYPES[type].hp*n*(b.segL ? .5 : 1); /* a combine adds half a wall's worth of health */ b.maxHp += add; b.hp = Math.min(b.maxHp, b.hp + add);
   barRebuild(b); sparkle(V3(b.p.x, b.p.y + barSize(b).H, b.p.z), BAR_TYPES[type].col); sfx('grab');
   if (amDefender()) toast(`🧱 ${barName(b)}: ${Math.round(b.hp)}/${Math.round(b.maxHp)} HP`);
 }
 function barHurt(b, dmg){
   if (b.dead || !(dmg > 0) || G.barInvulT > G.t) return;
-  const armor = Math.pow(.75, b.traits.steel || 0); b.hp -= dmg*armor/fortDurability(); b.hurtT = .2;
+  const armor = Math.max(.6, Math.pow(.88, b.traits.steel || 0)); /* steel softens hits, but never more than 40% */ b.hp -= dmg*armor/fortDurability(); b.hurtT = .2;
   if (b.hp <= 0) { if (eggAuth()) { if (!b.breakSent) { b.breakSent = true; if (NET.peer) localCast('g_break', null, {b:b.id}); else breakBarrier(b.id); } } else b.hp = 1; }
 }
 function breakBarrier(id){
@@ -13553,8 +13580,8 @@ function barrierFrame(dt){
   for (const b of BARS.list) {
     if (b.dead) continue;
     const t = b.traits, {L, H} = barSize(b);
-    if (t.energy) b.hp = Math.min(b.maxHp, b.hp + 2*t.energy*dt);                                         // energy regenerates
-    if (t.crystal) { for (const o of BARS.list) if (!o.dead && o !== b && hdist(o.p, b.p) < 7) o.hp = Math.min(o.maxHp, o.hp + 3*t.crystal*dt);   // crystal mends its neighbours
+    if (t.energy) b.hp = Math.min(b.maxHp, b.hp + Math.min(3, t.energy)*dt);                                         // energy regenerates
+    if (t.crystal) { for (const o of BARS.list) if (!o.dead && o !== b && hdist(o.p, b.p) < 7) o.hp = Math.min(o.maxHp, o.hp + Math.min(4, 1.5*t.crystal)*dt);   // crystal mends its neighbours
       if (eggAuth() && egg && egg.alive && egg.cracks > 0 && hdist(egg.body.position, b.p) < 9) { b.crackT = (b.crackT || 0) + dt*t.crystal; if (b.crackT > 10) { b.crackT = 0; egg.cracks--; while (egg.crackG.children.length > egg.cracks*3) egg.crackG.remove(egg.crackG.children[egg.crackG.children.length - 1]); sparkle(V3(egg.body.position.x, egg.body.position.y + .5, egg.body.position.z), 0xC8FFF4); } } }
     // energy swallows bombs, frost freezes them; others make them blow up on the wall (bSolid)
     if (t.energy || t.frost) for (const q of BX.bombs) if (!q.dead && q.team !== b.team && barContains(b, q.p.x, q.p.z, .8) && q.p.y < b.p.y + H + .6) { q.dead = true; roundGroup.remove(q.m); sparkle(q.p, t.energy ? 0x9FE6FF : 0xE6F8FF); }
@@ -13583,7 +13610,7 @@ function barrierFrame(dt){
    Everything the defender builds is firm (static bodies) and has health; only a few Pain powers can nudge things.
    Every power is a cast (GUARD ids f_*), host-checked by fortOK (counts per round in G.egg.left2). Click = rocket launcher.
    The egg has health (G.eggHP, host-authoritative, shown as a bar): hits take health instead of breaking it outright. */
-const AREA_R = 25, RIVER = [25.6, 30.2], LAVA = [31.2, 36.5], ROOF_H = {mirror:11, tele:13}, TELE_R = 3.4, TELE_UP = 3.2;   // teleport roof: a portal TELE_R wide, TELE_UP over the egg
+const AREA_R = 34, RIVER = [34.6, 39.2], LAVA = [40.2, 45.5], /* a bigger protected area (room to move), then the river and the lava ring */ ROOF_H = {mirror:11, tele:13}, TELE_R = 3.4, TELE_UP = 3.2;   // teleport roof: a portal TELE_R wide, TELE_UP over the egg
 const GUARD = {
   f_dome:   {name:'Energy Dome', e:'🛡️', key:'1', kind:'now', cd:8, fixed:true, lim:4},
   f_laser:  {name:'Laser Turret', e:'🔫', key:'2', kind:'aim', cd:.5, fixed:true, lim:5, range:60, r:1, inside:true},
@@ -13717,7 +13744,7 @@ function fortRiver(){
   FORT.river = {water, foam, glints};
 }
 function fortLava(){
-  const y = groundH(0, 33.8) + .05, mesh = new THREE.Mesh(new THREE.RingGeometry(LAVA[0], LAVA[1], 128, 2), new THREE.MeshBasicMaterial({color:0xFF5A1F}));
+  const y = groundH(0, (LAVA[0] + LAVA[1])/2) + .05, mesh = new THREE.Mesh(new THREE.RingGeometry(LAVA[0], LAVA[1], 128, 2), new THREE.MeshBasicMaterial({color:0xFF5A1F}));
   mesh.rotation.x = -Math.PI/2; mesh.position.y = .06; mesh.userData.noRay = true; roundGroup.add(mesh);
   const glow = new THREE.Mesh(new THREE.RingGeometry(LAVA[0] - .6, LAVA[1] + .6, 128), bmat(0xFFB02E, .35)); glow.rotation.x = -Math.PI/2; glow.position.y = .08; glow.userData.noRay = true; roundGroup.add(glow);
   FORT.lava = {mesh, glow, t:0}; sfx('rumble'); fortNote('🌋 A ring of lava now surrounds the river.');
@@ -13861,7 +13888,7 @@ function fortUnits(){
 // attacks hurt the defender's drones and spirits (golems, swarm and devices have their own takers)
 function fortUnitsTakeArea(at, R, dmg, key){
   if (!eggOn() || !(dmg > 0) || (key && isDef(key))) return;
-  for (const u of fortUnits()) { if (u.kind === 'golem' || u.kind === 'minion' || u.kind === 'device') continue; const d = u.pos.distanceTo(at); if (d < R + u.r) fortUnitHurt(u, dmg*(d < R ? 1 - .4*d/Math.max(R, .01) : .5)); }
+  for (const u of fortUnits()) { if (u.kind === 'golem' || u.kind === 'minion' || u.kind === 'device') continue; const d = u.pos.distanceTo(at); if (d < R + u.r && !fortCover(at, u.pos)) fortUnitHurt(u, dmg*(d < R ? 1 - .4*d/Math.max(R, .01) : .5)); }
 }
 function fortUnitHurt(u, dmg){
   const e = u.ent; e.hp -= dmg/fortDurability(); e.hurtT = .15; if (e.hp > 0) return;
@@ -13935,6 +13962,25 @@ function dragonBreath(head, tgt, def){
     if (t > .8 && typeof igniteAt === 'function' && !this.lit) { this.lit = true; igniteAt(tgt, 3); }
     return t < 1; }});
 }
+// Alpha Mode cover: does the forcefield or a standing ring wall lie between an attack at `a` and the point `q`? (the wall it
+// hits is returned; blasts already damage that wall through barriersTakeArea)
+function fortCover(a, q){
+  if (!eggOn() || G.phase !== 'attack' || !a || !q) return null;
+  if (domeUp() && inDome(q) && !inDome(a)) return 'dome';
+  for (const ring of FORT.rings) {
+    const r = ring.r, ra = Math.hypot(a.x, a.z), rq = Math.hypot(q.x, q.z); if ((ra - r)*(rq - r) >= 0) continue;
+    const dx = q.x - a.x, dz = q.z - a.z, A = dx*dx + dz*dz, B = 2*(a.x*dx + a.z*dz), C = a.x*a.x + a.z*a.z - r*r, disc = B*B - 4*A*C; if (disc < 0 || A < 1e-6) continue;
+    const s1 = (-B - Math.sqrt(disc))/(2*A), s2 = (-B + Math.sqrt(disc))/(2*A), t = s1 >= 0 && s1 <= 1 ? s1 : s2; if (t < 0 || t > 1) continue;
+    const cx = a.x + dx*t, cz = a.z + dz*t, cy = a.y + (q.y - a.y)*t, N = ring.segs.length, ang = (Math.atan2(cz, cx) + Math.PI*2) % (Math.PI*2), i = Math.floor(ang/(Math.PI*2)*N) % N;
+    const w = BARS.list.find(b => b.id === ring.segs[i] && !b.dead); if (w && cy < w.p.y + barSize(w).H + .4) return w;
+  }
+  return null;
+}
+// an attacker's blast centred inside the forcefield: the dome takes it (and wears down) instead of what's inside
+function fortDomeAbsorb(key, at, dmg){
+  if (!eggOn() || G.phase !== 'attack' || !domeUp() || !at || (key && (isDef(key) || key === FORT_OWNER)) || !inDome(at)) return false;
+  hurtDome(Math.max(1, dmg*.5)); if (Math.random() < .5) sparkle(V3(at.x, at.y, at.z), 0x9FE6FF); return true;
+}
 /* 9-12. Rings of wall around the area: a new type goes outside the last ring, the same type again makes it taller and stronger */
 function fortRing(type, p){
   const t = ringTarget(p), def = FORT_OWNER, C = null;
@@ -13944,7 +13990,7 @@ function fortRing(type, p){
   if (t.bad) { fortNote('🧱 ' + t.bad); return; }
   const r = t.r, N = Math.ceil(Math.PI*2*r/2.8), segs = [];
   for (let i = 0; i < N; i++) { const a = (i + .5)/N*Math.PI*2, x = Math.cos(a)*r, z = Math.sin(a)*r;
-    const b = {id:'B' + (++BARS.seq), owner:def, team:C ? C.team : 'blue', p:V3(x, groundH(x, z), z), rot:-a - Math.PI/2, traits:{[type]:1}, tier:1, hp:BAR_TYPES[type].hp, maxHp:BAR_TYPES[type].hp, dead:false, ring:type};
+    const b = {id:'B' + (++BARS.seq), owner:def, team:C ? C.team : 'blue', p:V3(x, groundH(x, z), z), rot:-a - Math.PI/2, traits:{[type]:1}, tier:1, hp:BAR_TYPES[type].hp, maxHp:BAR_TYPES[type].hp, dead:false, ring:type, segL:Math.PI*2*r/N + .2};
     BARS.list.push(b); barRebuild(b); segs.push(b.id); }
   FORT.rings.push({type, types:[type], r, segs, level:1}); dustRing(fortCenter(), r, 18); sfx('place'); sfx('thud');
   fortNote(`${BAR_TYPES[type].e} ${BAR_TYPES[type].name} ring built at ${r.toFixed(0)} m. Aim at it again to combine (taller, stronger), or further out for a new layer.`);
@@ -14215,9 +14261,9 @@ const RING_IDS = {f_brick:'brick', f_steel:'steel', f_energy:'energy', f_mirror:
 function ringTarget(p){
   const r = Math.hypot(p.x, p.z), on = FORT.rings.find(q => Math.abs(q.r - r) < 1.6);
   if (on) return {combine:on, r:on.r};
-  const last = FORT.rings.reduce((m, q) => Math.max(m, q.r), 0), rr0 = clamp(r, 10.5, AREA_R - 1.3);
-  if (last && rr0 < last + 2.2) return {bad:'Put a new ring outside the last one, or right on a ring to combine.', r:rr0};
-  if (last && last + 2.2 > AREA_R - 1.3) return {bad:'No room for another ring: aim at a ring to combine.', r:rr0};
+  // rings only go in the outer band (the middle stays open): aimed inside it, a new ring goes just outside the last one
+  const lo = AREA_R - 9, hi = AREA_R - 1.3, last = FORT.rings.reduce((m, q) => Math.max(m, q.r), 0), rr0 = last ? Math.max(last + 2.4, Math.min(hi, r)) : clamp(r, lo, hi);
+  if (rr0 > hi + .01) return {bad:'No room for another ring: aim at a ring to combine.', r:Math.min(rr0, hi)};
   return {r:rr0};
 }
 // rings are aimed at the ground through your own walls (the crosshair ray against the arena floor)
@@ -16525,7 +16571,7 @@ $('micB').addEventListener('click', e => { e.stopPropagation(); toggleMic(); });
 async function checkUpdate(){
   try {
     const r = await fetch(location.pathname + '?v=' + Date.now(), {cache:'no-store'}); if (!r.ok) return;
-    const m = (await r.text()).match(/const GAME_VERSION = '([^']+)'/); if (!m || m[1] === GAME_VERSION) return;
+    const m = (await r.text()).match(/const GAME_VERSION = '2026-10-11.5']+)'/); if (!m || m[1] === GAME_VERSION) return;
     const go = () => location.replace(location.pathname + '?v=' + encodeURIComponent(m[1]));
     let tried = ''; try { tried = sessionStorage.getItem('ca-upd') || ''; } catch (e) {}
     if (G.phase === 'title' && !NET.peer && tried !== m[1]) { try { sessionStorage.setItem('ca-upd', m[1]); } catch (e) {} go(); return; }

@@ -646,3 +646,14 @@ frame; thrown things in WD.thrown hit on landing. Instanced pieces via wdInst (W
 Fire x wood: fireArea/fireLine call woodFireTouch(Line); allied/co-op fire -> burnT + burnCoop (+50% via wdMulOf, fire aura), enemy fire
 -> life cut to 3.2 s + charred; avHitP x1.5 on a Wood Sage. Combo indicator: comboUI -> woodComboOk(). Wood turrets w_* in TD.
 Tests t78 (every power), t79/t79b (camera shots).
+
+## Defence rework (2026-10-11.5)
+AREA_R 34 (was 25), RIVER [34.6, 39.2], LAVA [40.2, 45.5]; the Alpha Mode terrain flattens to LAVA[1]+6..+26; practiceStandOutside stands
+at LAVA[1]+8. Rings only in the outer band [AREA_R-9, AREA_R-1.3]; aiming inside it puts a new ring just outside the last (+2.4), aiming
+within 1.6 m of a ring combines. Ring walls carry `segL` -> barSize: L = segment spacing, H 1.9 + .2/tier (cap 6), T .5 + .06/tier.
+Combining adds 50% of the type's hp (rings), steel armour max(.6, .88^n), energy regen <= 3/s, crystal mend <= 4/s.
+Blocking: `powerSolid(p, r)` (walls, woodSolid, objs heavier than 300 kg; NOT scenery) stops beamEnd and avBlocked; both also use
+`fortCover(prev, next)` so a thin wall between two samples still counts; beamEnd stops entering the dome. `fortCover(a, q)` = the dome
+or the ring wall segment between an attack at a and a target q (analytic circle crossing); fireArea / fireLine / woodArea skip victims,
+the egg and fort units that are covered. `fortDomeAbsorb(key, at, dmg)`: an attacker's blast centred inside the dome hurts the dome
+instead (fireArea, woodArea, fireLine end). bSolid also asks woodSolid. Test t80 (t13 is outdated, t17 aims at old radii).
