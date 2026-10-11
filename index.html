@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-11.5';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-11.6';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -16571,7 +16571,7 @@ $('micB').addEventListener('click', e => { e.stopPropagation(); toggleMic(); });
 async function checkUpdate(){
   try {
     const r = await fetch(location.pathname + '?v=' + Date.now(), {cache:'no-store'}); if (!r.ok) return;
-    const m = (await r.text()).match(/const GAME_VERSION = '2026-10-11.5']+)'/); if (!m || m[1] === GAME_VERSION) return;
+    const m = (await r.text()).match(/const GAME_VERSION = '([^']+)'/); if (!m || m[1] === GAME_VERSION) return;
     const go = () => location.replace(location.pathname + '?v=' + encodeURIComponent(m[1]));
     let tried = ''; try { tried = sessionStorage.getItem('ca-upd') || ''; } catch (e) {}
     if (G.phase === 'title' && !NET.peer && tried !== m[1]) { try { sessionStorage.setItem('ca-upd', m[1]); } catch (e) {} go(); return; }
