@@ -671,3 +671,28 @@ woodTakeArea/Cone (skips the owner and their team; height-aware distance); the h
 clients). wdBarsFrame draws health bars. World Tree impact = wdCatastrophe: a 400-damage ring over the whole map, summonsTakeArea 9999,
 props obliterated (wdObliterate: no physics rubble) or set burning (<= 24), structures withered, dome/egg hit; afterwards the sky/sea/
 island look burnt (sun) or shattered (moon). Tests t82, t83.
+
+## Fortress Siege (2026-10-12.1) — replaced Pain Tennis
+Menu mode 'siege' (#mSiege; normMode maps old 'tennis' to it; the tennis module is still in the file but unreachable). startMatch sets
+`G.siege = mode === 'siege'`, `G.siegeN = players` and runs it as G.mode 'td'; `siegeOn()` = td + G.siege + TD.on. Module FORTRESS SIEGE
+sits before the TD HUD (siegeStart/Ready/Block/FortFrame/Pack/Unpack/RoundReset, ttDecorate).
+Paths: TD.P = [{px, pz, len, step}], one per player (max 6), turned copies of a wavy partial spiral (tdPathPts; Balloon Defense keeps
+TD_PTS, N = 1). TD.px/pz/len/step alias path 0. Balloons carry `pi`: tdAt(d, out, pi), tdDir(d, pi), tdSpawn(type, d, pi); snapshot
+stride is 6 (…, fl, pi). tdScenery/minimap loop over TD.P.
+Rounds: TD_WAVES per path at 55% count, gaps x1.45, hpK x1.8, a boss blimp (siegeBoss) every 3rd round; blimps x1.35, balloons x1.15.
+No auto/early start: Ready (Enter / tdGo) -> TD.ready ('tdgo' to the host -> siegeReady), starts when every chars key is ready; the
+snapshot carries r (ready ids) and sg (siegePack: damaged wall hp, dome layers, roof hp). Round end (host tdWaveDone, clients in tdApply
+on wave->build): siegeRoundReset rebuilds broken ring segments (BARS.destroyed rec.seg {sid, segL, ring}), mends everything, re-raises
+dome layers, refills G.egg.left2, ultReset.
+Kit: G.cls 'kit' is the first class tab (classCycle in siege); guardActive() is true for it; G.egg = {siege, defs: everyone, left2}
+so isDef(any player) is true and fortOK accepts everyone; eggFoe/fortFoe return null. fortLim(id) = lim x players (one-offs stay 1).
+fortEnemies lists balloons (hit -> siegeHit = host tdHit x siegeK = 2.5*(1 + .04*wave)); golems/minions hit e.bl/bal; siegeFortFrame:
+lava pops, lasers (o.scd) and SAM missiles (siegeMissile), angel shoots + gives lives back, sorceress slows, stars zap, tele portal sends
+a balloon back to d 0, mirror roof pushes back 28 m. siegeBlock: a balloon about to cross a standing ring segment or the dome edge stays
+put and chews it (host barHurt / hurtDome). Drones/angel/roofs leave teammates' thrown things alone in siege.
+Map (sgMap in buildRound): place(r, minR, tree) passes trees 70%, other props 2%; forests x1.8 with 5-9 trees; nothing inside LAVA+5.
+Turret looks: ttRelabel -> ttDecorate(t): head grows 7%/level; 1 band, 2 buttresses + spikes, 3 glowing core + light ring, 4 gold crown
++ orbiting shards, 5 aura + class-coloured "nature" (TT_NATURE). Every class vs balloons audit (t85): fixed forward Shinra Tensei, Deep
+Forest (roots lash balloons in it; trees can't grow on a path), Rain of Swords, Sword Trap (holds balloons), mines (trigger 3.4 m up),
+guided missile radius, Splitter (cutReach crashed on CANNON vectors when animals were near: the whole power silently failed), Pull
+Everything (drags balloons back), Zero Gravity (balloons float/stop). Tests t84 (solo, 3 players), t85 (audit), t86 (online host+guest).

@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-11.7';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-12.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -1156,8 +1156,9 @@ function buildRound(seed, keepChars){
   const atkSpawn = new THREE.Vector3(Math.cos(sa)*sr, 0, Math.sin(sa)*sr); atkSpawn.y = groundH(atkSpawn.x, atkSpawn.z) + .3;
   const defSpawn = new THREE.Vector3(Math.cos(sa+Math.PI)*3, .3, Math.sin(sa+Math.PI)*3);
   const LIM = ISL - 4, taken = [];
-  const free = (p, r) => p.distanceTo(atkSpawn) > r + 4 && !(G.pvp && G.mode === 'egg' && Math.hypot(p.x, p.z) < LAVA[1] + 6 + r) && !(G.pvp && G.mode === 'td' && (tdPathDist(p.x, p.z) < r + 5 || Math.hypot(p.x, p.z) < 9 + r)) && !(G.pvp && G.mode === 'tennis' && Math.abs(p.x) < TN_CW + TN_FENCE + 6 + r && Math.abs(p.z) < TN_CL + TN_FENCE + 6 + r) && taken.every(t => Math.hypot(t.x-p.x, t.z-p.z) > t.r + r);
-  const place = (r, minR) => { if (G.pvp && G.mode === 'td' && rand() > (r < 1.3 ? .03 : .05)) return null;   // Balloon Defense: a simple, open map
+  const sgMap = G.pvp && G.mode === 'td' && G.siege;
+  const free = (p, r) => p.distanceTo(atkSpawn) > r + 4 && !(sgMap && Math.hypot(p.x, p.z) < LAVA[1] + 5 + r) && !(G.pvp && G.mode === 'egg' && Math.hypot(p.x, p.z) < LAVA[1] + 6 + r) && !(G.pvp && G.mode === 'td' && (tdPathDist(p.x, p.z) < r + 5 || Math.hypot(p.x, p.z) < 9 + r)) && !(G.pvp && G.mode === 'tennis' && Math.abs(p.x) < TN_CW + TN_FENCE + 6 + r && Math.abs(p.z) < TN_CL + TN_FENCE + 6 + r) && taken.every(t => Math.hypot(t.x-p.x, t.z-p.z) > t.r + r);
+  const place = (r, minR, tree) => { if (G.pvp && G.mode === 'td' && rand() > (sgMap ? (tree ? .7 : .02) : r < 1.3 ? .03 : .05)) return null;   // Balloon Defense: a simple, open map (Fortress Siege: hardly any props, lots of trees)
     for (let k=0;k<60;k++){ const a = rr(0,Math.PI*2), d = rr(minR, LIM - r); const p = new THREE.Vector3(Math.cos(a)*d, 0, Math.sin(a)*d); if (free(p, r)) { taken.push({x:p.x, z:p.z, r}); return p; } } return null; };
   const hillCols = G.map.ice ? [0xBFE6FA,0xD5F0FF] : G.map.bouncy ? [0xF093CC,0xFAB8DF] : [0x62A844,0x74B852,0x5E9E40];
   const addTree = (x, z, s) => {
@@ -1185,13 +1186,13 @@ function buildRound(seed, keepChars){
   }
   wildBuild(place, addRock);    // ruins, villages, towers, crates, barrels and loot first, while there is room (WILD)
   // forests
-  const nF = Math.round((5 + Math.floor(rand()*4))*MAPK);
+  const nF = Math.round((5 + Math.floor(rand()*4))*MAPK*(sgMap ? 1.8 : 1));
   for (let i=0;i<nF;i++){
-    const c = place(6, 18); if (!c) continue;
-    const n = G.pvp && G.mode === 'td' ? 2 + Math.floor(rand()*2) : 6 + Math.floor(rand()*7);
+    const c = place(6, 18, true); if (!c) continue;
+    const n = sgMap ? 5 + Math.floor(rand()*5) : G.pvp && G.mode === 'td' ? 2 + Math.floor(rand()*2) : 6 + Math.floor(rand()*7);
     for (let k=0;k<n;k++){ const a = rr(0,Math.PI*2), d = rr(0,6); addTree(c.x + Math.cos(a)*d, c.z + Math.sin(a)*d, rr(.8,1.5)); }
   }
-  for (let i=0;i<18*MAPK*.7;i++){ const p = place(1.5, 15); if (p) addTree(p.x, p.z, rr(.8,1.4)); }
+  for (let i=0;i<18*MAPK*(sgMap ? 1.6 : .7);i++){ const p = place(1.5, 15, true); if (p) addTree(p.x, p.z, rr(.8,1.4)); }
   // rocks of every size: pebbles, stones, rocks, boulders and a few huge ones
   for (let i=0;i<26*MAPK*.6;i++){ const r = rr(.6,1.6), p = place(r+.5, 14); if (p) addRock(p.x, p.z, r); }
   for (let i=0;i<6*MAPK;i++){ const r = rr(2.4,4), p = place(r+1, 20); if (p) addRock(p.x, p.z, r); }
@@ -4722,6 +4723,7 @@ function addPlayer(info, isLocal){
 function removePlayer(id){ const P = chars[id]; if (!P) return; roundGroup.remove(P.root); if (P.body.world) world.removeBody(P.body); delete chars[id]; }
 function startMatch(seed, list, score, mode, cdOn, eg){
   hideOverlay(); $('matchEnd').style.display = 'none'; $('eggBanner').style.display = 'none';
+  G.siege = mode === 'siege'; G.siegeN = list.length; if (G.siege) mode = 'td';   /* Fortress Siege runs on Balloon Defense */
   G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' || mode === 'swarm' || mode === 'td' || mode === 'tennis' ? mode : mode === 'chaos' ? 'td' : 'chaos'; G.cdOn = !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
   if (G.mode === 'egg' && !eg) eg = {def:G.localKey, round:1, total:1, pts:{}};
   buildRound(seed);
@@ -4903,7 +4905,7 @@ function ttLabelSet(lab, txt){
   const tex = new THREE.CanvasTexture(c); tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false; lab.material.map = tex; lab.material.needsUpdate = true;
   lab.scale.set(.95*w/64, .95, 1);
 }
-function ttRelabel(t){ const D = TT_DEFS[t.k]; ttLabelSet(t.lab, `${D.e} ${D.name} ${'★'.repeat(t.lvl)}${'☆'.repeat(5 - t.lvl)}`); t.pips.forEach((p, i) => p.material = M3(i < t.lvl ? 0xFFD84D : 0x2A2A2A)); }
+function ttRelabel(t){ const D = TT_DEFS[t.k]; ttLabelSet(t.lab, `${D.e} ${D.name} ${'★'.repeat(t.lvl)}${'☆'.repeat(5 - t.lvl)}`); t.pips.forEach((p, i) => p.material = M3(i < t.lvl ? 0xFFD84D : 0x2A2A2A)); ttDecorate(t); }
 function ttRemove(t){ if (t.g && t.g.parent) t.g.parent.remove(t.g); if (t.body && t.body.world) world.removeBody(t.body); (t.planes || []).forEach(p => { if (p.m.parent) p.m.parent.remove(p.m); }); }
 function ttClearAll(){ TT.list.forEach(ttRemove); TT.list = []; TT.place = null; TT.shop = false; ttGhostHide(); ttPanel(); }
 
@@ -4982,7 +4984,7 @@ function ttFire(t, S){
   }
   if (D.kind === 'lob') {
     const tg = ttFirst(t, S, Math.round(S.multi)); if (!tg.length) return false;
-    for (const b of tg) { const p = V3(b.pos.x, groundH(b.pos.x, b.pos.z) + 1, b.pos.z).addScaledVector(V3(Math.sin(tdDir(b.d)), 0, Math.cos(tdDir(b.d))), 3);
+    for (const b of tg) { const p = V3(b.pos.x, groundH(b.pos.x, b.pos.z) + 1, b.pos.z).addScaledVector(V3(Math.sin(tdDir(b.d, b.pi)), 0, Math.cos(tdDir(b.d, b.pi))), 3);
       const m = D.fx === 'rock' ? new THREE.Mesh(PAIN_ROCK, M3(0x6E6672)) : D.fx === 'fire' ? new THREE.Mesh(new THREE.IcosahedronGeometry(.45 + S.splash*.04, 1), new THREE.MeshBasicMaterial({color:0xFF6A1F})) : D.fx === 'log' ? new THREE.Mesh(new THREE.CylinderGeometry(.35, .35, 1.6, 8).rotateZ(Math.PI/2), M3(0x7A4E2C)) : new THREE.Mesh(new THREE.SphereGeometry(.3, 8, 6), M3(0x2A2A2A)); if (D.fx === 'rock') m.scale.setScalar(.5 + S.splash*.08);
       ttFlyer(m, o.clone(), p, .7, 10, () => { boomVisual(p.clone(), false, .2 + S.splash*.06, D.fx === 'rock' ? {ball:0x6E6672, core:0xC9B8FF, ring:0xD9CCFF} : D.fx === 'fire' ? {ball:0xFF6A1F, core:0xFFF3B0, ring:0xFFB02E} : undefined); ttArea(p, S.splash, S, S.dmg); sfx(D.fx === 'fire' ? 'fireball' : 'bboom'); }); }
     return true;
@@ -5032,6 +5034,7 @@ function ttFrame(dt){
   for (const t of TT.list) {
     const S = ttStats(t), D = TT_DEFS[t.k];
     if (t.spin) t.spin.rotation.y += dt*(4 + S.rate);
+    if (t.orbit) t.orbit.rotation.y += dt*1.6; if (t.core) t.core.rotation.y += dt*3; if (t.aura) t.aura.material.opacity = .12 + Math.sin(G.t*3 + t.id)*.06;
     if (t.flame) t.flame.scale.set(1, .8 + Math.sin(G.t*12 + t.id)*.25, 1);
     if (t.orb) { t.orb.rotation.y += dt*2; t.orb.position.y = (D.look === 'excal' ? 3.4 : D.look === 'obelisk' ? 4.4 : D.look === 'spire' ? 4 : D.look === 'core' ? 2.6 : 3) + Math.sin(G.t*2 + t.id)*.12; }
     if (t.empT > 0) { t.empT -= dt*(TD.speed || 1); if (Math.random() < .12) sparkle(V3(t.x + rr(-1, 1), groundH(t.x, t.z) + rr(1, 4), t.z + rr(-1, 1)), 0x2AFFEA); continue; }   // shut down by an EMP
@@ -5336,25 +5339,38 @@ TD_WAVES.length = 10;
   } }
 const TD_LIVES = 200, TD_ROUNDS = TD_WAVES.length, TD_FLY = 2.1, TD_SIZE = .65, TD_SLOW = .6;   // every balloon is drawn and hit at 65% size and moves at 60% speed
 const TD = {on:false, list:[], pd:null};
+const siegeOn = () => G.pvp && G.mode === 'td' && !!G.siege && TD.on;   // Fortress Siege: Balloon Defense + the Alpha Mode defences, one path per player
 Object.defineProperty(TD, 'cash', {get(){ return ttWallet(); }, set(v){ ttWallet(); TD.wallet[G.localKey] = v; }, enumerable:false});   // TD.cash = your own wallet
 // the path: a spiral that winds in from the edge of the island, two and a half times round, to the egg in the middle
 const TD_PTS = (() => { const out = [], R0 = 118, R1 = 6, turns = 2.6, a0 = -.35, N = 150;
   for (let i = 0; i <= N; i++) { const u = i/N, a = a0 + u*turns*Math.PI*2, r = R0 + (R1 - R0)*u; out.push([Math.cos(a)*r, Math.sin(a)*r]); }
   const a1 = a0 + turns*Math.PI*2 + .35; out.push([Math.cos(a1)*3, Math.sin(a1)*3]); return out; })();
+// Fortress Siege: one wavy path per player (up to 6), each from the edge of the island in to the egg, spread evenly round it
+// so they never cross (turned copies of one shape: all the same length). Balloon Defense keeps its single long spiral (TD_PTS)
+function tdPathPts(k, N){
+  if (!(G.siege && G.mode === 'td')) return TD_PTS;
+  const out = [], R0 = 122, R1 = 3.5, turns = N > 1 ? Math.min(1.1, 2.2/N + .35) : 1.6, a0 = -.35 + k*Math.PI*2/N, M = 220, gap = (R0 - R1)/(turns*N), amp = Math.min(9, gap*.3), waves = N > 3 ? 6 : 8;
+  for (let i = 0; i <= M; i++) { const u = i/M, r0 = R0 + (R1 - R0)*u, ph = u*waves*Math.PI*2, f = smooth(50, 66, r0), r = r0 + Math.sin(ph)*amp*f, a = a0 + u*turns*Math.PI*2 + Math.cos(ph)*amp*.8*f/r0; out.push([Math.cos(a)*r, Math.sin(a)*r]); }
+  return out;
+}
 function tdBuildPath(){
-  const curve = new THREE.CatmullRomCurve3(TD_PTS.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal');
-  const len = curve.getLength(), n = Math.ceil(len/.5), pts = curve.getSpacedPoints(n);
-  TD.len = len; TD.step = len/n; TD.px = new Float32Array(n + 1); TD.pz = new Float32Array(n + 1);
-  pts.forEach((q, i) => { TD.px[i] = q.x; TD.pz[i] = q.z; });
-  // distance from every ground vertex to the path (for the sand, the flat band and keeping props off it)
+  const N = G.siege && G.mode === 'td' ? clamp(G.siegeN || 1, 1, 6) : 1; TD.P = [];
+  // distance from every ground vertex to the nearest path (for the sand, the flat band and keeping props off it)
   TD.pd = new Float32Array(TN*TN).fill(99);
-  for (let k = 0; k <= n; k += 2) { const x = TD.px[k], z = TD.pz[k], ci = Math.round((x + ISL)/TES), cj = Math.round((z + ISL)/TES);
-    for (let j = Math.max(0, cj - 5); j <= Math.min(TN - 1, cj + 5); j++) for (let i = Math.max(0, ci - 5); i <= Math.min(TN - 1, ci + 5); i++) { const d = Math.hypot(-ISL + i*TES - x, -ISL + j*TES - z), v = i + j*TN; if (d < TD.pd[v]) TD.pd[v] = d; } }
-  TD.speedK = len/(6.5*66)*TD_SLOW;   // a red balloon takes ~110 s from the start to the egg on round 1
+  for (let k = 0; k < N; k++) {
+    const curve = new THREE.CatmullRomCurve3(tdPathPts(k, N).map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal');
+    const len = curve.getLength(), n = Math.ceil(len/.5), pts = curve.getSpacedPoints(n), P = {len, step:len/n, px:new Float32Array(n + 1), pz:new Float32Array(n + 1)};
+    pts.forEach((q, i) => { P.px[i] = q.x; P.pz[i] = q.z; }); TD.P.push(P);
+    for (let e = 0; e <= n; e += 2) { const x = P.px[e], z = P.pz[e], ci = Math.round((x + ISL)/TES), cj = Math.round((z + ISL)/TES);
+      for (let j = Math.max(0, cj - 5); j <= Math.min(TN - 1, cj + 5); j++) for (let i = Math.max(0, ci - 5); i <= Math.min(TN - 1, ci + 5); i++) { const d = Math.hypot(-ISL + i*TES - x, -ISL + j*TES - z), v = i + j*TN; if (d < TD.pd[v]) TD.pd[v] = d; } }
+  }
+  const P0 = TD.P[0]; TD.len = Math.min(...TD.P.map(q => q.len)); TD.step = P0.step; TD.px = P0.px; TD.pz = P0.pz;
+  TD.speedK = TD.len/(6.5*66)*TD_SLOW;   // a red balloon takes ~110 s from the start to the egg on round 1
 }
 function tdPathDist(x, z){ if (!TD.pd) return 99; const i = Math.round((x + ISL)/TES), j = Math.round((z + ISL)/TES); if (i < 0 || j < 0 || i >= TN || j >= TN) return 99; return TD.pd[i + j*TN]; }
-function tdAt(d, out){ const f = clamp(d/TD.step, 0, TD.px.length - 1.001), i = Math.floor(f), t = f - i; const x = lerp(TD.px[i], TD.px[i + 1], t), z = lerp(TD.pz[i], TD.pz[i + 1], t); return (out || new THREE.Vector3()).set(x, groundH(x, z) + TD_FLY, z); }
-function tdDir(d){ const i = clamp(Math.floor(d/TD.step), 0, TD.px.length - 2); return Math.atan2(TD.px[i + 1] - TD.px[i], TD.pz[i + 1] - TD.pz[i]); }
+const tdPath = pi => (TD.P && (TD.P[pi | 0] || TD.P[0])) || TD;   /* balloons carry the path they follow (b.pi) */
+function tdAt(d, out, pi){ const P = tdPath(pi), f = clamp(d/P.step, 0, P.px.length - 1.001), i = Math.floor(f), t = f - i; const x = lerp(P.px[i], P.px[i + 1], t), z = lerp(P.pz[i], P.pz[i + 1], t); return (out || new THREE.Vector3()).set(x, groundH(x, z) + TD_FLY, z); }
+function tdDir(d, pi){ const P = tdPath(pi), i = clamp(Math.floor(d/P.step), 0, P.px.length - 2); return Math.atan2(P.px[i + 1] - P.px[i], P.pz[i + 1] - P.pz[i]); }
 
 /* ---------- a round's worth of state ---------- */
 function tdStart(){
@@ -5362,26 +5378,36 @@ function tdStart(){
   ttClearAll(); Object.assign(TD, {on:true, wallet:{}, earned:0, hpK:1, spK:1, inf:tdAuth() && !!ME.tdInf, speed:TD.speed || 1, wave:0, state:'build', lives:TD_LIVES, pops:0, list:[], queue:[], t:0, seq:0, sendT:0, auto:TD.auto || false, autoT:0, over:false, net:{}, grid:new Map()});
   if (egg) { const b = egg.body; b.type = CANNON.Body.STATIC; b.mass = 0; b.updateMassProperties(); b.velocity.set(0, 0, 0); }
   tdScenery();
+  if (G.siege) siegeStart();
   // everyone starts by the egg
   const P = localP(); if (P) { const a = Math.random()*Math.PI*2; P.body.position.set(Math.cos(a)*6, groundH(Math.cos(a)*6, Math.sin(a)*6) + .5, Math.sin(a)*6); P.body.velocity.set(0, 0, 0); G.yaw = Math.atan2(TD.px[0], TD.pz[0]); G.pitch = -.18; }
-  tdHud(); renderTray(); toast('🎈 Balloon Defense! Balloons follow the sandy path to the egg. Pop them, and buy turrets in the Skills bar (right side) with the money you earn. Enter (or the button) starts round 1.');
+  tdHud(); renderTray(); if (G.siege) siegeIntro(); else toast('🎈 Balloon Defense! Balloons follow the sandy path to the egg. Pop them, and buy turrets in the Skills bar (right side) with the money you earn. Enter (or the button) starts round 1.');
 }
 function tdClear(){ ttClearAll(); for (const b of TD.list || []) if (b.blimpG && b.blimpG.parent) b.blimpG.parent.remove(b.blimpG); TD.list = []; TD.on = false; if (TD.im) for (const k in TD.im) TD.im[k].count = 0; }
-function tdAskWave(){ if (!tdOn() || !(TD.state === 'build' || TD.state === 'wave') || TD.wave >= TD_ROUNDS) return; if (tdAuth()) tdStartWave(); else netSend({t:'tdgo'}); }
+function tdAskWave(){ if (!tdOn() || !(TD.state === 'build' || TD.state === 'wave') || TD.wave >= TD_ROUNDS) return;
+  if (siegeOn()) { if (TD.state !== 'build' || TD.over) return; TD.ready = TD.ready || {}; if (tdAuth()) siegeReady(G.localKey); else { TD.ready[G.localKey] = 1; netSend({t:'tdgo'}); tdHud(); sfx('click'); } return; }
+  if (tdAuth()) tdStartWave(); else netSend({t:'tdgo'}); }
 function tdStartWave(){
   if (!tdOn() || !(TD.state === 'build' || TD.state === 'wave') || TD.wave >= TD_ROUNDS) return;
+  if (siegeOn() && TD.state !== 'build') return;   /* Fortress Siege: one round at a time, when everyone is ready */
+  TD.ready = {};
   // sent early, on top of the round still going: that round's bonus is paid now, the new balloons queue up behind
   const early = TD.state === 'wave'; if (early) ttEarn(100 + 20*TD.wave); else { TD.t = 0; TD.queue = []; }
   TD.wave++; TD.state = 'wave';
-  for (const [type, count, gap, start] of TD_WAVES[TD.wave - 1]) for (let i = 0; i < count; i++) TD.queue.push({at:TD.t + (start || 0) + i*gap, t:type});
+  { const sg = siegeOn(), NP = sg ? TD.P.length : 1;
+    for (let pi = 0; pi < NP; pi++) {
+      for (const [type, count, gap, start] of TD_WAVES[TD.wave - 1]) { const c = sg ? Math.max(1, Math.round(count*.55)) : count, gp = sg ? gap*1.45 : gap; for (let i = 0; i < c; i++) TD.queue.push({at:TD.t + (start || 0) + i*gp + pi*.37, t:type, pi}); }
+      if (sg && TD.wave % 3 === 0) { const bt = siegeBoss(TD.wave); for (let k = 0; k <= Math.floor(TD.wave/40); k++) TD.queue.push({at:TD.t + 9 + k*7 + pi*.5, t:bt, pi}); } } }
   TD.queue.sort((a, b) => a.at - b.at);
   TD.hpK = 1 + .045*(TD.wave - 1) + .03*Math.max(0, TD.wave - 20); TD.spK = Math.min(1.9, 1 + .012*(TD.wave - 1));   // past round 20 they toughen faster
+  if (siegeOn()) TD.hpK *= 1.8;   /* Fortress Siege: fewer balloons, more health */
   sfx('trumpet'); tdHud(); tdSend(true);
-  toast(`🎈 Round ${TD.wave}${TD.wave === TD_ROUNDS ? ' (the last one!)' : ''}: ${TD_WAVES[TD.wave - 1].map(g => g[1] + ' ' + TDT[g[0]].n).join(', ')}`);
+  if (siegeOn()) toast(`🏰 Round ${TD.wave}${TD.wave === TD_ROUNDS ? ' (the last one!)' : ''}: ${TD.queue.length} balloons on ${TD.P.length} path${TD.P.length > 1 ? 's' : ''}${TD.wave % 3 === 0 ? `, led by a ${TDT[siegeBoss(TD.wave)].n} BOSS` : ''}!`);
+  else toast(`🎈 Round ${TD.wave}${TD.wave === TD_ROUNDS ? ' (the last one!)' : ''}: ${TD_WAVES[TD.wave - 1].map(g => g[1] + ' ' + TDT[g[0]].n).join(', ')}`);
   { const seen = new Set(TD_WAVES.slice(0, TD.wave - 1).flat().map(g => g[0])); let k = 0; for (const g of TD_WAVES[TD.wave - 1]) if (!seen.has(g[0]) && TDT[g[0]].d) { seen.add(g[0]); const T = TDT[g[0]]; setTimeout(() => toast(`🆕 ${T.n} balloon: ${T.d}`), 1600 + 1800*k++); } }
 }
-const tdBL = T => [0, 1, 1.45, 1.9, 2.4][T.blimp] || 1;   // blimp size
-const tdR = T => (T.blimp ? 3.2*tdBL(T) : .75*T.s)*TD_SIZE;
+const tdBL = T => ([0, 1, 1.45, 1.9, 2.4][T.blimp] || 1)*(G.siege && G.mode === 'td' ? 1.35 : 1);   // blimp size (bigger in Fortress Siege)
+const tdR = T => (T.blimp ? 3.2*tdBL(T) : .75*T.s*(G.siege && G.mode === 'td' ? 1.15 : 1))*TD_SIZE;
 const tdShMax = T => T.ab && T.ab.shield ? T.ab.shield*T.hp*(TD.hpK || 1) : 0;
 // what every screen draws: 1 shielded, 2 phased out, 4 guarded (the host knows, clients get it in the snapshot)
 const tdFl = b => tdAuth() ? ((b.sh > 0 ? 1 : 0) | (b.phased ? 2 : 0) | (b.guardT > 0 ? 4 : 0)) : (b.fl | 0);
@@ -5395,10 +5421,10 @@ function tdAbilities(dt){
     if (A.shield) { const sm = A.shield*mx; if ((b.sh || 0) < sm && TD.t - (b.lastHit || -9) > A.srg) b.sh = Math.min(sm, (b.sh || 0) + sm*.5*dt); }
     if (A.phase) b.phased = (TD.t + b.id*.731) % (A.phase[0] + A.phase[1]) > A.phase[0];
     b.abT = (b.abT || 0) - dt;
-    if (A.blink && b.abT <= 0) { b.abT = A.blink[0]; const from = b.pos.clone(); b.d = Math.min(TD.len - 6, b.d + A.blink[1]); tdAt(b.d, b.pos); puff(from, 0xB07CFF, .8); puff(b.pos, 0xB07CFF, .8); sfx('portal'); }
+    if (A.blink && b.abT <= 0) { b.abT = A.blink[0]; const from = b.pos.clone(); b.d = Math.min(TD.len - 6, b.d + A.blink[1]); tdAt(b.d, b.pos, b.pi); puff(from, 0xB07CFF, .8); puff(b.pos, 0xB07CFF, .8); sfx('portal'); }
     if (A.heal && b.abT <= 0) { b.abT = A.heal[0]; let n = 0; for (const o of L) { if (o.dead || hdist(o.pos, b.pos) > A.heal[1]) continue; const m2 = TDT[o.t].hp*hk; if (o.hp < m2) { o.hp = Math.min(m2, o.hp + A.heal[2]*m2); n++; } } if (n) sparkle(b.pos, 0x7CFF9A); }
     if (A.aura) for (const o of L) if (!o.dead && o !== b && hdist(o.pos, b.pos) < A.aura) o.guardT = .3;
-    if (A.spawn && b.abT <= 0) { b.abT = A.spawn[0]; tdSpawn(A.spawn[1], Math.max(0, b.d - 3)); }
+    if (A.spawn && b.abT <= 0) { b.abT = A.spawn[0]; tdSpawn(A.spawn[1], Math.max(0, b.d - 3), b.pi); }
     if (A.frost) for (const t of TT.list) if (Math.hypot(t.x - b.pos.x, t.z - b.pos.z) < A.frost) t.frostT = .3;
     if (A.quake && b.abT <= 0) { b.abT = A.quake[0]; tdEmp(b.pos, A.quake[1], A.quake[2]); shakeAt(b.pos, .8, 80); }
   }
@@ -5415,7 +5441,7 @@ function tdPopAb(b, T){
   if (A.emp) tdEmp(b.pos, A.emp[0], A.emp[1]);
   if (A.gold) { ttEarn(A.gold); sparkle(b.pos, 0xFFD700); sparkle(b.pos, 0xFFF3B0); sfx('holy'); toast(`💰 Golden balloon popped: +${A.gold} for everyone!`); }
 }
-function tdSpawn(type, d){ const T = TDT[type], b = {id:++TD.seq, t:type, d:Math.max(0, d), hp:T.hp*TD.hpK, R:tdR(T), ph:Math.random()*6, pos:new THREE.Vector3(), dead:false, flash:0, abT:Math.random()*2}; b.sh = tdShMax(T); tdAt(b.d, b.pos); TD.list.push(b); return b; }
+function tdSpawn(type, d, pi){ const T = TDT[type], b = {id:++TD.seq, t:type, pi:pi | 0, d:Math.max(0, d), hp:T.hp*TD.hpK, R:tdR(T), ph:Math.random()*6, pos:new THREE.Vector3(), dead:false, flash:0, abT:Math.random()*2}; b.sh = tdShMax(T); tdAt(b.d, b.pos, b.pi); TD.list.push(b); return b; }
 
 /* ---------- hits (host only: it owns the balloons) ---------- */
 function tdHit(b, dmg, kind){
@@ -5433,7 +5459,7 @@ function tdHit(b, dmg, kind){
     if (!T.ch.length) { b.dead = true; break; }
     if (T.ch.length === 1) { b.t = T.ch[0]; const N = TDT[b.t]; b.hp = N.hp*TD.hpK - over; b.R = tdR(N); b.sh = tdShMax(N); over = -b.hp; continue; }   // the next colour, same balloon
     b.dead = true; if (b.blimpG && b.blimpG.parent) b.blimpG.parent.remove(b.blimpG);
-    T.ch.forEach((c, k) => { const nb = tdSpawn(c, b.d + (k - (T.ch.length - 1)/2)*1.4); if (over > 0) tdHit(nb, Math.min(over*.5, TDT[c].hp*TD.hpK*.9)); });   // one big hit can't wipe out a whole family
+    T.ch.forEach((c, k) => { const nb = tdSpawn(c, b.d + (k - (T.ch.length - 1)/2)*1.4, b.pi); if (over > 0) tdHit(nb, Math.min(over*.5, TDT[c].hp*TD.hpK*.9)); });   // one big hit can't wipe out a whole family
   }
 }
 function tdNear(at, R, fn){ if (!tdOn() || !tdAuth()) return; for (const b of TD.list) { if (b.dead) continue; if (fn(b)) continue; } }
@@ -5468,21 +5494,21 @@ function tdFrame(dt){
   if (!tdOn()) { if (TD.im && TD.im.body.count) tdClear(); return; }
   if (tdAuth() && !TD.over) {
     if (TD.state === 'wave') {
-      const fdt = dt*(TD.speed || 1); TD.t += fdt;
-      while (TD.queue.length && TD.queue[0].at <= TD.t) tdSpawn(TD.queue.shift().t, 0);
-      for (const b of TD.list) { if (b.dead) continue; const T = TDT[b.t]; b.d += T.sp*TD.speedK*TD.spK*fdt*tdSpd(b, T)*(b.stunT > 0 ? 0 : b.slowT > 0 ? .5 : 1); if (b.stunT > 0) b.stunT -= fdt; if (b.slowT > 0) b.slowT -= fdt;
+      const fdt = dt*(TD.speed || 1), sg = siegeOn(); TD.t += fdt;
+      while (TD.queue.length && TD.queue[0].at <= TD.t) { const q = TD.queue.shift(); tdSpawn(q.t, 0, q.pi); }
+      for (const b of TD.list) { if (b.dead) continue; const T = TDT[b.t], d0 = b.d; b.d += T.sp*TD.speedK*TD.spK*fdt*tdSpd(b, T)*(b.stunT > 0 ? 0 : b.slowT > 0 ? .5 : 1); if (b.stunT > 0) b.stunT -= fdt; if (b.slowT > 0) b.slowT -= fdt; if (sg) siegeBlock(b, d0, fdt);
         if (b.d >= TD.len) { b.dead = true; if (b.blimpG && b.blimpG.parent) b.blimpG.parent.remove(b.blimpG); tdLeak(T); } }
       tdAbilities(fdt); tdFastHits();
       TD.list = TD.list.filter(b => !b.dead);
       if (!TD.queue.length && !TD.list.length && TD.lives > 0) tdWaveDone();
-    } else if (TD.state === 'build' && TD.auto && TD.wave > 0) { TD.autoT += dt; if (TD.autoT > 4) { TD.autoT = 0; tdStartWave(); } }
+    } else if (TD.state === 'build' && TD.auto && TD.wave > 0 && !siegeOn()) { TD.autoT += dt; if (TD.autoT > 4) { TD.autoT = 0; tdStartWave(); } }
     TD.sendT -= dt; if (TD.sendT <= 0) { TD.sendT = TD.list.length > 150 ? .16 : .11; tdSend(false); }
   } else if (!tdAuth()) {
     // between the host's reports, keep them gliding along the path
-    for (const b of TD.list) if (!b.dead) b.d = Math.min(TD.len, b.d + TDT[b.t].sp*TD.speedK*(TD.spK || 1)*dt*(TD.speed || 1)*tdSpd(b, TDT[b.t]));
+    const sg = siegeOn(); for (const b of TD.list) if (!b.dead) { const d0 = b.d; b.d = Math.min(TD.len, b.d + TDT[b.t].sp*TD.speedK*(TD.spK || 1)*dt*(TD.speed || 1)*tdSpd(b, TDT[b.t])); if (sg) siegeBlock(b, d0, dt); }
   }
-  for (const b of TD.list) { if (b.dead) continue; tdAt(b.d, b.pos); b.flash = Math.max(0, b.flash - dt); }
-  tdDraw(dt); tdMapFrame(dt); ttFrame(dt);
+  for (const b of TD.list) { if (b.dead) continue; tdAt(b.d, b.pos, b.pi); b.flash = Math.max(0, b.flash - dt); }
+  tdDraw(dt); tdMapFrame(dt); ttFrame(dt); if (siegeOn()) siegeFortFrame(dt);
 }
 /* ---------- the minimap: the whole island from above (north up; right is the way you face when you look north). The path,
    the egg, every balloon in its colour (blimps bigger, the one closest to the egg ringed), the players as arrows (you in
@@ -5503,13 +5529,14 @@ function tdMapBase(){
   g.fillStyle = '#3FA9E8'; g.fillRect(0, 0, TDM_N, TDM_N);
   g.fillStyle = '#7FD36A'; g.fillRect(4, 4, TDM_N - 8, TDM_N - 8);
   g.strokeStyle = 'rgba(0,0,0,.06)'; g.lineWidth = 1; for (let i = 0; i < TDM_N; i += 24) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, TDM_N); g.moveTo(0, i); g.lineTo(TDM_N, i); g.stroke(); }
-  const path = () => { g.beginPath(); for (let i = 0; i < TD.px.length; i += 3) { const x = tdmX(TD.px[i]), y = tdmY(TD.pz[i]); i ? g.lineTo(x, y) : g.moveTo(x, y); } g.lineTo(tdmX(TD.px[TD.px.length - 1]), tdmY(TD.pz[TD.pz.length - 1])); };
+  const path = () => { g.beginPath(); for (const P of TD.P || [TD]) { for (let i = 0; i < P.px.length; i += 3) { const x = tdmX(P.px[i]), y = tdmY(P.pz[i]); i ? g.lineTo(x, y) : g.moveTo(x, y); } g.lineTo(tdmX(P.px[P.px.length - 1]), tdmY(P.pz[P.pz.length - 1])); } };
   g.lineCap = g.lineJoin = 'round';
   path(); g.strokeStyle = '#9C8A62'; g.lineWidth = 7.2*k + 3; g.stroke();
   path(); g.strokeStyle = '#F2D58A'; g.lineWidth = 5.4*k; g.stroke();
   // start gate
-  const sx = tdmX(TD.px[0]), sy = tdmY(TD.pz[0]); g.fillStyle = '#FF3B3B'; g.strokeStyle = '#4A2A00'; g.lineWidth = 3; g.beginPath(); g.arc(sx, sy, 9, 0, Math.PI*2); g.fill(); g.stroke();
-  g.fillStyle = '#FFF'; g.font = '900 13px Nunito, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('S', sx, sy + 1);
+  for (const P of TD.P || [TD]) { const sx = tdmX(P.px[0]), sy = tdmY(P.pz[0]); g.fillStyle = '#FF3B3B'; g.strokeStyle = '#4A2A00'; g.lineWidth = 3; g.beginPath(); g.arc(sx, sy, 9, 0, Math.PI*2); g.fill(); g.stroke();
+  g.fillStyle = '#FFF'; g.font = '900 13px Nunito, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('S', sx, sy + 1); }
+  if (G.siege) { g.strokeStyle = 'rgba(255,255,255,.85)'; g.lineWidth = 2.5; g.setLineDash([6, 5]); g.beginPath(); g.arc(tdmX(0), tdmY(0), AREA_R*k, 0, Math.PI*2); g.stroke(); g.setLineDash([]); }
   return c;
 }
 const tdHex = c => '#' + c.toString(16).padStart(6, '0');
@@ -5521,13 +5548,15 @@ function tdMapFrame(dt){
   // the egg
   const ex = tdmX(0), ey = tdmY(0), lf = TD.lives/TD_LIVES; g.fillStyle = lf > .5 ? '#FFF7E0' : lf > .2 ? '#FFD84D' : '#FF6A5A'; g.strokeStyle = '#4A2A00'; g.lineWidth = 3;
   g.beginPath(); g.ellipse(ex, ey, 10, 13, 0, 0, Math.PI*2); g.fill(); g.stroke();
+  if (siegeOn()) { if (FORT.lava) { g.strokeStyle = 'rgba(255,90,31,.8)'; g.lineWidth = (LAVA[1] - LAVA[0])*TDM_N/(2*ISL); g.beginPath(); g.arc(ex, ey, (LAVA[0] + LAVA[1])/2*TDM_N/(2*ISL), 0, Math.PI*2); g.stroke(); }
+    for (const ring of FORT.rings) { const N = ring.segs.length, rr0 = ring.r*TDM_N/(2*ISL); g.lineWidth = 3; for (let i = 0; i < N; i++) { const w = BARS.list.find(q => q.id === ring.segs[i] && !q.dead); if (!w) continue; g.strokeStyle = w.hp < w.maxHp*.35 ? '#FF4B3E' : '#5A4A3A'; g.beginPath(); g.arc(ex, ey, rr0, -(i + 1)/N*Math.PI*2, -i/N*Math.PI*2); g.stroke(); } } }
   // turrets: little squares in their class colour (gold pips = upgrades)
   for (const t of TT.list) { const x = tdmX(t.x), y = tdmY(t.z), D = TT_DEFS[t.k]; g.fillStyle = D.cls === 'pain' ? '#7A5CC8' : D.cls === 'bomber' ? '#6B7A4A' : D.cls === 'avatar' ? '#FF6A1F' : D.cls === 'wood' ? '#5A8A2E' : '#D9A520'; g.strokeStyle = '#1A1A1A'; g.lineWidth = 2; g.fillRect(x - 6, y - 6, 12, 12); g.strokeRect(x - 6, y - 6, 12, 12); if (t.lvl) { g.fillStyle = '#FFD84D'; g.fillRect(x - 6, y + 7, 12*t.lvl/5, 3); } }
   // balloons: the leader (closest to the egg) is ringed
   let lead = null; for (const b of TD.list) if (!b.dead && (!lead || b.d > lead.d)) lead = b;
   const live = TD.list.filter(b => !b.dead).sort((a, b) => a.d - b.d);
   for (const b of live) { const T = TDT[b.t], x = tdmX(b.pos.x), y = tdmY(b.pos.z);
-    if (T.blimp) { g.fillStyle = tdHex(T.c); g.strokeStyle = '#1A1A1A'; g.lineWidth = 2.5; g.beginPath(); g.ellipse(x, y, 7 + 4*tdBL(T), 4 + 2.2*tdBL(T), -tdDir(b.d) + Math.PI/2, 0, Math.PI*2); g.fill(); g.stroke(); g.fillStyle = '#FFF'; g.font = '900 10px Nunito, sans-serif'; g.fillText(T.n[0], x, y + 1); }
+    if (T.blimp) { g.fillStyle = tdHex(T.c); g.strokeStyle = '#1A1A1A'; g.lineWidth = 2.5; g.beginPath(); g.ellipse(x, y, 7 + 4*tdBL(T), 4 + 2.2*tdBL(T), -tdDir(b.d, b.pi) + Math.PI/2, 0, Math.PI*2); g.fill(); g.stroke(); g.fillStyle = '#FFF'; g.font = '900 10px Nunito, sans-serif'; g.fillText(T.n[0], x, y + 1); }
     else { g.fillStyle = b.t === 8 ? `hsl(${(G.t*180 + b.id*47) % 360},100%,58%)` : b.t === 7 ? '#E8E8E8' : tdHex(T.c); g.strokeStyle = '#1A1A1A'; g.lineWidth = 2; g.beginPath(); g.arc(x, y, 4 + Math.min(3, T.s*1.6), 0, Math.PI*2); g.fill(); g.stroke(); } }
   if (lead) { const x = tdmX(lead.pos.x), y = tdmY(lead.pos.z), pr = 11 + Math.sin(G.t*8)*2.5; g.strokeStyle = '#FF2A2A'; g.lineWidth = 3; g.beginPath(); g.arc(x, y, pr, 0, Math.PI*2); g.stroke(); }
   // players: arrows the way they face (you: yellow and bigger)
@@ -5538,7 +5567,7 @@ function tdMapFrame(dt){
   let html = `🎈 Round <b>${rnd}/${TD_ROUNDS}</b> · ❤️ <b>${TD.lives}</b> · 💰 <b>${ttMoney()}</b> · 🏗️ ${TT.list.length}<br>`;
   if (TD.state === 'wave') { html += `On the path <b>${onPath}</b>${queued ? ` · still coming <b>${queued}</b>` : ''}<br>`;
     if (lead) { const pct = Math.round(lead.d/TD.len*100), left = Math.max(0, Math.round(TD.len - lead.d)); html += `<span style="color:#C4200E">Closest: ${TDT[lead.t].n} · ${pct}% of the way · ${left} m to the egg</span>`; } }
-  else if (TD.wave < TD_ROUNDS) { const nx = TD_WAVES[TD.wave]; html += `Next: ${nx.map(w => w[1] + ' ' + TDT[w[0]].n).join(', ')}`; }
+  else if (TD.wave < TD_ROUNDS) { const nx = TD_WAVES[TD.wave], sg = siegeOn(); html += `Next: ${nx.map(w => (sg ? Math.max(1, Math.round(w[1]*.55))*TD.P.length : w[1]) + ' ' + TDT[w[0]].n).join(', ')}${sg && (TD.wave + 1) % 3 === 0 ? ` + ${TD.P.length} ${TDT[siegeBoss(TD.wave + 1)].n} BOSS` : ''}`; }
   if (M.info.innerHTML !== html) M.info.innerHTML = html;
 }
 function tdLeak(T){
@@ -5550,6 +5579,7 @@ function tdLeak(T){
 function tdWaveDone(){
   TD.state = 'build'; TD.autoT = 0; sfx('win'); const bonus = 100 + 20*TD.wave; ttEarn(bonus);
   if (TD.wave >= TD_ROUNDS) { tdEnd(true); return; }
+  if (siegeOn()) { TD.ready = {}; siegeRoundReset(); toast(`🎉 Round ${TD.wave} cleared! +💰${bonus}. Walls rebuilt, the defences refilled. Press Enter (✅ Ready) when you’re set: the next round starts when everyone is.`); tdHud(); tdSend(true); return; }
   toast(`🎉 Round ${TD.wave} cleared! +💰${bonus}. ${TD.auto ? 'The next one starts in a moment.' : 'Enter (or the button) starts the next one.'}`); tdHud(); tdSend(true);
 }
 function tdEnd(win){
@@ -5563,31 +5593,32 @@ function tdShowEnd(){
     const e = $('matchEnd');
     e.innerHTML = `<div class="panel sticker" style="background:linear-gradient(180deg,#FFF7D6,#FFE08A)"><div class="title" style="color:${win ? '#2E9B3A' : '#E8332E'}">${win ? '🏆 The egg is safe!' : '💔 The egg cracked!'}</div><p style="font-size:18px">${win ? `All ${TD_ROUNDS} rounds beaten.` : `You made it to round ${TD.wave} of ${TD_ROUNDS}.`} 🎈 ${TD.pops.toLocaleString()} balloons popped.</p>${tdAuth() ? '<div class="actions"><button class="btn primary" id="tdAgain">Play again</button></div>' : '<p class="muted">Waiting for the host to start again…</p>'}</div>`;
     e.style.display = 'flex';
-    const b = $('tdAgain'); if (b) b.onclick = () => { e.style.display = 'none'; if (NET.peer && NET.host) hostStart(); else { const me = myInfo(); me.id = 'me'; startMatch(Math.floor(Math.random()*90000) + 10000, [me], null, 'td', ME.cdOn); } };
+    const b = $('tdAgain'); if (b) b.onclick = () => { e.style.display = 'none'; if (NET.peer && NET.host) hostStart(); else { const me = myInfo(); me.id = 'me'; startMatch(Math.floor(Math.random()*90000) + 10000, [me], null, G.siege ? 'siege' : 'td', ME.cdOn); } };
   }, win ? 600 : 2600);
 }
 // the host tells everyone where every balloon is
 function tdSend(force){
   if (!NET.peer || !NET.host) return;
-  const b = []; for (const q of TD.list) if (!q.dead) b.push(q.id, q.t, Math.round(q.d*10), Math.round(Math.max(0, q.hp)), tdFl(q));
-  netBroadcast({t:'td', c:TD.wallet || {}, i:TD.inf ? 1 : 0, f:TD.speed || 1, tt:ttPack(), w:TD.wave, s:TD.state, l:TD.lives, p:TD.pops, a:TD.auto ? 1 : 0, k:+(TD.hpK || 1).toFixed(3), v:+(TD.spK || 1).toFixed(3), b});
+  const b = []; for (const q of TD.list) if (!q.dead) b.push(q.id, q.t, Math.round(q.d*10), Math.round(Math.max(0, q.hp)), tdFl(q), q.pi | 0);
+  netBroadcast({t:'td', c:TD.wallet || {}, i:TD.inf ? 1 : 0, f:TD.speed || 1, tt:ttPack(), w:TD.wave, s:TD.state, l:TD.lives, p:TD.pops, a:TD.auto ? 1 : 0, k:+(TD.hpK || 1).toFixed(3), v:+(TD.spK || 1).toFixed(3), r:Object.keys(TD.ready || {}), sg:siegeOn() ? siegePack() : 0, b});
 }
 function tdApply(m){
   const was = TD.state, old = new Map(TD.list.map(b => [b.id, b]));
   if (m.c && typeof m.c === 'object') TD.wallet = Object.assign({}, m.c); TD.inf = !!m.i; TD.speed = m.f === 2 || m.f === 4 ? m.f : 1; if (Array.isArray(m.tt)) ttSync(m.tt);
   TD.wave = m.w | 0; TD.state = m.s; TD.lives = m.l | 0; TD.pops = m.p | 0; TD.auto = !!m.a; TD.hpK = +m.k || 1; TD.spK = +m.v || 1;
   const list = []; const a = Array.isArray(m.b) ? m.b : [];
-  for (let i = 0; i + 4 < a.length; i += 5) {
-    const id = a[i], t = a[i + 1] | 0, d = a[i + 2]/10, hp = a[i + 3], fl = a[i + 4] | 0; if (!TDT[t]) continue;
+  TD.ready = {}; if (Array.isArray(m.r)) m.r.forEach(k => { TD.ready[k] = 1; }); if (m.sg) siegeUnpack(m.sg);
+  for (let i = 0; i + 5 < a.length; i += 6) {
+    const id = a[i], t = a[i + 1] | 0, d = a[i + 2]/10, hp = a[i + 3], fl = a[i + 4] | 0, pi = a[i + 5] | 0; if (!TDT[t]) continue;
     let b = old.get(id);
     if (b) { if (b.t !== t) tdPopFX(b.pos, TDT[b.t], 1); old.delete(id); if (Math.abs(b.d - d) > 3) b.d = d; else b.d = lerp(b.d, d, .5); b.t = t; if (hp < b.hp) b.flash = .12; b.hp = hp; b.R = tdR(TDT[t]); }
-    else { b = {id, t, d, hp, R:tdR(TDT[t]), ph:Math.random()*6, pos:new THREE.Vector3(), dead:false, flash:0}; tdAt(d, b.pos); }
-    b.fl = fl; list.push(b);
+    else { b = {id, t, pi, d, hp, R:tdR(TDT[t]), ph:Math.random()*6, pos:new THREE.Vector3(), dead:false, flash:0}; tdAt(d, b.pos, pi); }
+    b.fl = fl; b.pi = pi; list.push(b);
   }
   // the ones that are gone popped (or reached the egg)
   for (const b of old.values()) { if (b.blimpG && b.blimpG.parent) b.blimpG.parent.remove(b.blimpG); if (b.d < TD.len - 2) tdPopFX(b.pos, TDT[b.t], TDT[b.t].blimp ? 3 : 1); else sfx('crack'); }
   TD.list = list;
-  if (was !== TD.state) { tdHud(); if (TD.state === 'wave') { sfx('trumpet'); toast(`🎈 Round ${TD.wave}!`); } if (TD.state === 'build' && TD.wave > 0) { sfx('win'); toast(`🎉 Round ${TD.wave} cleared!`); } if ((TD.state === 'won' || TD.state === 'lost') && !TD.over) { TD.over = true; tdShowEnd(); } }
+  if (was !== TD.state) { tdHud(); if (TD.state === 'wave') { sfx('trumpet'); toast(`🎈 Round ${TD.wave}!`); } if (TD.state === 'build' && TD.wave > 0) { sfx('win'); toast(`🎉 Round ${TD.wave} cleared!`); if (siegeOn() && was === 'wave') siegeRoundReset(); } if ((TD.state === 'won' || TD.state === 'lost') && !TD.over) { TD.over = true; tdShowEnd(); } }
   if (egg && egg.alive) { if (TD.lives < TD_LIVES*.66 && egg.cracks < 1) addCrack(); if (TD.lives < TD_LIVES*.33 && egg.cracks < 2) addCrack(); }
   tdHud();
 }
@@ -5607,7 +5638,7 @@ function tdMeshes(){
 const _tdM = new THREE.Matrix4(), _tdQ = new THREE.Quaternion(), _tdS = new THREE.Vector3(), _tdC = new THREE.Color(), _tdE = new THREE.Euler();
 const TD_CAMO = [0x4E7A3A, 0x6B5A3A, 0x2F4A26], TD_WHITE = new THREE.Color(0xFFFFFF);
 function tdDraw(dt){
-  const im = tdMeshes(); let n = 0, n2 = 0; const big = 1 + Math.min(.35, ((TD.hpK || 1) - 1)*.6);   // later rounds: bigger balloons
+  const im = tdMeshes(); let n = 0, n2 = 0; const big = (1 + Math.min(.35, ((TD.hpK || 1)/(G.siege ? 1.8 : 1) - 1)*.6))*(G.siege && G.mode === 'td' ? 1.15 : 1);   // later rounds: bigger balloons
   for (const b of TD.list) {
     if (b.dead) continue; const T = TDT[b.t];
     if (T.blimp) { tdBlimp(b, T); continue; }
@@ -5626,7 +5657,7 @@ function tdDraw(dt){
 }
 let TD_BLIMP_GEO = {};
 function tdBlimpGeo(T){
-  const kind = T.n; if (TD_BLIMP_GEO[kind]) return TD_BLIMP_GEO[kind];
+  const kind = T.n + (G.siege && G.mode === 'td' ? '+' : ''); if (TD_BLIMP_GEO[kind]) return TD_BLIMP_GEO[kind];
   const main = T.c, dark = T.c2 || 0x222222, L = tdBL(T), parts = [];
   parts.push([natAt(new THREE.SphereGeometry(1, 20, 14), 0, 0, 0, 0, 0, 0, 2.2*L, 2.2*L, 4.6*L), main]);
   for (const z of [-1.6, 0, 1.6]) parts.push([natAt(new THREE.CylinderGeometry(2.25*L, 2.25*L, .32, 20), 0, 0, z*L, Math.PI/2, 0, 0), 0xF2F2F2]);
@@ -5639,7 +5670,7 @@ function tdBlimp(b, T){
   if (!b.blimpG) { const g = new THREE.Group(), m = new THREE.Mesh(tdBlimpGeo(T), NAT_MAT); g.add(m); addOutline(g); const lab = textSprite(); lab.userData.set(T.n, '#FFFFFF'); lab.position.y = 4*tdBL(T); lab.scale.set(4, 1.5, 1); g.add(lab);
     const mkb = c => { const sp0 = new THREE.Sprite(new THREE.SpriteMaterial({color:c, depthTest:false, depthWrite:false})); sp0.center.set(0, .5); sp0.renderOrder = 41; g.add(sp0); return sp0; }; b.bar = {bg:mkb(0x1A1A1A), fill:mkb(0x5BD15B)};
     g.traverse(o => o.userData.noRay = true); roundGroup.add(g); b.blimpG = g; }
-  const g = b.blimpG, k = tdBL(T); g.scale.setScalar(TD_SIZE); g.position.set(b.pos.x, b.pos.y + 2*k*TD_SIZE + Math.sin(G.t*1.3 + b.id)*.2, b.pos.z);   // (the bar and label live inside the scaled group) g.rotation.y = tdDir(b.d);
+  const g = b.blimpG, k = tdBL(T); g.scale.setScalar(TD_SIZE); g.position.set(b.pos.x, b.pos.y + 2*k*TD_SIZE + Math.sin(G.t*1.3 + b.id)*.2, b.pos.z);   // (the bar and label live inside the scaled group) g.rotation.y = tdDir(b.d, b.pi);
   const f = clamp(b.hp/(T.hp*(TD.hpK || 1)), 0, 1), w = 5*k; b.bar.bg.position.set(-w/2, 5.2*k, 0); b.bar.bg.scale.set(w, .32, 1); b.bar.fill.position.set(-w/2, 5.2*k, 0); b.bar.fill.scale.set(Math.max(.01, w*f), .24, 1); b.bar.fill.material.color.setHex(tdFl(b) & 1 ? 0x6FE3FF : f > .5 ? 0x5BD15B : f > .25 ? 0xF3C23A : 0xFF4B3E);
   g.children[0].scale.setScalar(b.flash > 0 ? 1.04 : 1);
 }
@@ -5650,16 +5681,164 @@ function tdPopFX(p, T, big){
 }
 // a bright, fun look: a striped start gate where the path enters, coloured flags along it, a golden ring round the egg
 function tdScenery(){
-  const g = new THREE.Group(), x0 = TD.px[0], z0 = TD.pz[0], a0 = tdDir(0), gy = groundH(x0, z0);
-  const cols = [0xFF3B3B, 0xFFE033, 0x2E9BFF, 0x45D34A, 0xFF6EC7];
+  const g = new THREE.Group(), cols = [0xFF3B3B, 0xFFE033, 0x2E9BFF, 0x45D34A, 0xFF6EC7], signs = [];
+  for (let pi = 0; pi < (TD.P ? TD.P.length : 1); pi++) { const P = tdPath(pi), x0 = P.px[0], z0 = P.pz[0], a0 = tdDir(0, pi), gy = groundH(x0, z0);
   const gate = new THREE.Group(); gate.position.set(x0, gy, z0); gate.rotation.y = a0; g.add(gate);
   for (const s0 of [-1, 1]) for (let i = 0; i < 6; i++) bx(1, 1, 1, cols[(i + (s0 > 0 ? 2 : 0)) % 5], s0*4, .5 + i, 0, gate);
   for (let i = 0; i < 9; i++) bx(1, 1, 1, cols[i % 5], -4 + i, 6.5, 0, gate);
-  const sign = textSprite(); sign.userData.set('🎈 START', '#FFFFFF'); sign.position.set(0, 8.2, 0); sign.scale.set(6, 2.2, 1); gate.add(sign);
-  for (let d = 18; d < TD.len - 12; d += 45) { const q = tdAt(d), dir = tdDir(d), side = (Math.floor(d/45) % 2 ? 1 : -1)*4.4, fx0 = q.x + Math.cos(dir)*side, fz0 = q.z - Math.sin(dir)*side, fy = groundH(fx0, fz0);
-    const pole = new THREE.Group(); pole.position.set(fx0, fy, fz0); bx(.12, 3, .12, 0xF2F2F2, 0, 1.5, 0, pole); const fl = bx(.9, .55, .06, cols[Math.floor(d/45) % 5], .45, 2.7, 0, pole); fl.rotation.y = .3; g.add(pole); }
+  const sign = textSprite(); sign.userData.set('🎈 START', '#FFFFFF'); sign.position.set(0, 8.2, 0); sign.scale.set(6, 2.2, 1); gate.add(sign); signs.push(sign);
+  for (let d = 18; d < TD.len - 12; d += 45) { const q = tdAt(d, null, pi), dir = tdDir(d, pi), side = (Math.floor(d/45) % 2 ? 1 : -1)*4.4, fx0 = q.x + Math.cos(dir)*side, fz0 = q.z - Math.sin(dir)*side, fy = groundH(fx0, fz0);
+    const pole = new THREE.Group(); pole.position.set(fx0, fy, fz0); bx(.12, 3, .12, 0xF2F2F2, 0, 1.5, 0, pole); const fl = bx(.9, .55, .06, cols[Math.floor(d/45) % 5], .45, 2.7, 0, pole); fl.rotation.y = .3; g.add(pole); } }
   const ring = new THREE.Mesh(new THREE.TorusGeometry(4.2, .22, 8, 48), M3(0xFFD84D)); ring.rotation.x = Math.PI/2; ring.position.set(0, groundH(0, 0) + .15, 0); g.add(ring);
-  mergeToon(g, [sign]); addOutline(g); g.traverse(o => o.userData.noRay = true); roundGroup.add(g);
+  mergeToon(g, signs); addOutline(g); g.traverse(o => o.userData.noRay = true); roundGroup.add(g);
+}
+
+/* ===================================== FORTRESS SIEGE (G.mode 'td' with G.siege) =====================================
+   Balloon Defense and Alpha Mode together, co-op. One wavy path per player (TD.P, up to 6) brings balloons from the edge of
+   the island to the egg. Everyone is a defender: the 🛡️ Defences tab (G.cls 'kit') is the Alpha Mode kit (GUARD), free, its
+   limits shared by the team and refilled every round (fortLim, G.egg.left2); the class tabs are your powers plus the turret
+   shop (turrets cost money, as in Balloon Defense). Everything of the kit fights balloons: walls and the dome stop them until
+   the balloons chew through (siegeBlock), lasers, missiles, tesla coils, drones, spirits, golems, the swarm and the stars shoot
+   them (fortEnemies lists balloons; siegeHit), lava pops them, the teleport portal sends them back to the start and the
+   reflective roof pushes them back. Rounds: TD_WAVES with 55% of the balloons per path and 1.8x health, a boss blimp every
+   third round. Between rounds nothing happens until every player has pressed Ready (TD.ready, 'tdgo'); the round's end
+   rebuilds broken wall segments and recharges everything (siegeRoundReset, on every screen). The host owns the balloons and
+   the wall / dome / roof health (siegePack in the 'td' snapshot). */
+function siegeStart(){
+  const defs = {}; for (const k in chars) defs[k] = true;
+  G.egg = {siege:true, def:G.localKey, defs, ready:{}, gaveUp:{}, left2:{}, pts:{}, round:1, total:1, over:false, ph:'attack', endT:Infinity};
+  G.eggHP = G.eggHPMax = 100; G.domeChew = 0; TD.ready = {};
+  zoneRing.geometry.dispose(); zoneRing.geometry = new THREE.RingGeometry(AREA_R - .35, AREA_R, 128); zoneRing.visible = true;
+  G.cls = 'kit';
+}
+function siegeIntro(){
+  const n = TD.P.length;
+  toast(`🏰 Fortress Siege! ${n} path${n > 1 ? 's' : ''} of balloons lead${n > 1 ? '' : 's'} to the egg. 🛡️ Defences tab: walls, dome, lava, drones… (free, refilled every round).`);
+  setTimeout(() => toast('Class tabs (Tab): your powers, and turrets (Y) bought with 💰. Press Enter (✅ Ready) when you’re set.'), 2700);
+}
+// the host: someone pressed Ready. Everyone ready: the round starts
+function siegeReady(id){
+  if (!siegeOn() || !tdAuth() || TD.state !== 'build' || TD.over || !chars[id]) return;
+  TD.ready = TD.ready || {}; TD.ready[id] = 1; sfx('click');
+  const ids = Object.keys(chars), n = ids.filter(k => TD.ready[k]).length;
+  if (n >= ids.length) { TD.ready = {}; tdStartWave(); return; }
+  if (id !== G.localKey) toast(`✅ ${eggName(id)} is ready (${n}/${ids.length}).`);
+  tdHud(); tdSend(true);
+}
+// every third round a boss blimp leads each path, a bigger one as the rounds go on
+const siegeBoss = w => w < 12 ? 10 : w < 24 ? 11 : w < 40 ? 28 : w < 55 ? 30 : w % 15 === 0 ? 31 : 29;
+// the kit's damage grows with the rounds (balloons get much tougher), and only the host's hits count
+const siegeK = () => 2.5*(1 + .04*(TD.wave || 0));
+function siegeHit(b, dmg){ if (tdAuth() && b && !b.dead) tdHit(b, dmg*siegeK()); }
+function siegeNear(at, R){ if (!siegeOn()) return null; let best = null, bd = R; for (const b of TD.list) { if (b.dead || b.phased || (tdFl(b) & 2)) continue; const d = hdist(b.pos, at); if (d < bd) { bd = d; best = b; } } return best ? {pos:best.pos, bal:best} : null; }
+function siegeBiggest(at, R){ let best = null, bs = -1; for (const b of TD.list) { if (b.dead || b.phased || (tdFl(b) & 2)) continue; if (hdist(b.pos, at) > R) continue; const sc = (TDT[b.t].blimp ? 1e7 : 0) + b.hp; if (sc > bs) { bs = sc; best = b; } } return best; }
+// a balloon that would cross a standing wall segment (or the dome's edge) stays where it is and chews on it instead
+const _sgP = new THREE.Vector3();
+function siegeBlock(b, d0, dt){
+  if (!(b.d > d0)) return;
+  tdAt(b.d, _sgP, b.pi); const r1 = Math.hypot(_sgP.x, _sgP.z), r0 = Math.hypot(b.pos.x, b.pos.z), host = tdAuth(), T = TDT[b.t];
+  const chew = (2 + .3*Math.sqrt(T.hp*(TD.hpK || 1)))*(T.blimp ? 4 : 1)*dt;
+  if (domeUp()) { const R = G.dome.R + b.R*.5; if (hdist(_sgP, G.dome.c) < R && hdist(b.pos, G.dome.c) >= R - .05) { b.d = d0; if (host) { G.domeChew = (G.domeChew || 0) + chew; if (G.domeChew > 6) { const c = G.domeChew; G.domeChew = 0; hurtDome(c/fortDurability()); } } return; } }
+  for (const ring of FORT.rings) {
+    const R = ring.r + b.R*.5 + .3; if (!(r0 >= R - .05 && r1 < R)) continue;
+    const N = ring.segs.length, ang = (Math.atan2(_sgP.z, _sgP.x) + Math.PI*2) % (Math.PI*2), i = Math.floor(ang/(Math.PI*2)*N) % N, w = BARS.list.find(q => q.id === ring.segs[i] && !q.dead);
+    if (!w) continue;
+    b.d = d0; if (host) barHurt(w, chew); else w.hurtT = .1; return;
+  }
+}
+// a missile battery's rocket: it homes on the toughest balloon in reach and bursts
+function siegeMissile(from, b){
+  const g = new THREE.Group(); g.add(new THREE.Mesh(new THREE.CylinderGeometry(.12, .12, .9, 6).rotateX(Math.PI/2), M3(0xF2F4F7))); const fl = new THREE.Mesh(new THREE.ConeGeometry(.14, .55, 6), BXM.flame); fl.rotation.x = -Math.PI/2; fl.position.z = -.6; g.add(fl); noRayAll(g); g.position.copy(from); roundGroup.add(g);
+  let t = 0; const to = b.pos.clone(); sfx('fire');
+  fxAdd({update(dt){ t += dt; if (!b.dead) to.copy(b.pos); const d = to.clone().sub(g.position), L = d.length();
+    if (L < 1.4 || t > 3) { roundGroup.remove(g); const at = g.position.clone(); boomVisual(at, false, .35, {ball:0xFF6A5A, core:0xFFFFFF, ring:0xFF9A8F}); sfx('bboom'); if (tdAuth()) for (const q of TD.list.slice()) if (!q.dead && q.pos.distanceTo(at) < 4 + q.R) siegeHit(q, 30); return false; }
+    g.position.addScaledVector(d.normalize(), Math.min(L, 50*dt)); g.lookAt(to); if (Math.random() < .5) puff(g.position, 0xDDDDDD, .15); return true; }});
+}
+// what the kit does about balloons every frame (the drones, tesla coils, devil, dragon, golems and the swarm find them through fortEnemies / siegeNear)
+function siegeFortFrame(dt){
+  if (!TD.list.length) return;
+  const host = tdAuth(), c = fortCenter(), sp = TD.speed || 1;
+  // the lava ring pops what floats over it
+  if (FORT.lava && host) for (const b of TD.list.slice()) { if (b.dead) continue; const r = Math.hypot(b.pos.x, b.pos.z); if (r > LAVA[0] - .5 && r < LAVA[1] + .5) { tdHit(b, 30*Math.sqrt(TD.hpK || 1)*dt*sp); if (Math.random() < .06) puff(V3(b.pos.x, b.pos.y - 1, b.pos.z), pick([0xFF8A2E, 0x3A2A22]), .4); } }
+  // laser turrets and missile batteries
+  for (const o of FORT.devices) {
+    if (o.dead || (o.key !== 'turret' && o.key !== 'sam')) continue; o.scd = (o.scd || 0) - dt*sp; if (o.scd > 0) continue;
+    const top = V3(o.body.position.x, o.body.position.y + 1.2, o.body.position.z);
+    if (o.key === 'turret') { const e = fortNearestEnemy(top, 32); if (e) { o.scd = .35; laserBeam(top, V3(e.pos.x, e.pos.y, e.pos.z)); e.hit(9); } }
+    else { const b = siegeBiggest(top, 48); if (b) { o.scd = 1.5; siegeMissile(top, b); } }
+  }
+  // the angel shoots what comes near the egg and slowly gives back lives; the sorceress slows everything inside her circle
+  const A = FORT.spirits.angel; if (A && !A.dead) { A.sCd = (A.sCd || 0) - dt*sp; if (A.sCd <= 0) { const e = fortNearestEnemy(c, 20); if (e) { A.sCd = .6; laserBeamCol(V3(A.g.position.x, A.g.position.y + 2.5, A.g.position.z), V3(e.pos.x, e.pos.y, e.pos.z), 0xFFE9A8); e.hit(14); } }
+    if (host && TD.state === 'wave') { A.lifeT = (A.lifeT || 0) + dt*sp; if (A.lifeT > 5) { A.lifeT = 0; if (TD.lives < TD_LIVES) TD.lives++; } } }
+  if (FORT.spirits.sorc && host) for (const b of TD.list) if (!b.dead && Math.hypot(b.pos.x, b.pos.z) < AREA_R + 4) b.slowT = Math.max(b.slowT || 0, .25);
+  // the stars zap balloons passing under them
+  if (FORT.stars.length) { FORT.starT = (FORT.starT || 0) - dt*sp; if (FORT.starT <= 0) { FORT.starT = Math.max(.15, 1.2 - FORT.stars.length*.025); const st = pick(FORT.stars), e = fortNearestEnemy(st.m.position, 16); if (e) { arcBeam(st.m.position.clone(), V3(e.pos.x, e.pos.y, e.pos.z), 0xBFE9FF); e.hit(6); } } }
+  // the teleport portal over the egg sends what reaches it back to the start of its path (and stores it for the gun);
+  // the reflective roof throws back what enters the area
+  if (host) {
+    const T = FORT.roofs.tele, M = FORT.roofs.mirror;
+    for (const b of TD.list) { if (b.dead) continue; const bl = TDT[b.t].blimp;
+      if (T && T.hp > 0 && !b.teled && Math.hypot(b.pos.x - T.x, b.pos.z - T.z) < TELE_R + 2) { b.teled = 1; T.hp -= bl ? 60 : 8; T.pulse = 1; FORT.store++; telePortalFX(V3(b.pos.x, b.pos.y + 3, b.pos.z)); b.d = 0; continue; }
+      if (M && M.hp > 0 && !b.mirr && Math.hypot(b.pos.x, b.pos.z) < AREA_R - 1) { b.mirr = 1; M.hp -= bl ? 40 : 4; M.pulse = 1; sparkle(b.pos, 0xDCEBFF); b.d = Math.max(0, b.d - 28); } }
+  }
+}
+// the host's snapshot of the defences: damaged walls, the dome layers, the roofs
+function siegePack(){
+  const w = []; for (const b of BARS.list) if (!b.dead && b.hp < b.maxHp - .5) w.push(b.id, Math.round(b.hp));
+  return {w, d:(G.domeLayers || []).map(l => [l.layer, Math.round(l.hp)]), t:FORT.roofs.tele ? Math.round(FORT.roofs.tele.hp) : -1, m:FORT.roofs.mirror ? Math.round(FORT.roofs.mirror.hp) : -1};
+}
+function siegeUnpack(sg){
+  if (!sg || typeof sg !== 'object' || !siegeOn() || tdAuth()) return;
+  if (Array.isArray(sg.w)) { const hp = new Map(); for (let i = 0; i + 1 < sg.w.length; i += 2) hp.set(sg.w[i], +sg.w[i + 1]); for (const b of BARS.list) if (!b.dead) b.hp = hp.has(b.id) ? Math.max(1, hp.get(b.id)) : b.maxHp; }
+  if (Array.isArray(sg.d)) for (const q of sg.d) { if (!Array.isArray(q)) continue; const L = (G.domeLayers || []).find(l => l.layer === q[0] && l.hp > 0); if (!L) continue; if (q[1] <= 0) { G.dome = L; hurtDome(L.hp + 1); } else L.hp = +q[1]; }
+  for (const [k, v] of [['tele', sg.t], ['mirror', sg.m]]) { const R = FORT.roofs[k]; if (!R) continue; if (v >= 0) { R.hp = v; R.miss = 0; } else if ((R.miss = (R.miss || 0) + 1) > 12) R.hp = 0; }
+}
+// the end of a round, on every screen: broken ring segments come back, everything is mended and recharged, the kit refills
+function siegeRoundReset(){
+  if (!siegeOn()) return;
+  for (const rec of BARS.destroyed) { if (!rec.seg || BARS.list.some(q => q.id === rec.seg.sid && !q.dead)) continue;
+    const b = {id:rec.seg.sid, owner:rec.owner, team:rec.team, p:rec.p.clone(), rot:rec.rot, traits:Object.assign({}, rec.traits), tier:rec.tier, hp:rec.maxHp, maxHp:rec.maxHp, dead:false, ring:rec.seg.ring, segL:rec.seg.segL};
+    BARS.list.push(b); barRebuild(b); dustRing(b.p, 1.5, 4); }
+  BARS.destroyed = [];
+  for (const b of BARS.list) if (!b.dead) { b.hp = b.maxHp; b.breakSent = false; }
+  if (G.domeLayers && G.domeLayers.length) {
+    const had = [...new Set(G.domeLayers.map(l => l.layer))]; G.domeLayers = G.domeLayers.filter(l => l.hp > 0);
+    for (const l of G.domeLayers) { l.hp = l.max; l.mat.uniforms.col.value.setHex(DOME_COL[l.layer]); l.rim.material.color.setHex(DOME_COL[l.layer]); }
+    had.filter(i => !G.domeLayers.some(l => l.layer === i)).forEach(i => domeLayer(i));
+    G.dome = G.domeLayers.filter(l => l.hp > 0).sort((x, y) => y.R - x.R)[0]; world.bodies.forEach(q => { delete q._inDome; });
+  }
+  for (const o of FORT.devices) if (!o.dead) o.hp = o.maxHp;
+  for (const k in FORT.roofs) FORT.roofs[k].hp = FORT.roofs[k].max;
+  for (const g of FORT.golems) if (!g.dead) g.hp = 400;
+  for (const k in FORT.spirits) { const S = FORT.spirits[k]; if (S && !S.dead) S.hp = S.max; }
+  if (G.egg) G.egg.left2 = {}; ultReset(); G.domeChew = 0;
+  renderTray();
+}
+
+/* ---------- turrets grow with every upgrade: 1 bigger, with a band of its class colour; 2 buttresses with spikes; 3 a glowing
+   core and a ring of light; 4 a golden crown and shards circling it; 5 an aura, and its nature changes: the whole turret takes
+   on its class's element (Pain void, Bomber war-steel, Swordsman gold, Genos fire, Wood Sage blossom) ---------- */
+const TT_NATURE = {pain:[0x9D6BFF, 0x2A1846], bomber:[0xFF5A3A, 0x30353C], sword:[0xFFD84D, 0xFFF0B0], avatar:[0xFF6A1F, 0xFF9A3C], wood:[0x7CFF6A, 0xF4A6C8]};
+function ttDecorate(t){
+  if (!t.g || !t.head) return;
+  const D = TT_DEFS[t.k], lv = t.lvl | 0, [ac, nat] = TT_NATURE[D.cls] || [0xFFD84D, 0xFFFFFF];
+  if (t.deco) { t.g.remove(t.deco); t.deco = null; } if (t.glow) { t.g.remove(t.glow); t.glow = null; } t.orbit = t.core = t.aura = null;
+  t.head.scale.setScalar(1 + .07*lv);
+  if (!lv) return;
+  const s = new THREE.Group(), gl = new THREE.Group();
+  const band = new THREE.Mesh(new THREE.TorusGeometry(1.62, .13, 6, 24), M3(ac)); band.rotation.x = Math.PI/2; band.position.y = .55; s.add(band);
+  if (lv >= 2) for (let i = 0; i < 4; i++) { const a = i*Math.PI/2 + Math.PI/4, x = Math.cos(a)*1.65, z = Math.sin(a)*1.65; bx(.45, 1.1 + .15*lv, .45, D.cls === 'wood' ? 0x5A3A1E : 0x5A6270, x, .55, z, s); cone(.22, .55, ac, x, 1.25 + .15*lv, z, s, 4); }
+  if (lv >= 3) { const core = new THREE.Mesh(new THREE.IcosahedronGeometry(.42, 1), new THREE.MeshBasicMaterial({color:ac})); core.position.y = 4.6 + .3*lv; gl.add(core); t.core = core;
+    const ring = new THREE.Mesh(new THREE.RingGeometry(1.85, 2.2, 32), new THREE.MeshBasicMaterial({color:ac, transparent:true, opacity:.55, side:THREE.DoubleSide, depthWrite:false})); ring.rotation.x = -Math.PI/2; ring.position.y = .08; gl.add(ring); }
+  if (lv >= 4) { const crown = new THREE.Group(); crown.position.y = 4 + .3*lv; for (let i = 0; i < 6; i++) { const a = i/6*Math.PI*2; cone(.12, .45, 0xFFD84D, Math.cos(a)*.55, .25, Math.sin(a)*.55, crown, 4); } const cr = new THREE.Mesh(new THREE.TorusGeometry(.55, .08, 6, 18), M3(0xFFD84D)); cr.rotation.x = Math.PI/2; crown.add(cr); s.add(crown);
+    const orbit = new THREE.Group(); orbit.position.y = 2.8; for (let i = 0; i < 3; i++) { const sh = new THREE.Mesh(new THREE.OctahedronGeometry(.3), new THREE.MeshBasicMaterial({color:ac})); sh.position.set(Math.cos(i*2.09)*2.2, Math.sin(i*1.7)*.4, Math.sin(i*2.09)*2.2); orbit.add(sh); } gl.add(orbit); t.orbit = orbit; }
+  if (lv >= 5) {
+    const aura = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 6.5, 24, 1, true), new THREE.MeshBasicMaterial({color:ac, transparent:true, opacity:.15, side:THREE.DoubleSide, depthWrite:false, blending:THREE.AdditiveBlending})); aura.position.y = 3.2; gl.add(aura); t.aura = aura;
+    const tint = new THREE.Color(nat);
+    t.head.traverse(o => { if (!o.isMesh || o.userData.isOutline || o.userData.nat || !o.material || !o.material.color || o.material.transparent || o.material.side === THREE.BackSide) return; o.userData.nat = 1; o.material = o.material.clone(); o.material.color.lerp(tint, .6); });
+    const base = t.g.children[0]; if (base && base.isMesh && !base.userData.nat) { base.userData.nat = 1; base.material = base.material.clone(); base.material.color.copy(tint).lerp(new THREE.Color(0x222222), .35); }
+  }
+  addOutline(s); noRayAll(s); noRayAll(gl); t.g.add(s); t.g.add(gl); t.deco = s; t.glow = gl;
 }
 
 /* ---------- the HUD: round, lives, pops, and the big start button ---------- */
@@ -5682,8 +5861,9 @@ function tdHud(){
   st.innerHTML = `<span>🎈 Round ${Math.max(1, TD.wave)}/${TD_ROUNDS}</span><span>❤️ ${TD.lives}</span><span>💰 ${ttMoney()}</span><span>💥 ${(TD.pops || 0).toLocaleString()}</span>${TD.state === 'wave' && tdAuth() ? `<span>🎯 ${left} left</span>` : ''}`;
   const showGo = (TD.state === 'build' || TD.state === 'wave') && TD.wave < TD_ROUNDS && !TD.over; go.style.display = showGo ? '' : 'none'; go.textContent = TD.state === 'wave' ? `⏭ Send round ${TD.wave + 1} now` : `▶ Start round ${TD.wave + 1}`;
   au.style.display = TD.over ? 'none' : ''; au.textContent = TD.auto ? '🔁 Auto: on' : '🔁 Auto: off';
+  if (siegeOn()) { const ids = Object.keys(chars), n = ids.filter(k => TD.ready && TD.ready[k]).length, me = TD.ready && TD.ready[G.localKey]; go.style.display = TD.state === 'build' && TD.wave < TD_ROUNDS && !TD.over ? '' : 'none'; go.textContent = me ? `⏳ Waiting for the others (${n}/${ids.length})` : `✅ Ready for round ${TD.wave + 1}${ids.length > 1 ? ` (${n}/${ids.length})` : ''}`; au.style.display = 'none'; }
   const spB = $('tdSpeed'); if (spB) { const v = TD.speed || 1; spB.style.display = TD.over ? 'none' : ''; spB.textContent = v === 1 ? '▶ Speed 1×' : v === 2 ? '⏩ Speed 2×' : '⏭ Speed 4×'; spB.style.background = v === 1 ? '#fff' : v === 2 ? '#FFE9A0' : '#FFB02E'; }
-  $('phase').innerHTML = `🎈 Balloon Defense<small>Round ${Math.max(1, TD.wave)} of ${TD_ROUNDS}</small>`;
+  $('phase').innerHTML = `${siegeOn() ? '🏰 Fortress Siege' : '🎈 Balloon Defense'}<small>Round ${Math.max(1, TD.wave)} of ${TD_ROUNDS}</small>`;
 }
 
 /* ===================================== EGG MODE (online) =====================================
@@ -5709,7 +5889,7 @@ const eggName = id => (chars[id] && chars[id].name) || (NET.players[id] && NET.p
 // who the field defenses (tesla, mortar, fans, mirrors) go after on this screen: our own player if they attack
 function eggFoe(){
   if (!G.pvp) return chars[attacker()];
-  if (amDefender()) return null;
+  if (amDefender() || (G.siege && G.mode === 'td')) return null;   /* nobody attacks in Fortress Siege */
   const P = localP(); return P && P.alive !== false ? P : null;
 }
 function eggStart(eg){
@@ -6479,6 +6659,7 @@ function pullEverything(key, team, pos, m){
   m = m || 1; const R = Math.min(75, PAIN_CFG.pullAllR*(1 + .5*(m - 1)) + 6), dur = Math.min(3.4, 1.2 + .3*(m - 1)), A = 60*Math.min(4, Math.sqrt(m));
   const C0 = chars[key], f = C0 ? C0.face : 0, c = V3(pos.x + Math.sin(f)*5, pos.y + 1.6, pos.z + Math.cos(f)*5), mk = shinraKick(m);
   for (const pr of propsNear(c, R*.9).slice(0, Math.min(SHINRA_MAX_PROPS, Math.round(12*m)))) { const dx = c.x - pr.x, dz = c.z - pr.z, d = Math.hypot(dx, dz) || .01; if (d > 3) liftProp(pr, V3(dx/d*Math.min(20, d*1.2), 8, dz/d*Math.min(20, d*1.2))); }
+  if (tdOn() && tdAuth()) for (const b of TD.list.slice()) { if (b.dead) continue; const d = hdist(b.pos, c); if (d > R) continue; const k = 1 - d/R; tdHit(b, (6 + 14*k)*m); if (!b.dead) { b.d = Math.max(0, b.d - (TDT[b.t].blimp ? 4 : 12)*k*Math.sqrt(m)); b.stunT = Math.max(b.stunT || 0, dur*.5); } }   /* balloons: dragged back along their path */
   let t = 0;
   PAIN.fields.push({t:0, dur, apply(g){
     for (const b of world.bodies) {
@@ -6531,6 +6712,7 @@ function painShinraFront(x){
   forEachObject(b => { const f = inPath(b.position); if (f == null) return; const k = 1 - f/L; if (b.wakeUp) b.wakeUp(); b.velocity.x += dir.x*(24*k + 10)*mk; b.velocity.z += dir.z*(24*k + 10)*mk; b.velocity.y += dir.y*(24*k + 10)*mk + (dir.y > -.3 ? 4 + 2*mk : 0); spin(b, 4); if (b.tag === 'dummy') dummyHit(b, (18*k + 8)*m); });
   for (const pr of propsNear(O, L + 2).filter(pr => inPath(V3(pr.x, pr.y + 1, pr.z)) != null).slice(0, Math.min(SHINRA_MAX_PROPS, Math.round(10 + 6*(m - 1))))) { const k = 1 - inPath(V3(pr.x, pr.y + 1, pr.z))/L; liftProp(pr, V3(dir.x*(18*k + 8)*mk, 6 + dir.y*(18*k + 8)*mk, dir.z*(18*k + 8)*mk)); }
   kickCores(cp => inPath(V3(cp.x, cp.y - .8, cp.z)) != null ? dir.clone().multiplyScalar(16*mk) : null);
+  if (tdOn() && tdAuth()) for (const b of TD.list.slice()) { if (b.dead) continue; const f = inPath(V3(b.pos.x, b.pos.y - .8, b.pos.z)); if (f == null) continue; const k = 1 - f/L; tdHit(b, (18*k + 8)*m); if (!b.dead && !TDT[b.t].blimp) b.d = Math.max(0, b.d - (6*k + 2)*mk); }   /* balloons too */
   if (C) C.pushPose = .7;
   // only space bends: a lens of compressed space rushes forward along the push, rings ripple out
   gravWave(O.clone().addScaledVector(dir, 3), 6 + 2*mv, {k:mv*1.5, dur:.45});
@@ -7698,6 +7880,7 @@ function painZeroG(){
   }
   // everything loose outside the defense floats up, and the land nearest you is torn free to float with it
   const Z = PAIN.zeroG, cp = C ? C.body.position : V3(0, 0, 0), outside = q => !(eggOn() && hdist(q, V3(0, 0, 0)) < LAVA[1] + 2);
+  if (tdOn() && tdAuth()) for (const b of TD.list.slice()) if (!b.dead && hdist(b.pos, cp) < 60) { tdHit(b, 15); if (!b.dead) b.stunT = Math.max(b.stunT || 0, TDT[b.t].blimp ? 2 : 6); }   /* balloons float helplessly */
   Z.bodies = new Set(); Z.scan = 0;
   const grab = () => { for (const b of world.bodies) { if (b.mass === 0 || b.player || b._frozen || b.tag === 'dummy' || Z.bodies.has(b) || (egg && b === egg.body) || !outside(b.position)) continue; Z.bodies.add(b); b._zgH = rr(2.5, 9); if (b.wakeUp) b.wakeUp(); b.velocity.y += rr(1.5, 3.5); } };
   for (const pr of propsNear(V3(cp.x, 0, cp.z), 90).filter(pr => outside(V3(pr.x, 0, pr.z))).sort((a, b) => hdist(a, cp) - hdist(b, cp)).slice(0, ZEROG_PROPS)) { const o = liftProp(pr, V3(rr(-.5, .5), rr(1.5, 3.5), rr(-.5, .5))); if (o) { Z.bodies.add(o.body); o.body._zgH = rr(2.5, 12); } }
@@ -8380,8 +8563,8 @@ function castOK(c, m){
    any class, so players can swap freely without telling anyone. */
 const CLASS_IDS = ['native', 'pain', 'bomber', 'sword', 'avatar', 'wood', 'summon', 'necro'];
 // in Pain mode the default kit already is Pain, so the class is skipped there
-const classCycle = () => G.mode === 'tennis' ? ['pain'] : CLASS_IDS.filter(c => !(c === 'pain' && isPain()) && !((G.mode === 'egg' || G.mode === 'td') && (c === 'native' || c === 'summon' || c === 'necro')));   // Alpha Mode: no Chaos, Summoner or Necromancer for now
-function classInfo(c){ return c === 'wood' ? {name:'Wood Sage', e:'🌳'} : c === 'avatar' ? {name:'Genos', e:'🔥'} : c === 'pain' ? {name:'Pain', e:'🌑'} : c === 'bomber' ? {name:'Bomber', e:'💣'} : c === 'sword' ? {name:'Swordsman', e:'⚔️'} : c === 'summon' ? {name:'Summoner', e:'🐾'} : c === 'necro' ? {name:'Necromancer', e:'💀'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
+const classCycle = () => G.mode === 'td' && G.siege ? ['kit', 'pain', 'bomber', 'sword', 'avatar', 'wood'] : CLASS_IDS.filter(c => !(c === 'pain' && isPain()) && !((G.mode === 'egg' || G.mode === 'td') && (c === 'native' || c === 'summon' || c === 'necro')));   // Alpha Mode: no Chaos, Summoner or Necromancer for now
+function classInfo(c){ return c === 'kit' ? {name:'Defences', e:'🛡️'} : c === 'wood' ? {name:'Wood Sage', e:'🌳'} : c === 'avatar' ? {name:'Genos', e:'🔥'} : c === 'pain' ? {name:'Pain', e:'🌑'} : c === 'bomber' ? {name:'Bomber', e:'💣'} : c === 'sword' ? {name:'Swordsman', e:'⚔️'} : c === 'summon' ? {name:'Summoner', e:'🐾'} : c === 'necro' ? {name:'Necromancer', e:'💀'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
 function modeTable(){ return isPain() ? PAIN_SKILLS : SPECIALS; }
 G.cls = (() => { try { const c = localStorage.getItem('ca-cls'); return c === 'pain' || c === 'bomber' || c === 'sword' || c === 'avatar' || c === 'wood' || c === 'summon' || c === 'necro' ? c : 'native'; } catch (e) { return 'native'; } })();
 function switchClass(to){
@@ -8826,7 +9009,7 @@ function updateMines(dt){
     m.light.material.color.setHex(armed ? 0xFF2020 : 0xFFD84D); m.light.visible = !armed || Math.sin(m.t*8) > -.3;
     if (!armed) continue;
     let boom = false;
-    for (const e of bEnemies(m.owner, m.team)) if (hdist(e.pos, m.p) < 1.3 && Math.abs(e.pos.y - m.p.y) < 1.6) { boom = true; break; }
+    for (const e of bEnemies(m.owner, m.team)) if (hdist(e.pos, m.p) < 1.3 + (e.bl ? e.bl.R : 0) && Math.abs(e.pos.y - m.p.y) < (e.bl ? 3.4 : 1.6)) { boom = true; break; }   /* (balloons float over them) */
     if (!boom && typeof wildNear === 'function' && wildNear(m.p, 1.1)) boom = true;   // a deer stepping on it counts too
     if (boom) { m.done = true; roundGroup.remove(m.g); sfx('beep'); bBoom(V3(m.p.x, m.p.y + .4, m.p.z), 4.2, 42, 18, m.owner, m.team, {up:9, size:.45}); }
   }
@@ -8854,7 +9037,7 @@ function guidedFrame(dt){
       g.p.addScaledVector(g.v, dt);
       const gy = groundH(g.p.x, g.p.z); let hit = null;
       if (g.p.y <= gy + .3) hit = V3(g.p.x, gy + .2, g.p.z);
-      else if (g.t > .25) { for (const e of bEnemies(k, g.team)) if (segDist(prev, g.p, V3(e.pos.x, e.pos.y + 1, e.pos.z)) < .9) { hit = g.p.clone(); break; }
+      else if (g.t > .25) { for (const e of bEnemies(k, g.team)) if (segDist(prev, g.p, V3(e.pos.x, e.pos.y + (e.bl ? 0 : 1), e.pos.z)) < (e.bl ? e.bl.R + .7 : .9)) { hit = g.p.clone(); break; }
         if (!hit && egg && egg.alive && segDist(prev, g.p, egg.body.position) < .8) hit = g.p.clone();
         if (!hit && ((typeof wildSegHit === 'function' && wildSegHit(prev, g.p, .4)) || bSolid(g.p, .3))) hit = prev.clone(); }
       if (!hit && (g.t > 14 || Math.abs(g.p.x) > ISL + 20 || Math.abs(g.p.z) > ISL + 20 || g.p.y > 900)) hit = g.p.clone();
@@ -10828,6 +11011,7 @@ function wdForest(ci, p, x){
     if (!t.up && s.t >= t.delay) { t.up = true; woodArea(ci.key, ci.team, V3(t.x, t.gy + 1, t.z), 2.8, 18, {up:14, kb:4, flat:true, props:30}); puff(V3(t.x, t.gy + .3, t.z), 0x8A6A44, .7); if (Math.random() < .25) sfx('thunk'); }
     if (k >= 1 && !t.body) { t.grown = true; t.body = wdTreeBody(t); s.bodies.push(t.body); } } };
   sfx('rumble'); wdPose(ci.C, 'slam', .7); shakeAt(p, .4, 60);
+  if (G.mode === 'td') { const c0 = V3(p.x, groundH(p.x, p.z) + 2, p.z), up0 = s.update; tdTakeColumn(c0, R + 1, 30*m); s.tdT = 1; s.update = dt => { up0(dt); s.tdT -= dt; if (s.tdT <= 0) { s.tdT = 1; tdTakeColumn(c0, R + 2, 8*m); } }; }   /* balloons: roots lash what floats through the forest */
 }
 
 /* ---------- 9. Colossal Wood Guardian ---------- */
@@ -11628,6 +11812,7 @@ function sRain({key, team, rng}, p){
       if (s.m.position.y <= s.q.y + .5) { s.m.position.y = s.q.y + .5; s.landed = true; if (Math.random() < .35) sfx('thunk'); puff(V3(s.q.x, s.q.y + .1, s.q.z), 0x9A8A70, .3);
         const P = victimFor(key, team); if (P && hdist(P.body.position, s.q) < 1.1 && P.body.position.y - s.q.y < 2.5) { painHurt(P, 8, key); P.slowT = Math.max(P.slowT || 0, .6); }
         PAIN.dummies.forEach(dm => { if (!dm.dead && hdist(dm.body.position, s.q) < 1.3) dummyHit(dm.body, 8); });
+        summonsTakeArea(V3(s.q.x, s.q.y + 2, s.q.z), 1.6, 12, key, team);
         forEachObject(b => { if (b.wild && hdist(b.position, s.q) < 1) wildBlastHit(b, 20); }); } }
     tick -= dt; if (tick <= 0 && t > 1) { tick = .5; const P = victimFor(key, team); if (P) { for (const s of swords) if (s.landed && hdist(P.body.position, s.q) < .75 && P.body.position.y - s.q.y < 1.5) { painHurt(P, 4, key); P.slowT = Math.max(P.slowT || 0, .5); break; } } }
     if (t > 7.5) { swords.forEach(s => roundGroup.remove(s.m)); roundGroup.remove(ring); roundGroup.remove(cloud); return false; }
@@ -11821,7 +12006,7 @@ function cutPlane(p, yaw, mode){
 }
 // is a point (with radius r) inside the cut's reach, and how far from the plane?
 function cutReach(pl, q, r){
-  const v = q.clone().sub(pl.c), d = v.dot(pl.n);
+  const v = V3(q.x, q.y, q.z).sub(pl.c), d = v.dot(pl.n);   /* (q may be a physics vector: animals, the swarm) */
   if (Math.abs(d) > r) return null;
   if (pl.mode === 'h') { if (Math.hypot(v.x, v.z) > CUT.RH) return null; }
   else { if (Math.abs(v.dot(pl.f)) > CUT.L || v.y < -2 || v.y > CUT.H) return null; }
@@ -11912,6 +12097,7 @@ function sCut({key, C, team, yaw}, p, x){
   for (const A of WILD.animals) { if (!A.dead && cutReach(pl, A.body.position, A.T.h*.6) != null) animalHurt(A, 999); }
   if (typeof SWARM !== 'undefined') for (const e of SWARM.list) { if (e.alive && cutReach(pl, e.body.position, 1) != null) swarmHurt(e, 9999, 'h'); }
   summonsTakeArea(pl.c, mode === 'h' ? CUT.RH : CUT.L, 60, key, team);
+  if (tdOn() && tdAuth()) for (const b of TD.list.slice()) if (!b.dead && cutReach(pl, b.pos, b.R) != null) tdHit(b, 200);   /* balloons along the cut */
   const P = victimFor(key, team); if (P && cutReach(pl, V3(P.body.position.x, P.body.position.y + 1, P.body.position.z), 1) != null) { painHurt(P, 150, key); P.stun = Math.max(P.stun, 1); toast('📐 You were cut in half.'); }
   if (egg && egg.alive && cutReach(pl, egg.body.position, .5) != null) breakEgg('sword');
 }
@@ -12006,6 +12192,7 @@ function sTrap({key, team}, p){
     const tr = {id:e.id, c, blades, top, t:0}; SW.traps.push(tr);
     if (e.id === G.localKey) { const P = victimFor(key, team); if (P) { painHurt(P, 12, key); P.stun = Math.max(P.stun, .5); } }
     else if (e.id[0] === 'd') { const dm = PAIN.dummies[+e.id.slice(1)]; if (dm && !dm.dead) dummyHit(dm.body, 12); }
+    else if (e.bl) { if (tdAuth()) { tdHit(e.bl, 40); if (!e.bl.dead) e.bl.stunT = Math.max(e.bl.stunT || 0, TDT[e.bl.t].blimp ? 1.2 : 4); } }   /* balloons: cut and held in place */
     BX.fx.push({update(dt){
       tr.t += dt; const rise = Math.min(1, tr.t/.18);
       blades.forEach(b => b.m.position.y = b.q.y - 3 + rise*3.3); top.rotation.z += dt*2;
@@ -13637,7 +13824,7 @@ function breakBarrier(id){
   const b = BARS.list.find(q => q.id === id && !q.dead); if (!b) return;
   b.dead = true; roundGroup.remove(b.g); if (b.body && b.body.world) world.removeBody(b.body); if (b.bar) { roundGroup.remove(b.bar.bg); roundGroup.remove(b.bar.fill); }
   const at = V3(b.p.x, b.p.y + barSize(b).H/2, b.p.z); debris(at, 16, Object.keys(b.traits).map(k => BAR_TYPES[k].col)); dustRing(b.p, 2.5, 8); sfx('crack'); sfx('thud');
-  BARS.destroyed.push({owner:b.owner, team:b.team, p:b.p.clone(), rot:b.rot, traits:Object.assign({}, b.traits), tier:b.tier, maxHp:b.maxHp});
+  BARS.destroyed.push({owner:b.owner, team:b.team, p:b.p.clone(), rot:b.rot, traits:Object.assign({}, b.traits), tier:b.tier, maxHp:b.maxHp, seg:b.segL ? {sid:b.id, segL:b.segL, ring:b.ring} : null});
   BARS.list = BARS.list.filter(q => !q.dead);
 }
 // damage from explosions and blows (called by the summon hooks: the same attacks hurt both)
@@ -13717,15 +13904,17 @@ const GUARD = {
 };
 const GUARD_KEYS = {}; for (const id in GUARD) { const k = GUARD[id].key; if (k && k.length === 1 && /[0-9A-Z]/.test(k)) GUARD_KEYS[k.toLowerCase()] = id; }
 for (const id in GUARD) if (GUARD[id].r) TARGET_R[id] = GUARD[id].r;
+// how many of a power a round allows (Fortress Siege: the team shares them, more with more players; one-offs stay one)
+const fortLim = id => { const d = GUARD[id]; if (!d || !d.lim) return 0; return siegeOn() && d.lim > 1 ? d.lim*clamp(Object.keys(chars).length, 1, 6) : d.lim; };
 BAR_TYPES.brick = {name:'Brick', e:'🧱', col:0xB5523B, hp:160};
 BAR_TYPES.mirror = {name:'Reflective', e:'🪞', col:0xDCEBFF, hp:150};
 const FORT = {rings:[], layers:[], roofs:{}, store:0, stars:[], lines:[], devices:[], golems:[], drones:[], minions:[], spirits:{}, lava:null, river:null, charge:null, wait:0};
-const guardActive = () => eggOn() && amDefender() && (G.phase === 'attack' || G.phase === 'build') && !G.egg.over;
+const guardActive = () => (eggOn() && amDefender() && (G.phase === 'attack' || G.phase === 'build') && !G.egg.over) || (siegeOn() && G.cls === 'kit' && !TD.over && !!G.egg);
 const arenaOn = () => G.pvp && G.mode === 'egg';
 const fortCenter = () => V3(0, groundH(0, 0), 0);
 const inArea = p => Math.hypot(p.x, p.z) < AREA_R;
 // the defense hurts attackers on their own screen: the local player when they are not the defender (practice: you, after building)
-const fortFoe = () => { const P = eggFoe(); return P && P.alive !== false && G.phase === 'attack' ? P : null; };
+const fortFoe = () => { if (G.siege && G.mode === 'td') return null; const P = eggFoe(); return P && P.alive !== false && G.phase === 'attack' ? P : null; };
 function fortReset(){
   for (const k in FORT.spirits) { const s = FORT.spirits[k]; if (s && s.g && s.g.parent) s.g.parent.remove(s.g); }
   Object.assign(FORT, {rings:[], layers:[], roofs:{}, store:0, stars:[], lines:[], devices:[], golems:[], drones:[], minions:[], spirits:{}, lava:null, river:null, charge:null, wait:0});
@@ -13743,7 +13932,7 @@ function guardUse(id){
   const d = GUARD[id], P = localP(); if (!d || d.hide || !guardActive() || !P || P.alive === false || P.stun > 0) return;
   if (id === 'f_rocket') { fortRocket(); return; }
   if (d.ult && !ultReady(id)) return;
-  if (d.lim && G.egg.left2 && (G.egg.left2[id] | 0) >= d.lim) { cdToast2(`${d.e} ${d.name}: all ${d.lim} used.`); return; }
+  if (d.lim && G.egg.left2 && (G.egg.left2[id] | 0) >= fortLim(id)) { cdToast2(`${d.e} ${d.name}: all ${fortLim(id)} used${siegeOn() ? ' this round' : ''}.`); return; }
   if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
   if (d.kind === 'aim') { setTargeting(id); return; }
   if (d.kind === 'charge') { toast(`${d.e} Hold ${d.key} to charge.`); return; }
@@ -13769,12 +13958,12 @@ function fortRocket(){
 // host: may the defender use this power now?
 function fortOK(c, m){
   if (m.s === 'g_break' || m.s === 'wd_break') return false; /* only the host breaks barriers and wood */
-  const E = G.egg, P = chars[m.id];
-  if (!eggOn() || !E || E.over || !isDef(m.id) || !P || P.alive === false || (G.phase !== 'build' && G.phase !== 'attack')) return false;
+  const E = G.egg, P = chars[m.id], sg = siegeOn();
+  if (sg ? (!E || TD.over || !P) : (!eggOn() || !E || E.over || !isDef(m.id) || !P || P.alive === false || (G.phase !== 'build' && G.phase !== 'attack'))) return false;
   const d = GUARD[m.s]; if (!d) return false;
   const now = performance.now()/1000, r = castRate[m.id] = (castRate[m.id] || []).filter(t => now - t < 1); if (r.length >= 14) return false; r.push(now);
   if (d.ult && G.cdOn) { const uk = m.id + '|' + m.s; G.hostUlt = G.hostUlt || {}; if (G.hostUlt[uk]) return false; G.hostUlt[uk] = true; }
-  if (d.lim) { E.left2 = E.left2 || {}; if ((E.left2[m.s] | 0) >= d.lim) return false; }
+  if (d.lim) { E.left2 = E.left2 || {}; if ((E.left2[m.s] | 0) >= fortLim(m.s)) return false; }
   if (d.inside && (!Array.isArray(m.p) || Math.hypot(m.p[0], m.p[2]) > AREA_R)) return false;
   return true;
 }
@@ -13782,7 +13971,7 @@ function runGuard(id, p, x){
   const ci = casterInfo(); if (!ci.C) return;
   const {key, C, team} = ci, d = GUARD[id];
   if (id === 'g_break') { if (x && typeof x.b === 'string') breakBarrier(x.b); return; }
-  if (d && d.lim) { G.egg.left2 = G.egg.left2 || {}; G.egg.left2[id] = (G.egg.left2[id] | 0) + 1; if (amDefender()) renderTray(); }   // the bar shows used/limit
+  if (d && d.lim) { G.egg.left2 = G.egg.left2 || {}; G.egg.left2[id] = (G.egg.left2[id] | 0) + 1; if (amDefender() || siegeOn()) renderTray(); }   // the bar shows used/limit
   if (d && d.ult && key === G.localKey) { G.ultUsed = G.ultUsed || {}; G.ultUsed[id] = true; renderTray(); }
   if (id !== 'f_rocket') C.castPose = .5;
   switch (id) {
@@ -13811,7 +14000,7 @@ function runGuard(id, p, x){
     case 'f_god': fortGod(ci); return;
   }
 }
-const fortNote = msg => { if (amDefender()) toast(msg); };
+const fortNote = msg => { if (amDefender() || siegeOn()) toast(msg); };
 
 /* the river around the area (always there in Alpha Mode), the lava ring (if built) */
 function fortRiver(){
@@ -13912,7 +14101,7 @@ function dronesFrame(dt){
     d.cd -= dt; if (d.cd > 0) continue;
     const bomb = BX.bombs.find(b => !b.dead && !isDef(b.owner) && b.p.distanceTo(p) < 18);
     if (bomb) { d.cd = .9; laserBeamCol(p, bomb.p.clone(), 0x5FD4FF); bomb.dead = true; roundGroup.remove(bomb.m); sparkle(bomb.p, 0x5FD4FF); continue; }
-    const proj = objs.find(o => !o.dead && o.kind === 'proj' && !isCarried(o) && o.body.position.distanceTo(p) < 18);
+    const proj = !siegeOn() && objs.find(o => !o.dead && o.kind === 'proj' && !isCarried(o) && o.body.position.distanceTo(p) < 18);   /* (in Fortress Siege those are your teammates') */
     if (proj) { d.cd = .9; laserBeamCol(p, V3(proj.body.position.x, proj.body.position.y, proj.body.position.z), 0x5FD4FF); removeObj(proj); continue; }
     const en = fortNearestEnemy(p, 34); if (en) { d.cd = 1.3; laserBeamCol(p, V3(en.pos.x, en.pos.y + 1, en.pos.z), 0xFF3B30); en.hit(5); }
   }
@@ -13981,7 +14170,7 @@ function fortUnitHurt(u, dmg){
 // a health bar over every one of them (and they flash when hit)
 function fortBarsFrame(){
   const live = new Set();
-  if (eggOn()) for (const u of fortUnits()) {
+  if (eggOn() || siegeOn()) for (const u of fortUnits()) {
     const e = u.ent, max = u.max || e.max || e.maxHp || 100, hp = Math.max(0, e.hp != null ? e.hp : max); live.add(e);
     if (!e.hpBar) { const mk = c => { const sp0 = new THREE.Sprite(new THREE.SpriteMaterial({color:c, depthTest:false, depthWrite:false})); sp0.center.set(0, .5); sp0.renderOrder = 41; sp0.userData.noRay = true; roundGroup.add(sp0); return sp0; }; e.hpBar = {bg:mk(0x1A1A1A), fill:mk(0x5BD15B)}; FORT.bars = FORT.bars || []; FORT.bars.push(e); }
     const k = clamp(hp/max, 0, 1), w = clamp(u.r*1.4, 1.1, 5), y = u.pos.y + u.r + .5;
@@ -14011,7 +14200,7 @@ function spiritsFrame(dt){
     const S = FORT.spirits[kind], g = S.g; S.t += dt; S.cd -= dt;
     if (kind === 'angel') { g.position.set(c.x + Math.sin(S.t*.5)*1.2, c.y + 7 + Math.sin(S.t*1.4)*.4, c.z + Math.cos(S.t*.5)*1.2); g.rotation.y = S.t*.3; g.userData.wings.forEach((w, i) => w.rotation.y = (i ? -1 : 1)*Math.sin(S.t*3)*.35); g.userData.halo.rotation.z += dt;
       if (eggAuth() && G.phase === 'attack' && G.eggHP < G.eggHPMax) G.eggHP = Math.min(G.eggHPMax, G.eggHP + 3*dt);
-      if (S.cd <= 0 && G.phase === 'attack') { const b = BX.bombs.find(q => !q.dead && !isDef(q.owner) && hdist(q.p, c) < 16); const o = !b && objs.find(q => !q.dead && q.kind === 'proj' && !isCarried(q) && hdist(q.body.position, c) < 16);
+      if (S.cd <= 0 && G.phase === 'attack') { const b = BX.bombs.find(q => !q.dead && !isDef(q.owner) && hdist(q.p, c) < 16); const o = !b && !siegeOn() && objs.find(q => !q.dead && q.kind === 'proj' && !isCarried(q) && hdist(q.body.position, c) < 16);
         if (b || o) { S.cd = .45; const q = b ? b.p.clone() : V3(o.body.position.x, o.body.position.y, o.body.position.z); laserBeamCol(V3(g.position.x, g.position.y + 2.5, g.position.z), q, 0xFFE9A8); if (b) { b.dead = true; roundGroup.remove(b.m); } else removeObj(o); sparkle(q, 0xFFE9A8); } } }
     else if (kind === 'devil') { const a = S.t*.4; g.position.set(c.x + Math.cos(a)*9, c.y + 5 + Math.sin(S.t*2)*.5, c.z + Math.sin(a)*9); g.rotation.y = -a; g.userData.wings.forEach((w, i) => w.rotation.y = (i ? -1 : 1)*Math.sin(S.t*6)*.5);
       if (S.cd <= 0 && G.phase === 'attack') { S.cd = 3; S.spell = ((S.spell || 0) + 1) % 2;
@@ -14143,14 +14332,14 @@ function roofsFrame(dt){
     if (R.swirl) R.swirl.rotation.z += dt*2.5;
     const inRoof = q => k === 'tele' ? Math.hypot(q.x - R.x, q.z - R.z) < TELE_R : Math.hypot(q.x, q.z) < AREA_R - .5;
     // thrown things (chaos shots, rods) are swallowed or bounced too
-    if (G.phase === 'attack') for (const o of objs) { if (o.dead || isCarried(o) || o.kind === 'egg' || (k !== 'tele' && o.kind !== 'proj') || !(o.body.mass > 0)) continue; const b = o.body; if (Math.abs(b.position.y - R.y) < .6 && b.velocity.y < 0 && inRoof(b.position)) {
+    if (G.phase === 'attack' && !siegeOn()) for (const o of objs) { if (o.dead || isCarried(o) || o.kind === 'egg' || (k !== 'tele' && o.kind !== 'proj') || !(o.body.mass > 0)) continue; const b = o.body; if (Math.abs(b.position.y - R.y) < .6 && b.velocity.y < 0 && inRoof(b.position)) {
       if (k === 'tele') { const tk = typeof TK !== 'undefined' && TK.thrown.find(q => q.b === b && !q.done), own = (tk && tk.owner) || o.ownerKey; if (o.kind !== 'proj' && !own) continue;
         FORT.store++; R.pulse = 1; sfx('hole'); const O = chars[own]; if (!O || isDef(own)) { removeObj(o); continue; }
         if (tk) { tk.owner = FORT_OWNER; tk.team = null; teleBackOn(own, 3); }
         const op = O.body.position, out = V3(op.x + rr(-.8, .8), op.y + 12, op.z + rr(-.8, .8)); telePortalFX(out); b.position.set(out.x, out.y, out.z); b.velocity.set(0, -Math.max(12, Math.abs(b.velocity.y)), 0); o.ownerKey = FORT_OWNER; }
       else { b.velocity.y = Math.abs(b.velocity.y); o.reflectPending = true; R.hp -= 4; } } }
     // an attacker who drops onto the portal is thrown out of the area (their own screen moves them)
-    if (k === 'tele' && G.phase === 'attack' && !amDefender()) { const me = localP(); if (me && me.alive !== false) { const bp = me.body.position;
+    if (k === 'tele' && G.phase === 'attack' && !amDefender() && !siegeOn()) { const me = localP(); if (me && me.alive !== false) { const bp = me.body.position;
       if (bp.y > R.y - .4 && bp.y < R.y + 1.2 && me.body.velocity.y <= 0 && inRoof(bp) && !(me.teleT > G.t)) { me.teleT = G.t + 1.5; R.pulse = 1; sfx('hole');
         const an = Math.random()*Math.PI*2, rr0 = LAVA[1] + 8, x = Math.cos(an)*rr0, z = Math.sin(an)*rr0, out = V3(x, groundH(x, z) + 14, z); telePortalFX(out);
         me.body.position.set(out.x, out.y - 1, out.z); me.body.velocity.set(0, -6, 0); toast('🌀 The teleport portal spat you out!'); } } }
@@ -14202,7 +14391,7 @@ function golemsFrame(dt){
   for (const g of FORT.golems) {
     if (g.dead) continue;
     // target: the nearest attacker, Bomber clone or summon within reach of the chain
-    const F0 = fortFoe(), tgt = bNearest(g.owner, g.team, g.at, 16) || (F0 && hdist(F0.body.position, g.at) < 16 ? {id:G.localKey, pos:F0.body.position} : null);
+    const F0 = fortFoe(), tgt = bNearest(g.owner, g.team, g.at, 16) || (F0 && hdist(F0.body.position, g.at) < 16 ? {id:G.localKey, pos:F0.body.position} : null) || siegeNear(g.at, 16);
     const want = tgt ? V3(tgt.pos.x, 0, tgt.pos.z) : g.at.clone().add(V3(Math.sin(G.t*.3)*3, 0, Math.cos(G.t*.3)*3));
     const d = want.clone().sub(g.pos).setY(0), L = d.length(); if (L > .5) { d.normalize(); g.pos.addScaledVector(d, Math.min(L - .4, 4*dt)); g.face = Math.atan2(d.x, d.z); g.walk += dt*5; }
     const fromPost = g.pos.clone().sub(g.at).setY(0); if (fromPost.length() > 12) g.pos.copy(g.at).addScaledVector(fromPost.normalize(), 12);   // the chain holds it
@@ -14211,11 +14400,12 @@ function golemsFrame(dt){
     const a = V3(g.at.x, g.at.y + 1.4, g.at.z), b = V3(g.pos.x, g.pos.y + 2.6, g.pos.z), cd = b.clone().sub(a); g.chain.position.copy(a); g.chain.lookAt(b); g.chain.scale.z = cd.length()/3.8;
     if (G.phase !== 'attack') continue;
     g.cd -= dt; if (g.cd > 0) continue;
-    const bomb = BX.bombs.find(q => !q.dead && q.owner !== g.owner && q.p.distanceTo(b) < 6);
+    const bomb = BX.bombs.find(q => !q.dead && q.owner !== g.owner && !(siegeOn() && isDef(q.owner)) && q.p.distanceTo(b) < 6);
     if (bomb) { bomb.dead = true; roundGroup.remove(bomb.m); boomVisual(bomb.p.clone(), false, .2); g.cd = .8; g.swing = 1; sfx('thud'); continue; }
     if (tgt && hdist(tgt.pos, g.pos) < 4.2) { g.cd = 1.3; g.swing = 1; sfx('thud'); shockRing(g.pos, 5, .3);
       const F = fortFoe(); if (F && hdist(F.body.position, g.pos) < 4.5) { const away = V3(F.body.position.x - g.pos.x, 0, F.body.position.z - g.pos.z).normalize(); painHurt(F, 25, g.owner); knock(F, away.x*20, 10, away.z*20, .8); }
-      if (tgt.id && tgt.id[0] === 'd') { const dm = PAIN.dummies[+tgt.id.slice(1)]; if (dm && !dm.dead) dummyHit(dm.body, 25); } else if (tgt.sum) summonHurt(tgt.sum, 25); }
+      if (tgt.id && tgt.id[0] === 'd') { const dm = PAIN.dummies[+tgt.id.slice(1)]; if (dm && !dm.dead) dummyHit(dm.body, 25); } else if (tgt.sum) summonHurt(tgt.sum, 25);
+      if (tgt.bal || tgt.bl) for (const q of TD.list.slice()) if (!q.dead && hdist(q.pos, g.pos) < 5 + q.R) siegeHit(q, 40); }
   }
 }
 function golemsTakeArea(at, R, dmg, key){ if (key && isDef(key)) return; for (const g of FORT.golems) { if (g.dead) continue; if (g.pos.distanceTo(at) < R + 2) { g.hp -= dmg/fortDurability(); if (g.hp <= 0) { g.dead = true; roundGroup.remove(g.root); roundGroup.remove(g.chain); if (g.body.world) world.removeBody(g.body); debris(V3(g.pos.x, g.pos.y + 2, g.pos.z), 16, [0x8A8F98, 0x6B7078]); sfx('crack'); } } } }
@@ -14261,13 +14451,14 @@ function minionsFrame(dt){
     if (m.dead) continue;
     m.t += dt; m.cd -= dt;
     if (m.t > m.life || m.hp <= 0) { m.dead = true; roundGroup.remove(m.g); puff(V3(m.p.x, m.p.y + 1, m.p.z), 0x3A2A4A, .6); continue; }
-    const tg = bNearest(m.owner, m.team, m.p, 120) || (F ? {id:G.localKey, pos:F.body.position} : null);
+    const tg = bNearest(m.owner, m.team, m.p, 120) || (F ? {id:G.localKey, pos:F.body.position} : null) || siegeNear(m.p, 120);
     if (tg) { const d = V3(tg.pos.x - m.p.x, 0, tg.pos.z - m.p.z), L = d.length(); d.normalize();
       const keep = m.kind === 'spitter' ? 12 : 1.3; if (L > keep) { m.p.x += d.x*m.spd*dt; m.p.z += d.z*m.spd*dt; }
       m.g.rotation.y = Math.atan2(d.x, d.z);
       if (m.cd <= 0 && L < (m.kind === 'spitter' ? 18 : m.kind === 'bomber' ? 1.6 : 2.2)) { m.cd = m.kind === 'spitter' ? 1.6 : 1;
         if (m.kind === 'spitter') { const from = V3(m.p.x, m.p.y + 1.8*m.S, m.p.z), to = V3(tg.pos.x, tg.pos.y + 1, tg.pos.z); addBomb({p:from, v:to.clone().sub(from).normalize().multiplyScalar(26), g:.3, m:(() => { const q = new THREE.Group(); q.add(new THREE.Mesh(new THREE.IcosahedronGeometry(.25, 0), new THREE.MeshBasicMaterial({color:0x9BFF5A}))); return noRayAll(q); })(), owner:m.owner, team:m.team, r:.3, R:1.8, dmg:6, kb:4, trail:0x9BFF5A, trailS:.12, fx:{size:.15, quiet:false, snd:'splat2'}}); }
         else if (m.kind === 'bomber') { m.dead = true; roundGroup.remove(m.g); bBoom(V3(m.p.x, m.p.y + 1, m.p.z), 4*m.S, 25*m.S, 14, m.owner, m.team, {size:.4*m.S}); continue; }
+        else if (tg.bal || tg.bl) { siegeHit(tg.bal || tg.bl, (m.kind === 'brute' ? 16 : 7)*m.S); sfx('pop'); }
         else if (F && tg.id === G.localKey) { painHurt(F, (m.kind === 'brute' ? 16 : 7)*m.S, m.owner); knock(F, d.x*(m.kind === 'brute' ? 16 : 6), 5, d.z*(m.kind === 'brute' ? 16 : 6), .3); sfx('bonk'); }
         else if (tg.id && tg.id[0] === 'd') { const dm = PAIN.dummies[+tg.id.slice(1)]; if (dm && !dm.dead) dummyHit(dm.body, 8*m.S); } } }
     m.p.y = groundH(m.p.x, m.p.z) + (m.kind === 'flyer' ? 4 + Math.sin(m.t*3)*.5 : Math.abs(Math.sin(m.t*m.spd*.8))*.25);
@@ -14312,6 +14503,7 @@ function fortGod({key, team}){
 function fortEnemies(){
   const out = [], F = fortFoe(), def = FORT_OWNER;
   if (F) out.push({pos:F.body.position, hit:(dmg, k) => { painHurt(F, dmg, def); if (k) knock(F, k.x, k.y, k.z, k.s || .4); }});
+  if (siegeOn()) for (const b of TD.list) if (!b.dead && !b.phased && !(tdFl(b) & 2)) out.push({pos:b.pos, bal:b, hit:dmg => siegeHit(b, dmg)});
   return out;
 }
 function fortNearestEnemy(at, R){ let best = null, bd = R; for (const e of fortEnemies()) { const d = hdist(e.pos, at); if (d < bd) { bd = d; best = e; } } return best; }
@@ -14374,11 +14566,11 @@ function eggBarFrame(){
 }
 // the river drowns, the lava burns, the boot keeps the defender home
 function fortFrame(dt){
-  if (!arenaOn()) return;
+  if (!arenaOn() && !siegeOn()) return;
   const me = localP();
   if (FORT.river) for (const m of FORT.river.glints) { m.userData.a += dt*.08; m.position.x = Math.cos(m.userData.a)*m.userData.r; m.position.z = Math.sin(m.userData.a)*m.userData.r; m.material.opacity = .3 + Math.sin(G.t*3 + m.userData.r)*.3; }
   if (FORT.lava) { FORT.lava.t += dt; FORT.lava.glow.material.opacity = .25 + Math.sin(FORT.lava.t*4)*.12; if (Math.random() < .3) { const a = Math.random()*Math.PI*2, r = rr(LAVA[0], LAVA[1]); puff(V3(Math.cos(a)*r, groundH(Math.cos(a)*r, Math.sin(a)*r) + .3, Math.sin(a)*r), pick([0xFF8A2E, 0x3A2A22]), .4); } }
-  if (me && me.alive !== false && (G.phase === 'attack' || G.phase === 'build') && !G.egg.over) {
+  if (arenaOn() && me && me.alive !== false && (G.phase === 'attack' || G.phase === 'build') && !G.egg.over) {
     const b = me.body, r = Math.hypot(b.position.x, b.position.z), gy = groundH(b.position.x, b.position.z);
     if (r > RIVER[0] && r < RIVER[1] && b.position.y < -.3) { toast('🌊 You fell in the river and drowned.'); splashAt(b.position); hurt(me, 9999); if (!G.pvp || G.phase !== 'attack') { const s = teamSpawn(me.team); b.position.set(s.x, s.y + 1, s.z); b.velocity.set(0, 0, 0); } }
     else if (FORT.lava && r > LAVA[0] && r < LAVA[1] && b.position.y < gy + .6) { toast('🌋 Burned up in the lava.'); hurt(me, 9999); if (G.phase !== 'attack') { const s = teamSpawn(me.team); b.position.set(s.x, s.y + 1, s.z); b.velocity.set(0, 0, 0); } }
@@ -15627,8 +15819,8 @@ const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').s
 function netSend(m){ if (!NET.peer) return; if (NET.host) netBroadcast(m); else if (NET.hostConn && NET.hostConn.open) NET.hostConn.send(m); }
 function netBroadcast(m, except){ NET.conns.forEach(c => { if (c.open && c !== except) c.send(m); }); }
 function lobbyList(){ return Object.values(NET.players); }
-const normMode = m => m === 'tennis' ? 'tennis' : m === 'td' || m === 'chaos' ? 'td' : 'egg';   // Chaos left the menu (2026-10-08); Balloon Defense took its place   // Pain and Swarm modes were removed (2026-10-06); 'egg' is shown as Alpha Mode
-const MODE_NAME = {egg:'🥚 Alpha Mode', td:'🎈 Balloon Defense', tennis:'🎾 Pain Tennis'};
+const normMode = m => m === 'siege' || m === 'tennis' ? 'siege' : m === 'td' || m === 'chaos' ? 'td' : 'egg';   // Pain Tennis was replaced by Fortress Siege (2026-10-12)   // Chaos left the menu (2026-10-08); Balloon Defense took its place   // Pain and Swarm modes were removed (2026-10-06); 'egg' is shown as Alpha Mode
+const MODE_NAME = {egg:'🥚 Alpha Mode', td:'🎈 Balloon Defense', siege:'🏰 Fortress Siege'};
 function broadcastLobby(){ netBroadcast({t:'lobby', players:lobbyList(), host:NET.myId, mode:NET.mode, cd:NET.cdOn ? 1 : 0}); renderLobby(); }
 /* STUN lets two browsers find a direct route to each other. On strict networks (mobile data, school/work Wi-Fi,
    some VPNs) there is none. PeerJS's free TURN relays are gone (their hostnames no longer resolve), so when the
@@ -15837,7 +16029,7 @@ function hostHandle(c, m){
     case 'cast': if (!castOK(c, m)) break; replayCast(m); netBroadcast(m, c); break;
     case 'death': if (m.id !== c.peer) break; if (m.by && !NET.players[m.by]) m.by = null; onDeath(m); break;
     case 'edone': if (eggOn() && isDef(c.peer)) eggReady(c.peer); break;
-    case 'tdgo': if (tdOn() && (TD.state === 'build' || TD.state === 'wave')) tdStartWave(); break;
+    case 'tdgo': if (tdOn() && (TD.state === 'build' || TD.state === 'wave')) { if (siegeOn()) siegeReady(c.peer); else tdStartWave(); } break;
     case 'ttb': case 'ttu': case 'tts': ttHostMsg(m, c.peer); break;
     case 'erole': if (eggOn() && m.id === c.peer && (m.r === 'def' || m.r === 'atk')) eggRole(c.peer, m.r, true); break;
     case 'egu': if (eggOn() && m.id === c.peer) eggGaveUp(c.peer); break;
@@ -15905,7 +16097,7 @@ function showPvPTitle(){
       <label style="grid-column:1/-1;text-align:left;font-size:14px">Your name<br><input id="nameIn" maxlength="14" value="${clean(saved) === 'Player' && !saved ? '' : clean(saved)}" placeholder="Player" style="width:100%;margin-top:4px;padding:10px 12px;border:3px solid var(--edge);border-radius:12px;font:inherit;background:var(--panel);color:var(--text)"></label>
       <div id="lookRow" style="grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;justify-content:center">${CHARS.map((c, i) => `<button class="btn" data-look="${i}" style="background:#17171F;color:#fff;border-color:#D3121D">${c.e} ${c.name}</button>`).join('')}</div>
       <button class="btn" id="tBlue" style="background:var(--blue);color:#fff">Blue team</button><button class="btn" id="tRed" style="background:var(--red);color:#fff">Red team</button>
-      <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="btn" id="mEgg" style="background:#FFF3DC;color:#3B2A1A">🥚 Alpha Mode</button><button class="btn" id="mTD" style="background:linear-gradient(180deg,#FFE14D,#FF9A2E);color:#4A2A00">🎈 Balloon Defense</button><button class="btn" id="mTennis" style="background:linear-gradient(180deg,#F4FF9A,#C6E83A);color:#24320A">🎾 Pain Tennis</button></div>
+      <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="btn" id="mEgg" style="background:#FFF3DC;color:#3B2A1A">🥚 Alpha Mode</button><button class="btn" id="mTD" style="background:linear-gradient(180deg,#FFE14D,#FF9A2E);color:#4A2A00">🎈 Balloon Defense</button><button class="btn" id="mSiege" style="background:linear-gradient(180deg,#D8C2FF,#9A6BFF);color:#22104A">🏰 Fortress Siege</button></div>
       <p class="muted" id="modeDesc" style="grid-column:1/-1;margin:0;font-size:14px"></p>
       <button class="btn" id="cdB"></button><button class="btn" id="pixB"></button><button class="btn" id="infB" style="grid-column:1/-1"></button>
     </div>
@@ -15926,20 +16118,20 @@ function showPvPTitle(){
   $('tBlue').onclick = () => setTeam('blue'); $('tRed').onclick = () => setTeam('red');
   // game mode: the host's choice is used for the match; practice uses yours
   const setMode = m => { ME.mode = m; try { localStorage.setItem('ca-mode2', m); } catch (e) {}
-    if (m !== 'egg' && m !== 'tennis') m = ME.mode = 'td';
-    for (const [id, k] of [['mEgg','egg'],['mTD','td'],['mTennis','tennis']]) $(id).style.outline = m === k ? '4px solid var(--yolk)' : 'none';
+    if (m !== 'egg' && m !== 'siege') m = ME.mode = 'td';
+    for (const [id, k] of [['mEgg','egg'],['mTD','td'],['mSiege','siege']]) $(id).style.outline = m === k ? '4px solid var(--yolk)' : 'none';
     $('hostB').disabled = m === 'swarm' || !online; $('hostB').title = m === 'swarm' ? 'Swarm mode is single-player: use Practice alone' : '';
     $('modeDesc').textContent = m === 'egg' ? `Alpha Mode: one player defends the egg with 20 protection powers and builds for as long as they like, then presses Ready. Everyone else attacks until the egg breaks or they give up. Everyone takes a turn defending.`
-      : m === 'tennis' ? 'Pain Tennis: two Pain players, the whole island one giant tennis court full of junk, a 12 m net and a clock. Fling everything over the net with your gravity powers. When time runs out, the side with fewer things on it wins. Practising alone, the far side throws back on its own.'
+      : m === 'siege' ? 'Fortress Siege (co-op): everyone defends the egg together. Balloons come down one long, winding path per player. Build walls, domes, lava, drones and spirits (free, refilled every round) and buy turrets with the money you earn, inside the area or along the paths. 100 rounds of fewer but tougher balloons, a boss every third round. Between rounds: rebuild, upgrade, and press Ready.'
       : m === 'swarm' ? 'Swarm (single-player): spawn 5 to 100 enemies that chase you, then try every class’s powers on them. Use Practice alone.'
       : 'Balloon Defense: balloons float along a winding path to crack the egg. Pop them with Pain, Bomber and Swordsman powers. 100 rounds, each one harder: more balloons, bigger, tougher, faster. Play alone or together.';
-    if ($('infB')) { $('infB').style.display = m === 'td' ? '' : 'none'; setInf(ME.tdInf); }
+    if ($('infB')) { $('infB').style.display = m === 'td' || m === 'siege' ? '' : 'none'; setInf(ME.tdInf); }
     if ($('cdB')) setCd(ME.cdOn); };
   function setInf(on){ ME.tdInf = on; try { localStorage.setItem('ca-tdinf', on ? 'on' : 'off'); } catch (e) {} $('infB').textContent = on ? '💰 Infinite money: on' : '💰 Infinite money: off'; $('infB').style.background = on ? 'linear-gradient(180deg,#FFF3A8,#FFC93C)' : ''; }
   $('infB').onclick = () => setInf(!ME.tdInf);
   function setCd(on){ ME.cdOn = on; try { localStorage.setItem('ca-cd', on ? 'on' : 'off'); } catch (e) {} $('cdB').disabled = false; $('cdB').textContent = on ? '⏱️ Cooldowns: on' : '⏱️ Cooldowns: off (spam everything)'; }
   setMode(ME.mode); setCd(ME.cdOn); $('cdB').onclick = () => setCd(!ME.cdOn);
-  $('mEgg').onclick = () => setMode('egg'); $('mTD').onclick = () => setMode('td'); $('mTennis').onclick = () => setMode('tennis');
+  $('mEgg').onclick = () => setMode('egg'); $('mTD').onclick = () => setMode('td'); $('mSiege').onclick = () => setMode('siege');
   $('pixB').textContent = PIXEL.on ? '🟪 Pixel look: on' : '🟪 Pixel look: off'; $('pixB').title = 'Switching reloads the game';
   $('pixB').onclick = () => { try { localStorage.setItem('ca-pixel2', PIXEL.on ? 'off' : 'on'); } catch (e) {} location.reload(); };
   $('hostB').onclick = () => { if (ME.mode === 'swarm') return; ensureAudio(); hostGame($('codeIn').value); };
@@ -16097,9 +16289,9 @@ function renderTray(){
   } else if (G.phase === 'attack' || guardActive()) {
     const keyRank = k => { k = String(k || ''); if (k === '-') return 200; if (k.length !== 1 || !/[0-9A-Za-z]/.test(k)) return -1; if (k === '0') return 10; if (/[1-9]/.test(k)) return +k; return 20 + k.toUpperCase().charCodeAt(0); };
     const shown = Object.entries(skillTable()).filter(([, sp]) => !sp.hide).sort((a, b) => (a[1].ult ? 1000 : 0) + keyRank(a[1].key) - (b[1].ult ? 1000 : 0) - keyRank(b[1].key));   // ultimates last
-    t.innerHTML = `<div class="bar sticker"><div class="tl">${guardActive() ? 'Defender' : classInfo(G.cls).name}</div><div class="skills" style="--cols:${Math.ceil(shown.length/2)}">${shown.map(([id,sp]) => `<button class="skill" data-sp="${id}" aria-pressed="${G.targeting===id}"${GUARD[id] && sp.lim && ((G.egg && G.egg.left2 && G.egg.left2[id]) | 0) >= sp.lim ? ' style="opacity:.4"' : ''} title="${sp.name} (${sp.key})" aria-label="${sp.name}"><span class="si">${sp.e}</span><span class="sn">${SHORT[id] || sp.name}</span>${GUARD[id] && sp.lim ? `<sup>${(G.egg && G.egg.left2 && G.egg.left2[id]) | 0}/${sp.lim}</sup>` : sp.ammo ? `<sup>×${G.nades | 0}</sup>` : sp.ult ? '<sup>ULT</sup>' : ''}<kbd>${sp.key}</kbd></button>`).join('')}</div></div>`;
+    t.innerHTML = `<div class="bar sticker"><div class="tl">${guardActive() ? (siegeOn() ? 'Defences (free)' : 'Defender') : classInfo(G.cls).name}</div><div class="skills" style="--cols:${Math.ceil(shown.length/2)}">${shown.map(([id,sp]) => `<button class="skill" data-sp="${id}" aria-pressed="${G.targeting===id}"${GUARD[id] && sp.lim && ((G.egg && G.egg.left2 && G.egg.left2[id]) | 0) >= fortLim(id) ? ' style="opacity:.4"' : ''} title="${sp.name} (${sp.key})" aria-label="${sp.name}"><span class="si">${sp.e}</span><span class="sn">${SHORT[id] || sp.name}</span>${GUARD[id] && sp.lim ? `<sup>${(G.egg && G.egg.left2 && G.egg.left2[id]) | 0}/${fortLim(id)}</sup>` : sp.ammo ? `<sup>×${G.nades | 0}</sup>` : sp.ult ? '<sup>ULT</sup>' : ''}<kbd>${sp.key}</kbd></button>`).join('')}</div></div>`;
     t.querySelectorAll('[data-sp]').forEach(b => b.onclick = e => { e.stopPropagation(); useSpecial(b.dataset.sp); });
-    if (G.pvp && !guardActive()) addClassButton(t);
+    if (G.pvp && (!guardActive() || siegeOn())) addClassButton(t);
     if (tdOn() && !guardActive()) ttTray(t);
     if (eggOn() && G.phase === 'attack' && !G.egg.over && !amDefender()) { const gb = document.createElement('button'); gb.className = 'btn'; gb.textContent = G.egg.iGaveUp ? '🏳️ Gave up' : '🏳️ Give up'; gb.disabled = !!G.egg.iGaveUp; gb.style.alignSelf = 'center'; gb.onclick = e => { e.stopPropagation(); eggGiveUp(); }; t.querySelector('.bar').appendChild(gb); }
     if (eggOn() && (G.phase === 'attack' || G.phase === 'build') && !G.egg.over) { const sb = document.createElement('button'); sb.className = 'btn'; sb.textContent = amDefender() ? '⚔️ Attack (Y)' : '🛡️ Defend (Y)'; sb.style.alignSelf = 'center'; sb.onclick = e => { e.stopPropagation(); eggSwitchRole(); }; t.querySelector('.bar').appendChild(sb); }
@@ -16611,7 +16803,7 @@ function frame(now){
     } else if (!(G.targeting && THROWN.has(G.targeting) && G.targetPoint)) G.dots.forEach(d => d.visible = false);
     updateThrowArc();
   }
-  zoneRing.visible = (!G.pvp || eggOn()) && (G.phase === 'build' || G.phase === 'attack' || G.phase === 'intro');
+  zoneRing.visible = (!G.pvp || eggOn() || siegeOn()) && (G.phase === 'build' || G.phase === 'attack' || G.phase === 'intro');
   zoneRing.material.color.set(G.phase === 'attack' ? 0xFF8A80 : 0xffffff);
   { const hm = (inPlay() && !isTouch && !G.locked && !G.eggCam) ? (G.fallback ? 2 : 1) : 0;
     if (hm !== G.hintMode) { G.hintMode = hm; const h = $('lockHint'); h.style.display = hm ? 'block' : 'none'; h.classList.toggle('fb', hm === 2);
