@@ -657,3 +657,17 @@ Blocking: `powerSolid(p, r)` (walls, woodSolid, objs heavier than 300 kg; NOT sc
 or the ring wall segment between an attack at a and a target q (analytic circle crossing); fireArea / fireLine / woodArea skip victims,
 the egg and fort units that are covered. `fortDomeAbsorb(key, at, dmg)`: an attacker's blast centred inside the dome hurts the dome
 instead (fireArea, woodArea, fireLine end). bSolid also asks woodSolid. Test t80 (t13 is outdated, t17 aims at old radii).
+
+## Relay + Wood v2 (2026-10-11.7)
+Backup relay: 2026-10-11 test.mosquitto.org was down, EMQX refused ("busy"), HiveMQ often timed out -> joins failed. RELAY_BROKERS are now
+objects {url, o}: shiftr.io public instance first (wss://public.cloud.shiftr.io, user/pass public; 400/400 msgs at 40/s, ~190 ms), then
+HiveMQ (2 names) and EMQX. relayWarm() connects early (host on room open, joiner on Join); relayClientRetry retries busy brokers;
+fallback 4 s after the answer, relay window 35 s, host tell 45 s. Test: relaydbg.mjs / relaygame.mjs (iceTransportPolicy relay forces it).
+Version bumps: replace the exact `const GAME_VERSION = 'x';` line: a sed on the pattern also hit the update-check regex and broke the
+live page once (2026-10-11.5).
+Wood v2: ults have rech:45 (cdFor returns it with cooldowns on; not once per round; castOK/tray skip them). Combo highlight never dims
+(comboMarkTray(w, false)). Everything wooden has hp (WD_HP) and takes damage from every class via summonsTakeArea/Cone ->
+woodTakeArea/Cone (skips the owner and their team; height-aware distance); the host breaks things with wd_break (castOK refuses it from
+clients). wdBarsFrame draws health bars. World Tree impact = wdCatastrophe: a 400-damage ring over the whole map, summonsTakeArea 9999,
+props obliterated (wdObliterate: no physics rubble) or set burning (<= 24), structures withered, dome/egg hit; afterwards the sky/sea/
+island look burnt (sun) or shattered (moon). Tests t82, t83.
