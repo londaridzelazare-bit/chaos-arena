@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-11.3';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-11.4';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -1067,7 +1067,7 @@ function animatePlayer(P, dt, isActive){
   const acting = P.castPose > 0 || P.punchPose > 0 || P.pushPose > 0;
   let target = P.face;
   // charging keeps the arms up, but walking sideways or backward still turns you the way you walk
-  const charging = isActive && (PAIN.charge || (typeof SW !== 'undefined' && SW.charge) || (typeof TK !== 'undefined' && TK.mine) || (typeof AV !== 'undefined' && AV.charge));
+  const charging = isActive && (PAIN.charge || (typeof SW !== 'undefined' && SW.charge) || (typeof TK !== 'undefined' && TK.mine) || (typeof AV !== 'undefined' && AV.charge) || (typeof WD !== 'undefined' && WD.charge));
   if (isActive && acting && !(charging && P.moving)) target = G.yaw;
   else if (isActive && P.moveFace != null && P.moving) target = P.moveFace;
   else if (!isActive) target = P.remote ? (P.netFace ?? P.face) : Math.atan2(-b.position.x, -b.position.z);
@@ -1111,7 +1111,7 @@ function animatePlayer(P, dt, isActive){
   } else P.head.rotation.x *= .8;
   if (isActive) updateDashFX(P, dt);
   if (P.dashEndFx) { P.dashEndFx = false; dashArrive(P); }
-  swordAnim(P, dt); avatarAnim(P, dt);
+  swordAnim(P, dt); avatarAnim(P, dt); woodAnim(P, dt);
   if (P.flipT > 0) { P.flipT = Math.max(0, P.flipT - dt); P.rig.rotation.x = (1 - P.flipT/.45)*Math.PI*2; if (P.flipT === 0) P.rig.rotation.x = 0; }
   P.mark.visible = isActive; P.mark.position.y = 2.45 + Math.sin(G.t*4)*.08;
   if (P.carry) {
@@ -1774,6 +1774,7 @@ function useSpecial(id){
   if (SUMMON[id]) { summonUse(id); return; }
   if (NECRO_SK[id]) { necroUse(id); return; }
   if (typeof AVATAR !== 'undefined' && AVATAR[id]) { avatarUse(id); return; }
+  if (typeof WOOD_SK !== 'undefined' && WOOD_SK[id]) { woodUse(id); return; }
   if (SWORD[id]) { if (SWORD[id].kind === 'charge') { if ((G.cd[id] || 0) > 0) { cdToast(id); return; } localCast(id, aimPoint(80), {c:0}); return; } swordUse(id); return; }
   if (G.phase !== 'attack' || !G.specials || !G.specials[id] || G.atkTime <= 0) return;
   const P = chars[attacker()]; if (!P || P.stun > 0 || P.lockT > 0) return;
@@ -2352,7 +2353,8 @@ function updateTargeting(){
   mkRing.material.color.set(col); mkDisc.material.color.set(col); mkBeam.material.color.set(col);
   mkRing.material.opacity = .65 + Math.sin(G.t*8)*.25;
   mkArrow.visible = id === 'shinra' || id === 'sword'; mkArrow.rotation.y = G.yaw;
-  if (AVATAR[id] && !['aim', 'aimcharge', 'sky'].includes(AVATAR[id].kind)) marker.visible = false;   // Genos powers aimed with the crosshair alone
+  if (AVATAR[id] && !['aim', 'aimcharge', 'sky'].includes(AVATAR[id].kind)) marker.visible = false;
+  if (WOOD_SK[id] && WOOD_SK[id].kind !== 'aimcharge') marker.visible = false;   // Wood Sage powers aimed with the crosshair alone   // Genos powers aimed with the crosshair alone
 }
 function castAt(){
   const id = G.targeting;
@@ -4164,7 +4166,7 @@ function updateVisuals(dt){
   const sd = new THREE.Vector3(.45, .5, -.74).normalize();
   sunDisk.position.copy(camera.position).addScaledVector(sd, 400); sunDisk.lookAt(camera.position);
   sunGlow.position.copy(camera.position).addScaledVector(sd, 405); sunGlow.lookAt(camera.position);
-  const night = G.night > 0; sunDisk.visible = sunGlow.visible = !night && RAIN.k < .5;
+  const night = G.night > 0; sunDisk.visible = sunGlow.visible = !night && RAIN.k < .5 && !(typeof WD !== 'undefined' && WD.hideSun);
   cloudMat.color.copy(night ? _c1.setHex(0x2A3450) : G.mode === 'pain' ? _painCloud : _white); if (RAIN.k > .01) cloudMat.color.lerp(RAIN_CLOUD, RAIN.k*.7);
   for (const c of clouds) { c.position.x += c.userData.sp*dt; if (c.position.x > 220) c.position.x = -220; }
   const charred = islandTop.material !== terrainMat; tufts.material.color.set(charred ? 0x2A1E18 : 0x4E9A38); flowers.visible = !charred;
@@ -4647,7 +4649,7 @@ function hurt(P, dmg){
   updateHud();
 }
 function die(P){
-  painOwnerDied(G.localKey); bomberOwnerDied(G.localKey); swordOwnerDied(G.localKey); avatarOwnerDied(G.localKey); summonOwnerDied(G.localKey); necroOwnerDied(G.localKey); P.held = null; P.hypno = null; P.slowT = P.pinT = 0;
+  painOwnerDied(G.localKey); bomberOwnerDied(G.localKey); swordOwnerDied(G.localKey); avatarOwnerDied(G.localKey); woodOwnerDied(G.localKey); summonOwnerDied(G.localKey); necroOwnerDied(G.localKey); P.held = null; P.hypno = null; P.slowT = P.pinT = 0;
   P.alive = false; P.deadT = 4; P.root.visible = false; if (P.carry) P.carry = null;
   const b = P.body; b.type = CANNON.Body.KINEMATIC; b.mass = 0; b.updateMassProperties(); b.velocity.set(0,0,0); b.collisionFilterMask = 0;
   sfx('splat'); G.shake = reduceMotion ? 0 : .8;
@@ -4723,7 +4725,7 @@ function startMatch(seed, list, score, mode, cdOn, eg){
   G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' || mode === 'swarm' || mode === 'td' || mode === 'tennis' ? mode : mode === 'chaos' ? 'td' : 'chaos'; G.cdOn = !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
   if (G.mode === 'egg' && !eg) eg = {def:G.localKey, round:1, total:1, pts:{}};
   buildRound(seed);
-  painReset(); painAmbience(); barReset(); bomberReset(); swordReset(); avatarReset(); summonReset(); necroReset(); ultReset();
+  painReset(); painAmbience(); barReset(); bomberReset(); swordReset(); avatarReset(); woodReset(); summonReset(); necroReset(); ultReset();
   if (!classCycle().includes(G.cls)) G.cls = classCycle()[0];   // a class hidden in this mode
   fortReset();
   if (G.mode !== 'egg' && G.mode !== 'td') {   // Egg mode and Balloon Defense keep the egg and its pedestal
@@ -4811,6 +4813,18 @@ Object.assign(TT_DEFS, {   // Genos (class id 'avatar'): fire
   a_sun:    {cls:'avatar', name:'Sun Shrine', e:'☀️', cost:650, kind:'pulse', look:'sun', col:0xFFD84D, range:9, rate:.6, dmg:16,
     ups:[['Brighter Sun', 350, {dmg:1.5}], ['Bigger Flares', 700, {range:3}], ['Solar Pulse', 1100, {rate:1.7}], ['Corona', 2300, {range:4, dmg:1.8}], ['Supernova', 7500, {range:6, dmg:2.5, moab:2}]]}
 });
+Object.assign(TT_DEFS, {   // Wood Sage (class id 'wood')
+  w_thorn: {cls:'wood', name:'Thorn Patch', e:'🌵', cost:300, kind:'pulse', look:'thorn', col:0x6E8F3A, range:7, rate:1.2, dmg:10,
+    ups:[['Longer Thorns', 200, {range:2}], ['Sharper Thorns', 400, {dmg:1.6}], ['Rapid Growth', 700, {rate:1.6}], ['Iron Thorns', 1500, {dmg:1.8, moab:2}], ['Thorn Forest', 5000, {range:4, dmg:2}]]},
+  w_spear: {cls:'wood', name:'Spear Tree', e:'🗡️', cost:400, kind:'shot', look:'wtree', fx:'stake', col:0x8A5A32, range:28, rate:1, dmg:16, pierce:2,
+    ups:[['Hardwood Stakes', 250, {dmg:1.5}], ['Longer Reach', 450, {range:8}], ['Twin Stakes', 800, {multi:1}], ['Ironwood', 1600, {pierce:4, dmg:1.5}], ['World Tree Spears', 5500, {multi:2, dmg:2, moab:2}]]},
+  w_vine:  {cls:'wood', name:'Strangler Vines', e:'🌿', cost:450, kind:'dot', look:'vine', col:0x3E7E2C, range:9, rate:4, dmg:1.6, slow:.4,
+    ups:[['Thicker Vines', 250, {dmg:1.6}], ['Wider Spread', 500, {range:3}], ['Strangle', 900, {slow:.6, dmg:1.3}], ['Crushing Vines', 1800, {dmg:2, moab:2}], ['Forest Prison', 5500, {range:5, stun:.3, dmg:1.5}]]},
+  w_log:   {cls:'wood', name:'Log Catapult', e:'🪵', cost:550, kind:'lob', look:'logcat', fx:'log', col:0x7A4E2C, range:36, rate:.6, dmg:26, splash:4.5,
+    ups:[['Heavier Logs', 300, {dmg:1.4, splash:1}], ['Faster Reload', 600, {rate:1.5}], ['Log Volley', 1000, {multi:2}], ['Ancient Trunks', 2200, {dmg:2, splash:2, moab:2}], ['Timber Storm', 6500, {multi:3, dmg:1.8}]]},
+  w_elder: {cls:'wood', name:'Elder Tree', e:'🌳', cost:1100, kind:'pulse', look:'elder', col:0x4E9A38, range:12, rate:.35, dmg:45, push:3, moab:2,
+    ups:[['Deeper Roots', 650, {range:3}], ['Heavy Boughs', 1100, {dmg:1.5}], ['Restless Tree', 1800, {rate:1.5}], ['Root Quake', 3200, {range:4, dmg:1.6, stun:.4}], ['World Tree', 9000, {range:6, dmg:2.2, rate:1.3}]]}
+});
 for (const k in TT_DEFS) { const U = TT_DEFS[k].ups; U[3][1] = Math.round(U[3][1]*1.5/50)*50; U[4][1] = Math.round(U[4][1]*1.6/50)*50; }   // the top two tiers cost more
 const TT_CLS = {}; for (const k in TT_DEFS) (TT_CLS[TT_DEFS[k].cls] = TT_CLS[TT_DEFS[k].cls] || []).push(k);
 // infinite money (a menu toggle the host picks before the match)
@@ -4841,7 +4855,7 @@ function ttCanPlace(x, z, ignore){
 
 /* ---------- looks ---------- */
 function ttMesh(t){
-  const D = TT_DEFS[t.k], g = new THREE.Group(), head = new THREE.Group(), clsCol = D.cls === 'pain' ? 0x3A2E52 : D.cls === 'bomber' ? 0x4A4A3A : D.cls === 'avatar' ? 0x4A2A1E : 0x5A5040;
+  const D = TT_DEFS[t.k], g = new THREE.Group(), head = new THREE.Group(), clsCol = D.cls === 'pain' ? 0x3A2E52 : D.cls === 'bomber' ? 0x4A4A3A : D.cls === 'avatar' ? 0x4A2A1E : D.cls === 'wood' ? 0x3E5A26 : 0x5A5040;
   const base = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.75, .7, 16), M3(clsCol)); base.position.y = .35; g.add(base);
   bx(2.4, .12, 2.4, D.col, 0, .76, 0, g);
   head.position.y = .8; g.add(head);
@@ -4866,6 +4880,11 @@ function ttMesh(t){
   else if (L === 'jet') { bx(1, 1, 1, 0x3E2A22, 0, .6, 0, head); const n = new THREE.Mesh(new THREE.CylinderGeometry(.18, .32, 1.4, 10), M3(0x6A4A3A)); n.rotation.x = Math.PI/2; n.position.set(0, 1.2, .8); head.add(n); }
   else if (L === 'cannon') { bx(1.3, 1, 1.3, 0x3A2E2A, 0, .6, 0, head); const n = new THREE.Mesh(new THREE.CylinderGeometry(.42, .5, 2.2, 12), M3(0x5A4A44)); n.rotation.x = Math.PI/2; n.position.set(0, 1.5, .9); head.add(n); const gl = new THREE.Mesh(new THREE.CircleGeometry(.36, 16), new THREE.MeshBasicMaterial({color:0xFFF3B0})); gl.position.set(0, 1.5, 2.01); head.add(gl); }
   else if (L === 'sun') { for (const sd of [-1, 1]) bx(.3, 2.2, .3, 0x8A5A2A, sd*.9, 1.1, 0, head); bx(2.3, .25, .4, 0x8A5A2A, 0, 2.3, 0, head); const o = new THREE.Mesh(new THREE.IcosahedronGeometry(.6, 2), new THREE.MeshBasicMaterial({color:0xFFD84D})); o.position.y = 3; head.add(o); t.orb = o; }
+  else if (L === 'thorn') { for (let i = 0; i < 9; i++) { const a = i/9*Math.PI*2, c = new THREE.Mesh(new THREE.ConeGeometry(.22, 1.6, 5), M3(0x6E8F3A)); c.position.set(Math.cos(a)*.8, .8, Math.sin(a)*.8); c.rotation.set(Math.sin(a)*.4, 0, -Math.cos(a)*.4); head.add(c); } bx(.7, .6, .7, 0x553419, 0, .3, 0, head); }
+  else if (L === 'wtree') { const tr = new THREE.Mesh(new THREE.CylinderGeometry(.35, .5, 2.6, 7), M3(0x7A4E2C)); tr.position.y = 1.3; head.add(tr); const cn = new THREE.Mesh(new THREE.IcosahedronGeometry(1.1, 1), M3(0x4E9A38)); cn.position.y = 3; head.add(cn); const sp = new THREE.Mesh(new THREE.ConeGeometry(.18, 1.6, 6), M3(0xA87445)); sp.rotation.x = Math.PI/2; sp.position.set(0, 2.2, .9); head.add(sp); }
+  else if (L === 'vine') { for (let i = 0; i < 5; i++) { const v = new THREE.Mesh(new THREE.CylinderGeometry(.12, .2, 2.4, 6), M3(0x3E7E2C)); v.position.set(Math.cos(i*1.3)*.6, 1.1, Math.sin(i*1.3)*.6); v.rotation.set(Math.sin(i)*.4, 0, Math.cos(i)*.4); head.add(v); } const fl = new THREE.Mesh(new THREE.IcosahedronGeometry(.6, 1), M3(0xF4A6C8)); fl.position.y = 2.4; head.add(fl); t.orb = fl; }
+  else if (L === 'logcat') { bx(1.4, .5, 1.4, 0x553419, 0, .25, 0, head); const arm = new THREE.Mesh(new THREE.CylinderGeometry(.15, .2, 2.6, 6), M3(0x7A4E2C)); arm.position.set(0, 1.4, -.3); arm.rotation.x = -.6; head.add(arm); const lg = new THREE.Mesh(new THREE.CylinderGeometry(.3, .3, 1.2, 8), M3(0x8A5A32)); lg.rotation.z = Math.PI/2; lg.position.set(0, 2.4, -1); head.add(lg); }
+  else if (L === 'elder') { const tr = new THREE.Mesh(new THREE.CylinderGeometry(.6, .9, 3.6, 8), M3(0x6A4426)); tr.position.y = 1.8; head.add(tr); for (let i = 0; i < 3; i++) { const cn = new THREE.Mesh(new THREE.IcosahedronGeometry(1.4, 1), M3([0x4E9A38, 0x3E7E2C, 0x6CB24A][i])); cn.position.set(Math.cos(i*2.1)*.9, 4 + i*.3, Math.sin(i*2.1)*.9); head.add(cn); } }
   // level pips and a name tag
   t.pips = []; for (let i = 0; i < 5; i++) { const a = i/5*Math.PI*2, pp = new THREE.Mesh(new THREE.SphereGeometry(.16, 8, 6), M3(0x2A2A2A)); pp.position.set(Math.cos(a)*1.45, .8, Math.sin(a)*1.45); g.add(pp); t.pips.push(pp); }
   const lab = new THREE.Sprite(new THREE.SpriteMaterial({transparent:true, depthWrite:false, depthTest:false})); lab.renderOrder = 40; lab.userData.noRay = true; lab.position.y = 5.2; lab.visible = false; g.add(lab); t.lab = lab;   // shown only while you aim at it
@@ -4952,6 +4971,7 @@ function ttFire(t, S){
       else if (D.fx === 'sword') { const s = swordOne(.9); ttFlyer(s, o.clone(), p.clone().addScaledVector(dir, 3), .2); }
       else if (D.fx === 'missile') { const m = new THREE.Mesh(new THREE.ConeGeometry(.16, .7, 6).rotateX(Math.PI/2), M3(0xE8332E)); ttFlyer(m, o.clone(), p, .35, 4, () => boomVisual(p.clone(), false, .35, {ball:0xFF8A3A, core:0xFFF3B0, ring:0xFFB02E})); }
       else if (D.fx === 'flak') { ttTracer(o, p, 0xFFE9A0, .06); puff(p, 0x555555, .9); }
+      else if (D.fx === 'stake') { const m = new THREE.Mesh(new THREE.BoxGeometry(.12, .12, 1.4), M3(0x8A5A32)); ttFlyer(m, o.clone(), p, .15); }
       else ttTracer(o, p, 0xFFF3B0, .05, .08);
       ttHurt(b, S, S.dmg, 'shot');
       if (S.splash) ttArea(p, S.splash, S, S.dmg*.6);
@@ -4963,7 +4983,7 @@ function ttFire(t, S){
   if (D.kind === 'lob') {
     const tg = ttFirst(t, S, Math.round(S.multi)); if (!tg.length) return false;
     for (const b of tg) { const p = V3(b.pos.x, groundH(b.pos.x, b.pos.z) + 1, b.pos.z).addScaledVector(V3(Math.sin(tdDir(b.d)), 0, Math.cos(tdDir(b.d))), 3);
-      const m = D.fx === 'rock' ? new THREE.Mesh(PAIN_ROCK, M3(0x6E6672)) : D.fx === 'fire' ? new THREE.Mesh(new THREE.IcosahedronGeometry(.45 + S.splash*.04, 1), new THREE.MeshBasicMaterial({color:0xFF6A1F})) : new THREE.Mesh(new THREE.SphereGeometry(.3, 8, 6), M3(0x2A2A2A)); if (D.fx === 'rock') m.scale.setScalar(.5 + S.splash*.08);
+      const m = D.fx === 'rock' ? new THREE.Mesh(PAIN_ROCK, M3(0x6E6672)) : D.fx === 'fire' ? new THREE.Mesh(new THREE.IcosahedronGeometry(.45 + S.splash*.04, 1), new THREE.MeshBasicMaterial({color:0xFF6A1F})) : D.fx === 'log' ? new THREE.Mesh(new THREE.CylinderGeometry(.35, .35, 1.6, 8).rotateZ(Math.PI/2), M3(0x7A4E2C)) : new THREE.Mesh(new THREE.SphereGeometry(.3, 8, 6), M3(0x2A2A2A)); if (D.fx === 'rock') m.scale.setScalar(.5 + S.splash*.08);
       ttFlyer(m, o.clone(), p, .7, 10, () => { boomVisual(p.clone(), false, .2 + S.splash*.06, D.fx === 'rock' ? {ball:0x6E6672, core:0xC9B8FF, ring:0xD9CCFF} : D.fx === 'fire' ? {ball:0xFF6A1F, core:0xFFF3B0, ring:0xFFB02E} : undefined); ttArea(p, S.splash, S, S.dmg); sfx(D.fx === 'fire' ? 'fireball' : 'bboom'); }); }
     return true;
   }
@@ -4971,13 +4991,14 @@ function ttFire(t, S){
     const any = ttFirst(t, S, 1); if (!any.length) return false;
     const c = V3(t.x, gy + 2, t.z);
     if (D.look === 'blades') { for (let i = 0; i < 2; i++) slashArc(V3(t.x, gy + 2, t.z), Math.random()*6.28, S.range, {span:Math.PI*1.2, col:0xE6F4FF, life:.18, grow0:.9, grow:.2}); sfx('slash'); }
+    else if (D.cls === 'wood') { wdPulseFX(c, S.range); sfx('thunk'); }
     else if (D.look === 'sun') { boomVisual(c.clone(), false, .25 + S.range*.04, {ball:0xFFB02E, core:0xFFF3B0, ring:0xFFD84D}); sfx('fire'); }
     else { warpPulse(c, S.range*1.4, .35, .04); sfx('shinra'); }
     ttArea(c, S.range, S, S.dmg); return true;
   }
   if (D.kind === 'dot') {
     const any = ttFirst(t, S, 1); if (!any.length) return false;
-    ttArea(V3(t.x, gy + 2, t.z), S.range, S, S.dmg, 'dot'); if (D.look === 'brazier') { for (let i = 0; i < 3; i++) { const a = Math.random()*6.28, r = Math.random()*S.range; flameP(V3(t.x + Math.cos(a)*r, gy + .4, t.z + Math.sin(a)*r), V3(0, rr(2, 4), 0), rr(.2, .4), pick(FIRE_COLS), .5); } } else if (Math.random() < .2) warpPulseIn(V3(t.x, gy + 3, t.z), S.range, .4, .02); return true;
+    ttArea(V3(t.x, gy + 2, t.z), S.range, S, S.dmg, 'dot'); if (D.look === 'brazier') { for (let i = 0; i < 3; i++) { const a = Math.random()*6.28, r = Math.random()*S.range; flameP(V3(t.x + Math.cos(a)*r, gy + .4, t.z + Math.sin(a)*r), V3(0, rr(2, 4), 0), rr(.2, .4), pick(FIRE_COLS), .5); } } else if (D.look === 'vine') { if (Math.random() < .4) puff(V3(t.x + rr(-S.range, S.range)*.6, gy + .4, t.z + rr(-S.range, S.range)*.6), 0x3E7E2C, .6); } else if (Math.random() < .2) warpPulseIn(V3(t.x, gy + 3, t.z), S.range, .4, .02); return true;
   }
   if (D.kind === 'beam') {
     const tg = ttFirst(t, S, Math.round(S.multi)); if (!tg.length) return false;
@@ -5501,7 +5522,7 @@ function tdMapFrame(dt){
   const ex = tdmX(0), ey = tdmY(0), lf = TD.lives/TD_LIVES; g.fillStyle = lf > .5 ? '#FFF7E0' : lf > .2 ? '#FFD84D' : '#FF6A5A'; g.strokeStyle = '#4A2A00'; g.lineWidth = 3;
   g.beginPath(); g.ellipse(ex, ey, 10, 13, 0, 0, Math.PI*2); g.fill(); g.stroke();
   // turrets: little squares in their class colour (gold pips = upgrades)
-  for (const t of TT.list) { const x = tdmX(t.x), y = tdmY(t.z), D = TT_DEFS[t.k]; g.fillStyle = D.cls === 'pain' ? '#7A5CC8' : D.cls === 'bomber' ? '#6B7A4A' : D.cls === 'avatar' ? '#FF6A1F' : '#D9A520'; g.strokeStyle = '#1A1A1A'; g.lineWidth = 2; g.fillRect(x - 6, y - 6, 12, 12); g.strokeRect(x - 6, y - 6, 12, 12); if (t.lvl) { g.fillStyle = '#FFD84D'; g.fillRect(x - 6, y + 7, 12*t.lvl/5, 3); } }
+  for (const t of TT.list) { const x = tdmX(t.x), y = tdmY(t.z), D = TT_DEFS[t.k]; g.fillStyle = D.cls === 'pain' ? '#7A5CC8' : D.cls === 'bomber' ? '#6B7A4A' : D.cls === 'avatar' ? '#FF6A1F' : D.cls === 'wood' ? '#5A8A2E' : '#D9A520'; g.strokeStyle = '#1A1A1A'; g.lineWidth = 2; g.fillRect(x - 6, y - 6, 12, 12); g.strokeRect(x - 6, y - 6, 12, 12); if (t.lvl) { g.fillStyle = '#FFD84D'; g.fillRect(x - 6, y + 7, 12*t.lvl/5, 3); } }
   // balloons: the leader (closest to the egg) is ringed
   let lead = null; for (const b of TD.list) if (!b.dead && (!lead || b.d > lead.d)) lead = b;
   const live = TD.list.filter(b => !b.dead).sort((a, b) => a.d - b.d);
@@ -5972,11 +5993,11 @@ const PAIN = {lev:{}, vortex:{}, shield:{}, holdKeys:{}, fx:[], fields:[], rods:
 function isPain(){ return G.mode === 'pain'; }
 // the Pain powers are in your hands: the Pain class in any mode, or the default kit in Pain mode (the map rules stay with the mode)
 function painKit(){ return G.cls === 'pain' || (G.cls === 'native' && isPain()); }
-function skillTable(){ if (typeof guardActive === 'function' && guardActive()) return GUARD; return G.cls === 'bomber' ? BOMBER : G.cls === 'sword' ? SWORD : G.cls === 'avatar' ? avatarTable() : G.cls === 'summon' ? SUMMON : G.cls === 'necro' ? NECRO_SK : G.cls === 'pain' ? PAIN_SKILLS : isPain() ? PAIN_SKILLS : SPECIALS; }
-function skillDef(id){ return PAIN_SKILLS[id] || SPECIALS[id] || BOMBER[id] || SWORD[id] || (typeof AVATAR !== 'undefined' && AVATAR[id]) || SUMMON[id] || NECRO_SK[id] || GUARD[id]; }
+function skillTable(){ if (typeof guardActive === 'function' && guardActive()) return GUARD; return G.cls === 'bomber' ? BOMBER : G.cls === 'sword' ? SWORD : G.cls === 'avatar' ? avatarTable() : G.cls === 'wood' ? WOOD_SK : G.cls === 'summon' ? SUMMON : G.cls === 'necro' ? NECRO_SK : G.cls === 'pain' ? PAIN_SKILLS : isPain() ? PAIN_SKILLS : SPECIALS; }
+function skillDef(id){ return PAIN_SKILLS[id] || SPECIALS[id] || BOMBER[id] || SWORD[id] || (typeof AVATAR !== 'undefined' && AVATAR[id]) || (typeof WOOD_SK !== 'undefined' && WOOD_SK[id]) || SUMMON[id] || NECRO_SK[id] || GUARD[id]; }
 // cooldowns are a match setting (off by default): with them off every ability is ready again immediately
 function cdFor(id){ { const d = skillDef(id); if (d && d.fixed) return d.cd; if (d && d.ult) return 0; } if (!G.cdOn) return 0;   // the match's cooldown setting covers every class (World Severance stays once per round)
-  if (BOMBER[id]) return BOMBER[id].cd; if (SWORD[id]) return SWORD[id].cd; if (typeof AVATAR !== 'undefined' && AVATAR[id]) return AVATAR[id].cd; if (SUMMON[id]) return SUMMON[id].cd; if (NECRO_SK[id]) return NECRO_SK[id].cd; if (GUARD[id]) return GUARD[id].cd; return (PAIN_SKILLS[id] && PAIN_SKILLS[id].cd) || CD[id] || 3; }
+  if (BOMBER[id]) return BOMBER[id].cd; if (SWORD[id]) return SWORD[id].cd; if (typeof AVATAR !== 'undefined' && AVATAR[id]) return AVATAR[id].cd; if (typeof WOOD_SK !== 'undefined' && WOOD_SK[id]) return WOOD_SK[id].cd; if (SUMMON[id]) return SUMMON[id].cd; if (NECRO_SK[id]) return NECRO_SK[id].cd; if (GUARD[id]) return GUARD[id].cd; return (PAIN_SKILLS[id] && PAIN_SKILLS[id].cd) || CD[id] || 3; }
 function painReset(){
   PAIN.lev = {}; PAIN.vortex = {}; PAIN.shield = {}; PAIN.holdKeys = {}; PAIN.links = {}; PAIN.circ = {}; PAIN.wring = {}; PAIN.zeroG = null; zeroGStars(false); quakeStop(true);
   PAIN.gravAreas = []; PAIN.slabs = []; PAIN.circBuild = false; PAIN.circShot = null;
@@ -8321,8 +8342,8 @@ function castOK(c, m){
   if (m.s === 'w_loot') return P.alive !== false && typeof m.i === 'number';   // picking up a potion (WILD)
   if (m.s === 'w_grab' || m.s === 'w_drop') return m.s === 'w_drop' || Array.isArray(m.ob);   // carrying things (E)
   if (GUARD[m.s] && (!eggOn() || !isDef(m.id))) return false;   // the protector's kit is the defender's alone   // only for your own summons, even while dead
-  if (eggOn() && (G.egg.over || (isDef(m.id) && !['ki', 'b_bazooka', 's_slash', 'af_whip', 'u_cmd', 'n_skull'].includes(m.s) && !GUARD[m.s]))) return false;   // the defender only shoots
-  const def = m.s === 'ki' ? null : (BOMBER[m.s] || SWORD[m.s] || AVATAR[m.s] || SUMMON[m.s] || NECRO_SK[m.s] || PAIN_SKILLS[m.s] || GUARD[m.s] || modeTable()[m.s]); if (m.s !== 'ki' && !def) return false;   // the mode's own kit or a class (anyone may switch class any time)
+  if (eggOn() && (G.egg.over || (isDef(m.id) && !['ki', 'b_bazooka', 's_slash', 'af_whip', 'wd_lash', 'u_cmd', 'n_skull'].includes(m.s) && !GUARD[m.s]))) return false;   // the defender only shoots
+  const def = m.s === 'ki' ? null : (BOMBER[m.s] || SWORD[m.s] || AVATAR[m.s] || WOOD_SK[m.s] || SUMMON[m.s] || NECRO_SK[m.s] || PAIN_SKILLS[m.s] || GUARD[m.s] || modeTable()[m.s]); if (m.s !== 'ki' && !def) return false;   // the mode's own kit or a class (anyone may switch class any time)
   // cast from where they actually are. Positions arrive ~15 times a second and can be late, so allow for how fast they
   // were moving and how old the last position is (knockbacks reach 50+ m/s), and for powers that teleport them
   const tNow = performance.now()/1000, age = P.netT ? tNow - P.netT : 0, spd = P.net ? Math.hypot(P.net.vx || 0, P.net.vz || 0) : 0;
@@ -8357,12 +8378,12 @@ function castOK(c, m){
    or the class button on the Skills bar. Cooldowns are kept per power id in G.cd (and in the host's castLog), so
    swapping away and back never resets them. The host accepts a cast if the power exists in the mode's kit or in
    any class, so players can swap freely without telling anyone. */
-const CLASS_IDS = ['native', 'pain', 'bomber', 'sword', 'avatar', 'summon', 'necro'];
+const CLASS_IDS = ['native', 'pain', 'bomber', 'sword', 'avatar', 'wood', 'summon', 'necro'];
 // in Pain mode the default kit already is Pain, so the class is skipped there
 const classCycle = () => G.mode === 'tennis' ? ['pain'] : CLASS_IDS.filter(c => !(c === 'pain' && isPain()) && !((G.mode === 'egg' || G.mode === 'td') && (c === 'native' || c === 'summon' || c === 'necro')));   // Alpha Mode: no Chaos, Summoner or Necromancer for now
-function classInfo(c){ return c === 'avatar' ? {name:'Genos', e:'🔥'} : c === 'pain' ? {name:'Pain', e:'🌑'} : c === 'bomber' ? {name:'Bomber', e:'💣'} : c === 'sword' ? {name:'Swordsman', e:'⚔️'} : c === 'summon' ? {name:'Summoner', e:'🐾'} : c === 'necro' ? {name:'Necromancer', e:'💀'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
+function classInfo(c){ return c === 'wood' ? {name:'Wood Sage', e:'🌳'} : c === 'avatar' ? {name:'Genos', e:'🔥'} : c === 'pain' ? {name:'Pain', e:'🌑'} : c === 'bomber' ? {name:'Bomber', e:'💣'} : c === 'sword' ? {name:'Swordsman', e:'⚔️'} : c === 'summon' ? {name:'Summoner', e:'🐾'} : c === 'necro' ? {name:'Necromancer', e:'💀'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
 function modeTable(){ return isPain() ? PAIN_SKILLS : SPECIALS; }
-G.cls = (() => { try { const c = localStorage.getItem('ca-cls'); return c === 'pain' || c === 'bomber' || c === 'sword' || c === 'avatar' || c === 'summon' || c === 'necro' ? c : 'native'; } catch (e) { return 'native'; } })();
+G.cls = (() => { try { const c = localStorage.getItem('ca-cls'); return c === 'pain' || c === 'bomber' || c === 'sword' || c === 'avatar' || c === 'wood' || c === 'summon' || c === 'necro' ? c : 'native'; } catch (e) { return 'native'; } })();
 function switchClass(to){
   const cyc = classCycle(), next = to || cyc[(cyc.indexOf(G.cls) + 1) % cyc.length];
   if (next === G.cls) return;
@@ -9287,7 +9308,7 @@ const AV_PUSH = 0, AV_BOOM_PUSH = .6, AV_DIRECT = .3;   // flames never push any
 function avBurn(P, key, s, pool){ P.burnBy = key; if (pool > 0) { P.burnPool = (P.burnPool || 0) + pool; return; } P.burnT = Math.max(P.burnT || 0, s || 3); }   // a burn pool replaces the plain burn tick (no double damage)
 // what flames do to the scenery: they light what burns (and leave the rest standing)
 function avScorch(p, R){ igniteAt(V3(p.x, p.y, p.z), R*.8); }
-function avHitP(P, key, dmg, s){ painHurt(P, dmg*AV_DIRECT, key); avBurn(P, key, s || 3, dmg*(1 - AV_DIRECT)); }
+function avHitP(P, key, dmg, s){ if (G.cls === 'wood' && P === localP()) dmg *= 1.5;   /* fire burns a Wood Sage 50% harder */ painHurt(P, dmg*AV_DIRECT, key); avBurn(P, key, s || 3, dmg*(1 - AV_DIRECT)); }
 function avHitDummy(b, dmg){ dummyHit(b, dmg*AV_DIRECT); AV.dburn.set(b, (AV.dburn.get(b) || 0) + dmg*(1 - AV_DIRECT)); }
 // the burning drains over a few seconds (you on your own screen, the practice dummies everywhere)
 function burnPoolFrame(dt){
@@ -9305,12 +9326,12 @@ function fireArea(key, team, at, R, dmg, kb, up, o){
   PAIN.dummies.forEach(dm => { if (!dm.dead && V3(dm.body.position.x, dm.body.position.y + 1, dm.body.position.z).distanceTo(at) < R) avHitDummy(dm.body, dmg); });
   if (o.objects !== false && (kb > 0 || up > 0)) forEachObject(b => { if (b.tag === 'dummy') return; const d = b.position.distanceTo(at); if (d > R) return; if (b.wakeUp) b.wakeUp(); b.velocity.x += (b.position.x - at.x)/(d || 1)*kb*.6; b.velocity.z += (b.position.z - at.z)/(d || 1)*kb*.6; b.velocity.y += up*.5; if (b.wild) wildBlastHit(b, dmg); });
   if (pf > 0) damageProps(at, R, o.props != null ? o.props : dmg*4);   // only an explosion breaks things
-  igniteAt(V3(at.x, at.y, at.z), R*.9);
+  igniteAt(V3(at.x, at.y, at.z), R*.9); woodFireTouch(at, R, key);   // wood catches: allied fire empowers it, enemy fire burns it away
   if (eggOn() && egg && egg.alive && eggAuth() && egg.body.position.distanceTo(at) < R*.6 + 1) eggHit(dmg*.5, 'fire');
 }
 // along a segment (streams and beams): damage, burn, a shove along it, props broken and lit
 function fireLine(key, team, a, b, W, dmg, kb, o){
-  o = o || {}; const dir = b.clone().sub(a), L = dir.length() || 1; dir.divideScalar(L);
+  o = o || {}; const dir = b.clone().sub(a), L = dir.length() || 1; dir.divideScalar(L); woodFireTouchLine(a, b, W, key);
   const P = victimFor(key, team);
   if (P && !(amDefender() && fortShielded(P.body.position))) { const q = V3(P.body.position.x, P.body.position.y + 1, P.body.position.z); if (segDist(a, b, q) < W + .5) { avHitP(P, key, dmg, o.burn || 3); } }
   PAIN.dummies.forEach(dm => { if (!dm.dead && segDist(a, b, V3(dm.body.position.x, dm.body.position.y + 1, dm.body.position.z)) < W + .6) { avHitDummy(dm.body, dmg); } });
@@ -10110,6 +10131,1127 @@ function avatarOwnerDied(id){
   avChanEnd(id); const S = AV.suns[id]; if (S && S.state === 'hold') sunEnd(S);
   const P = chars[id]; if (P) { P.avPose = null; P.avHold = null; avWhiten(P, false); }
   if (id === G.localKey) { AV.charge = null; avSkyClear(); avPrevHide(); const me = localP(); if (me) me.burnPool = 0; }
+}
+
+/* ===================================== WOOD_SK SAGE (class id 'wood') =====================================
+   Living wood: roots, trunks, cages, forests and wooden creatures that visibly grow, bend and interlock. Keys 1-8 select
+   a power and the left mouse charges / fires it; B N M Z are the ultimates (the key fires them, the same key again
+   triggers their finale). Every power is a cast (wd_* ids) every screen replays from the same seed, so structures grow
+   the same everywhere; damage is victim-side (woodArea / woodLine / woodRing -> victimFor; balloons, swarms and summons
+   through summonsTakeArea; practice dummies through dummyHit). Steered things follow casts the caster sends a few times
+   a second ('wd_steer' for the dragon and the wheel, 'wd_barr' for the Deity's barrage).
+   Persistent structures (spear trunks, prisons, forests, the World Forest, the World Tree) have static bodies, a lifetime
+   and a per-caster cap (WD_CAP): the oldest withers when you grow one too many. The base terrain never changes.
+   Fire (Genos) and wood: allied or co-op fire makes wood burn FOR its owner (+50% damage and a fire aura); enemy fire
+   burns it away fast, and a Wood Sage takes 50% more fire damage. */
+const WOOD_SK = {
+  wd_lash:   {name:'Root Lash', e:'🌿', key:'🖱', kind:'click', cd:.45},
+  wd_roots:  {name:'Root Surge', e:'🌱', key:'1', kind:'clickcharge', cd:6, max:4, rate:1.1},
+  wd_spear:  {name:'World Tree Spear', e:'🗡️', key:'2', kind:'aimcharge', cd:6, max:5, rate:1.4, range:90, r:2.2},
+  wd_dragon: {name:'Wood Dragon', e:'🐉', key:'3', kind:'steer', cd:14},
+  wd_prison: {name:'Forest Prison', e:'🏯', key:'4', kind:'aimcharge', cd:12, max:3, rate:.9, range:80, r:5},
+  wd_arms:   {name:'Thousand Branch Arms', e:'🙌', key:'5', kind:'now', cd:16},
+  wd_cata:   {name:'Blooming Catapult', e:'🏹', key:'6', kind:'clickcharge', cd:8, max:4, rate:1.3},
+  wd_wheel:  {name:'Living Timber Wheel', e:'🛞', key:'7', kind:'now', cd:14},
+  wd_forest: {name:'Deep Forest Emergence', e:'🌲', key:'8', kind:'aimcharge', cd:18, max:2.2, rate:.6, range:90, r:12},
+  wd_guard:  {name:'Colossal Wood Guardian', e:'🗿', key:'B', kind:'now', ult:true, cd:0},
+  wd_deity:  {name:'Thousand-Handed Deity', e:'🪷', key:'N', kind:'now', ult:true, cd:0},
+  wd_wforest:{name:'World Forest', e:'🌳', key:'M', kind:'now', ult:true, cd:0},
+  wd_wtree:  {name:'The World Tree', e:'🌍', key:'Z', kind:'now', ult:true, cd:0},
+  // follow-ups: finales, steering, punches, grabs (hidden from the Skills bar)
+  wd_steer:   {name:'Steer', e:'🎯', hide:true, cd:0},
+  wd_dragonx: {name:'Wood Dragon: coil', e:'🐉', hide:true, cd:0},
+  wd_prisonx: {name:'Forest Prison: branches', e:'🏯', hide:true, cd:0},
+  wd_prisonc: {name:'Forest Prison: crush', e:'🏯', hide:true, cd:0},
+  wd_apunch:  {name:'Branch punch', e:'👊', hide:true, cd:0},
+  wd_aslam:   {name:'All hands slam', e:'🙌', hide:true, cd:0},
+  wd_armsx:   {name:'Arms away', e:'🙌', hide:true, cd:0},
+  wd_grab:    {name:'Grab', e:'✊', hide:true, cd:0},
+  wd_throw:   {name:'Throw', e:'🤾', hide:true, cd:0},
+  wd_catax:   {name:'Catapult landing', e:'🏹', hide:true, cd:0},
+  wd_wheelx:  {name:'Unravel', e:'🛞', hide:true, cd:0},
+  wd_gpunch:  {name:'Guardian punch', e:'👊', hide:true, cd:0},
+  wd_gsweep:  {name:'Guardian sweep', e:'🌀', hide:true, cd:0},
+  wd_gstomp:  {name:'Guardian stomp', e:'🦶', hide:true, cd:0},
+  wd_ggrab:   {name:'Guardian grab', e:'✊', hide:true, cd:0},
+  wd_gthrow:  {name:'Guardian throw', e:'🤾', hide:true, cd:0},
+  wd_guardx:  {name:'Guardian finisher', e:'🗿', hide:true, cd:0},
+  wd_barr:    {name:'Barrage', e:'👊', hide:true, cd:0},
+  wd_deityx:  {name:'Every hand strikes', e:'🪷', hide:true, cd:0},
+  wd_wforestx:{name:'Forest attack', e:'🌳', hide:true, cd:0},
+  wd_wtreex:  {name:'Pull it down', e:'🌍', hide:true, cd:0}
+};
+const WD_KEYS = {}; for (const id in WOOD_SK) { const k = WOOD_SK[id].key; if (k && k.length === 1 && /[0-9A-Z]/.test(k) && !WOOD_SK[id].hide) WD_KEYS[k.toLowerCase()] = id; }
+for (const id in WOOD_SK) if (WOOD_SK[id].r) TARGET_R[id] = WOOD_SK[id].r;
+const WD_CAP = {spear:3, prison:1, forest:1, wforest:1};
+const WD = {charge:null, mouse:null, fx:[], structs:[], dragons:{}, wheels:{}, arms:{}, guards:{}, deities:{}, catas:{}, held:[], thrown:[], wtree:null, flight:null, steerT:0, barrT:0, prev:{}, hideSun:false};
+const wdMul = (id, c) => { const d = WOOD_SK[id]; return Math.min(d.max || 1, 1 + Math.max(0, +c || 0)*(d.rate || 1)); };
+const WDN = {
+  roots:  m => ({L:22 + 14*(m - 1), W:2.2 + 1.2*(m - 1), dmg:16 + 10*(m - 1), up:9 + 3.5*m, n:3 + Math.round(m)}),
+  spear:  m => ({r:1.4 + .55*(m - 1), H:10 + 5*(m - 1), dmg:28 + 10*(m - 1), up:18 + 3*m}),
+  prison: m => ({R:5 + 4*(m - 1)}),
+  cata:   m => ({h:15 + 8*(m - 1), v:9 + 3.5*(m - 1)}),
+  forest: m => ({R:12 + 10*(m - 1)/1.2})
+};
+function woodKit(){ return G.cls === 'wood'; }
+function woodHelp(){
+  return 'Press a power\'s key to select it, then use the left mouse (hold to charge) · the ultimates fire from their key, and the same key again triggers their finale · <b>Click</b> with nothing selected: root lash<br>' +
+    '<b>1</b> root surge · <b>2</b> world tree spear (tap / hold) · <b>3</b> wood dragon (hold to steer, release to coil) · <b>4</b> forest prison (again: Click branches, hold crush) · <b>5</b> branch arms (Click punch, hold slam, <b>G</b> grab / throw) · <b>6</b> catapult · <b>7</b> timber wheel (7 again: unravel) · <b>8</b> deep forest<br>' +
+    '<b>B</b> ULT wood guardian (Click punch, hold sweep, <b>F</b> stomp, <b>G</b> grab / uproot / throw, B finisher) · <b>N</b> ULT thousand-handed deity (hold Click: barrage, N finale) · <b>M</b> ULT world forest (M: forest attack) · <b>Z</b> ULT the world tree (Z: pull it down) · <b>Tab</b> switch class';
+}
+function wdHowTo(id){
+  return {wd_roots:'🌱 Root Surge: hold Click to charge a wider, longer wave, release to send it along your aim.',
+    wd_spear:'🗡️ World Tree Spear: aim the marker. Tap Click for a fast impaling spear, hold Click for a towering trunk that launches everything above it and stays (climb its branches).',
+    wd_dragon:'🐉 Wood Dragon: hold Click. It grows round you, then charges where you aim; steer it while you hold. Release: it coils round the aimed spot and crushes it (round your prison: it crushes the whole cage).',
+    wd_prison:'🏯 Forest Prison: aim the marker, hold Click for a bigger cage, release to raise it.',
+    wd_cata:'🏹 Blooming Catapult: hold Click to bend the branch further, release to be flung where you aim. You land with a root burst. From the top of a spear trunk you fly much further.',
+    wd_forest:'🌲 Deep Forest: aim the marker, hold Click for a bigger forest, release to grow it. Inside it, roots and branch arms come out of the trees.'}[id] || '';
+}
+
+/* ---------- looks: shared geometry, materials, growing segments ---------- */
+const WG = {};
+function wdGeo(){
+  if (WG.seg) return WG;
+  WG.seg = new THREE.CylinderGeometry(.72, 1, 1, 7); WG.seg.translate(0, .5, 0);
+  WG.cone = new THREE.ConeGeometry(1, 1, 6); WG.cone.translate(0, .5, 0);
+  WG.blob = new THREE.IcosahedronGeometry(1, 1); WG.box = new THREE.BoxGeometry(1, 1, 1);
+  return WG;
+}
+const WDM = {};
+function wdMat(){
+  if (WDM.bark) return WDM;
+  WDM.bark = M3(0x7A4E2C); WDM.dark = M3(0x553419); WDM.light = M3(0xA87445); WDM.deity = M3(0x6A4426);
+  WDM.leaf = [M3(0x4E9A38), M3(0x3E7E2C), M3(0x6CB24A)]; WDM.bloom = M3(0xF4A6C8); WDM.char = M3(0x2A1A10);
+  WDM.eye = new THREE.MeshBasicMaterial({color:0x9BFF6A}); WDM.glowSun = new THREE.MeshBasicMaterial({color:0xFFD27A}); WDM.glowMoon = new THREE.MeshBasicMaterial({color:0xBFE6FF});
+  return WDM;
+}
+const _wq = new THREE.Quaternion(), _wup = new THREE.Vector3(0, 1, 0), _wd = new THREE.Vector3(), _wax = new THREE.Vector3();
+function wdG(){ const g = new THREE.Group(); g.userData.noRay = true; g.userData.outlined = true; roundGroup.add(g); return g; }
+function wdKill(g){ if (g && g.parent) g.parent.remove(g); }
+// a tapered wooden segment from a towards b (it grows from a: k = 0..1)
+function wdSeg(parent, a, b, r, mat){ const m = new THREE.Mesh(wdGeo().seg, mat || wdMat().bark); m.castShadow = true; m.userData.noRay = true; m.userData.r = r; wdSegSet(m, a, b, r, 1); parent.add(m); return m; }
+function wdSegSet(m, a, b, r, k){ m.position.copy(a); _wd.copy(b).sub(a); const L = _wd.length() || .001; m.quaternion.setFromUnitVectors(_wup, _wd.multiplyScalar(1/L)); m.userData.L = L; if (r != null) m.userData.r = r; wdSegK(m, k == null ? 1 : k); }
+function wdSegK(m, k){ k = clamp(k, 0, 1); const r = m.userData.r*(.35 + .65*k)*(m.userData.th || 1); m.scale.set(r, Math.max(.001, m.userData.L*k), r); m.visible = k > .002; }
+// a chain of segments through pts, radius r0 -> r1; grow(k) reveals it along its length
+function wdChain(parent, pts, r0, r1, mat){
+  const segs = [], lens = []; let tot = 0;
+  for (let i = 0; i < pts.length - 1; i++) { const m = wdSeg(parent, pts[i], pts[i + 1], lerp(r0, r1, i/Math.max(1, pts.length - 2)), mat); wdSegK(m, 0); segs.push(m); lens.push(m.userData.L); tot += m.userData.L; }
+  return {segs, lens, tot, pts, k:0,
+    grow(k){ this.k = k; let acc = 0; const want = k*tot; for (let i = 0; i < segs.length; i++) { wdSegK(segs[i], (want - acc)/lens[i]); acc += lens[i]; } },
+    reshape(np){ let t2 = 0; for (let i = 0; i < segs.length; i++) { wdSegSet(segs[i], np[i], np[i + 1], null, 0); lens[i] = segs[i].userData.L; t2 += lens[i]; } this.tot = tot = t2; this.grow(this.k); }};
+}
+// roots: points along the ground with a sideways wave
+function wdRootPts(o, dir, L, wob, ph, step){
+  step = step || 2.2; const pts = [], sx = -dir.z, sz = dir.x, n = Math.max(2, Math.ceil(L/step));
+  for (let i = 0; i <= n; i++) { const s = i/n*L, w = Math.sin(s*.33 + ph)*wob*Math.min(1, s/4), x = o.x + dir.x*s + sx*w, z = o.z + dir.z*s + sz*w; pts.push(V3(x, groundH(x, z) + .1, z)); }
+  return pts;
+}
+// a wooden spike (cone) that grows out of p
+function wdSpike(parent, p, h, r, mat){ const m = new THREE.Mesh(wdGeo().cone, mat || wdMat().light); m.position.copy(p); m.userData.h = h; m.userData.r = r; m.userData.noRay = true; m.scale.set(r, .001, r); m.visible = false; m.castShadow = true; parent.add(m); return m; }
+function wdSpikeK(m, k){ k = clamp(k, 0, 1); m.scale.set(m.userData.r*(.4 + .6*k), Math.max(.001, m.userData.h*k), m.userData.r*(.4 + .6*k)); m.visible = k > .002; }
+function wdTilt(m, dir, ang){ _wax.set(dir.z, 0, -dir.x); if (_wax.lengthSq() < 1e-6) _wax.set(1, 0, 0); m.quaternion.setFromAxisAngle(_wax.normalize(), ang); }
+function wdPoint(m, dir){ m.quaternion.setFromUnitVectors(_wup, _wd.copy(dir).normalize()); }
+const wdEase = k => 1 - Math.pow(1 - clamp(k, 0, 1), 3);
+const wdBack = k => { k = clamp(k, 0, 1); return 1 + 2.70158*Math.pow(k - 1, 3) + 1.70158*Math.pow(k - 1, 2); };
+// a point along a polyline (k = 0..1 by index)
+function wdAlong(pts, k){ const f = clamp(k, 0, 1)*(pts.length - 1), i = Math.min(pts.length - 2, Math.floor(f)); return pts[i].clone().lerp(pts[i + 1], f - i); }
+function wdHand(P, side){ const f = P.face, p = P.root.position; return V3(p.x + Math.sin(f)*.55 - Math.cos(f)*side*.38, p.y + 1.35, p.z + Math.cos(f)*.55 + Math.sin(f)*side*.38); }
+const wdFace = P => V3(Math.sin(P.face), 0, Math.cos(P.face));
+function wdPose(P, kind, s){ if (P) P.wdPose = {kind, t:s || .5, s:s || .5}; }
+function wdEdgeDist(c, dir){ let t = 400; const lim = ISL - 4; if (Math.abs(dir.x) > 1e-4) t = Math.min(t, ((dir.x > 0 ? lim : -lim) - c.x)/dir.x); if (Math.abs(dir.z) > 1e-4) t = Math.min(t, ((dir.z > 0 ? lim : -lim) - c.z)/dir.z); return Math.max(4, t); }
+// instanced pieces (the World Forest and the World Tree have hundreds): segments (a -> b) and blobs (c, r)
+const _im = new THREE.Matrix4(), _iq = new THREE.Quaternion(), _is = new THREE.Vector3();
+function wdInst(geo, mat, max, parent){
+  const m = new THREE.InstancedMesh(geo, mat, max); m.count = 0; m.frustumCulled = false; m.userData.noRay = true; m.castShadow = true; m.receiveShadow = true; parent.add(m);
+  return {m, items:[], add(it){ if (this.items.length >= max) return null; it.k = -1; this.items.push(it); m.count = this.items.length; this.set(this.items.length - 1, 0); return it; },
+    set(i, k){ const it = this.items[i]; k = clamp(k, 0, 1); if (Math.abs(it.k - k) < .002) return; it.k = k;
+      if (it.b) { _wd.copy(it.b).sub(it.a); const L = _wd.length() || .001; _iq.setFromUnitVectors(_wup, _wd.multiplyScalar(1/L)); const r = k > 0 ? it.r*(.35 + .65*k)*(it.th || 1) : 0; _is.set(r, Math.max(1e-4, L*k), r); _im.compose(it.a, _iq, _is); }
+      else { const s = it.r*k; _iq.set(0, 0, 0, 1); _is.set(s, s*(it.sy || 1), s); _im.compose(it.c, _iq, _is); }
+      m.setMatrixAt(i, _im); this.dirty = true; },
+    flush(){ if (this.dirty) { m.instanceMatrix.needsUpdate = true; this.dirty = false; } }};
+}
+// static bodies: a box between two points (a branch you can stand on), a trunk
+function wdQuatTo(d){ const tq = new THREE.Quaternion().setFromUnitVectors(V3(0, 0, 1), d.clone().normalize()); return new CANNON.Quaternion(tq.x, tq.y, tq.z, tq.w); }
+function wdBoxBetween(body, a, b, hw, origin){ const mid = a.clone().lerp(b, .5).sub(origin), d = b.clone().sub(a), L = d.length() || .1; body.addShape(new CANNON.Box(new CANNON.Vec3(hw, hw*.6, L/2)), new CANNON.Vec3(mid.x, mid.y, mid.z), wdQuatTo(d)); }
+function wdBody(x, y, z){ const b = new CANNON.Body({mass:0, material:PM.def}); b.position.set(x, y, z); b.tag = 'wood'; return b; }
+function wdAddBody(b){ world.addBody(b); return b; }
+
+/* ---------- hits (victim-side) ---------- */
+function wdMemo(o, k){ if (!o.memo) return true; const t = o.memo.get(k); if (t != null && G.t - t < (o.memoT || 1e9)) return false; o.memo.set(k, G.t); return true; }
+// everything around `at`: damage, knockback / launch (o.dir pushes one way, o.pull drags in), props broken, the egg hit
+function woodArea(key, team, at, R, dmg, o){
+  o = o || {}; const kb = o.kb || 0, up = o.up || 0, mul = o.mul || 1; dmg *= mul;
+  if (dmg > 0) summonsTakeArea(at, R, dmg, key, team);
+  const P = victimFor(key, team);
+  if (P && !(amDefender() && fortShielded(P.body.position))) {
+    const c = V3(P.body.position.x, P.body.position.y + 1, P.body.position.z), d = o.flat ? hdist(c, at) : c.distanceTo(at);
+    if (d < R && (!o.flat || Math.abs(c.y - at.y) < R + 4) && wdMemo(o, 'me')) {
+      const away = o.dir ? o.dir.clone() : o.pull ? at.clone().sub(c) : c.clone().sub(at); away.y = 0; if (away.lengthSq() < .01) away.set(1, 0, 0); away.normalize();
+      const f = 1 - .4*Math.min(1, d/R); if (dmg > 0) painHurt(P, dmg*f, key);
+      if (kb || up) knock(P, away.x*kb*f, up*f, away.z*kb*f, o.stun != null ? o.stun : .35);
+      if (o.pin) P.pinT = Math.max(P.pinT || 0, o.pin);
+    } }
+  if (dmg > 0) PAIN.dummies.forEach(dm => { if (dm.dead) return; const q = V3(dm.body.position.x, dm.body.position.y + 1, dm.body.position.z); if ((o.flat ? hdist(q, at) : q.distanceTo(at)) < R && wdMemo(o, dm.body)) dummyHit(dm.body, dmg); });
+  if (kb || up) forEachObject(b => { if (b._wdHeld) return; const dx = b.position.x - at.x, dz = b.position.z - at.z, d = o.flat ? Math.hypot(dx, dz) : Math.hypot(dx, dz, b.position.y - at.y); if (d > R) return; if (o.flat && Math.abs(b.position.y - at.y) > R + 6) return; if (o.memo && !wdMemo(o, b)) return;
+    if (b.wakeUp) b.wakeUp(); const f = 1 - .5*d/R, dl = Math.hypot(dx, dz) || 1; let vx, vz; if (o.dir) { vx = o.dir.x; vz = o.dir.z; } else if (o.pull) { vx = -dx/dl; vz = -dz/dl; } else { vx = dx/dl; vz = dz/dl; }
+    b.velocity.x += vx*kb*f*.8; b.velocity.z += vz*kb*f*.8; b.velocity.y += up*f*.85; b._woodT = G.t; if (b.wild) wildBlastHit(b, dmg); });
+  if (o.props) damageProps(at, R, o.props*mul);
+  if (o.fire) igniteAt(at, R*.8);
+  if (dmg > 0 && eggOn() && egg && egg.alive && eggAuth() && egg.body.position.distanceTo(at) < R*.6 + 1) eggHit(dmg*.4, 'wood');
+}
+// along a segment (lashes, branches, the guardian's wall)
+function woodLine(key, team, a, b, W, dmg, o){
+  o = o || {}; const dir = b.clone().sub(a), L = dir.length() || 1; dir.divideScalar(L); const mul = o.mul || 1; dmg *= mul;
+  if (dmg > 0) for (let s = 0; s <= L; s += Math.max(2, W*1.5)) summonsTakeArea(a.clone().addScaledVector(dir, s), W + .5, dmg, key, team);
+  const P = victimFor(key, team);
+  if (P && !(amDefender() && fortShielded(P.body.position))) { const q = V3(P.body.position.x, P.body.position.y + 1, P.body.position.z); if (segDist(a, b, q) < W + .5 && wdMemo(o, 'me')) { if (dmg > 0) painHurt(P, dmg, key); if (o.kb || o.up) knock(P, dir.x*(o.kb || 0), o.up || 0, dir.z*(o.kb || 0), o.stun != null ? o.stun : .3); } }
+  if (dmg > 0) PAIN.dummies.forEach(dm => { if (!dm.dead && segDist(a, b, V3(dm.body.position.x, dm.body.position.y + 1, dm.body.position.z)) < W + .6 && wdMemo(o, dm.body)) dummyHit(dm.body, dmg); });
+  if (o.kb || o.up) forEachObject(bd => { if (bd._wdHeld || segDist(a, b, bd.position) > W + 1) return; if (o.memo && !wdMemo(o, bd)) return; if (bd.wakeUp) bd.wakeUp(); bd.velocity.x += dir.x*(o.kb || 0)*.8; bd.velocity.z += dir.z*(o.kb || 0)*.8; bd.velocity.y += (o.up || 0)*.8; bd._woodT = G.t; });
+  if (o.props) damageProps(b, W + 2, o.props*mul);
+}
+// a ring front moving out from c (radius r, width w): each thing once (o.memo)
+function woodRing(key, team, c, r, w, dmg, o){
+  o = o || {}; const mul = o.mul || 1; dmg *= mul; if (!o.memo) o.memo = new Map(); if (!o.tag) o.tag = 'wd' + Math.random();
+  if (dmg > 0) tdTakeRing(c, r, w, dmg, o.tag);
+  const P = victimFor(key, team);
+  if (P) { const d = hdist(P.body.position, c); if (d <= r && d >= r - w && Math.abs(P.body.position.y - c.y) < (o.h || 8) && wdMemo(o, 'me')) { const away = V3(P.body.position.x - c.x, 0, P.body.position.z - c.z); if (away.lengthSq() < .01) away.set(1, 0, 0); away.normalize(); if (dmg > 0) painHurt(P, dmg, key); knock(P, away.x*(o.kb || 0), o.up || 0, away.z*(o.kb || 0), .5); if (o.pin) P.pinT = Math.max(P.pinT || 0, o.pin); } }
+  PAIN.dummies.forEach(dm => { if (dm.dead) return; const d = hdist(dm.body.position, c); if (d <= r && d >= r - w && wdMemo(o, dm.body)) { if (dmg > 0) dummyHit(dm.body, dmg); } });
+  forEachObject(b => { if (b._wdHeld) return; const d = hdist(b.position, c); if (d > r || d < r - w || Math.abs(b.position.y - c.y) > (o.h || 8) + 6 || !wdMemo(o, b)) return; if (b.wakeUp) b.wakeUp(); const dx = (b.position.x - c.x)/(d || 1), dz = (b.position.z - c.z)/(d || 1); b.velocity.x += dx*(o.kb || 0)*.8; b.velocity.z += dz*(o.kb || 0)*.8; b.velocity.y += (o.up || 0)*.85; b._woodT = G.t; });
+}
+
+/* ---------- fire and wood (Genos): allied / co-op fire empowers the wood, enemy fire burns it away ---------- */
+function wdBurnables(){
+  const out = [];
+  for (const s of WD.structs) if (!s.dying && s.kind !== 'wforest') out.push({o:s, c:s.c, R:s.R, owner:s.owner, team:s.team});
+  for (const k in WD.dragons) { const D = WD.dragons[k]; out.push({o:D, c:D.h, R:4, owner:k, team:D.team}); }
+  for (const k in WD.wheels) { const W = WD.wheels[k]; out.push({o:W, c:W.c, R:W.R + 1, owner:k, team:W.team}); }
+  for (const k in WD.guards) { const Gd = WD.guards[k]; out.push({o:Gd, c:V3(Gd.g.position.x, Gd.g.position.y + 7, Gd.g.position.z), R:6, owner:k, team:Gd.team}); }
+  for (const k in WD.deities) { const Dt = WD.deities[k]; out.push({o:Dt, c:V3(Dt.g.position.x, Dt.g.position.y + 12, Dt.g.position.z), R:14, owner:k, team:Dt.team}); }
+  return out;
+}
+function wdIgnite(w, key){
+  const o = w.o, fk = chars[key], fteam = fk ? fk.team : null, coop = G.mode === 'td' || (!!fteam && w.team === fteam);
+  if (o.burnT > 0 && o.burnCoop === coop) { o.burnT = Math.max(o.burnT, coop ? 10 : 2); return; }
+  o.burnT = coop ? 10 : 3.2; o.burnCoop = coop; o.burnBy = key; o.fireTick = 0;
+  if (!coop && o.life != null && o.t != null) o.life = Math.min(o.life, o.t + 3.2);   // enemy fire: the wood burns away
+  if (!coop && o.g) o.g.traverse(m => { if (m.isMesh && (m.material === WDM.bark || m.material === WDM.dark || m.material === WDM.light || m.material === WDM.deity)) m.material = WDM.char; });
+  if (w.owner === G.localKey) toast(coop ? '🔥🌳 Allied fire! Your wood burns for you: +50% damage and a fire aura.' : '🔥 Enemy fire! Your wood is burning away.');
+}
+function woodFireTouch(at, R, key){ if (!G.pvp) return; for (const w of wdBurnables()) if (hdist(w.c, at) <= R + w.R && Math.abs(w.c.y - at.y) < R + w.R + 8) wdIgnite(w, key); }
+function woodFireTouchLine(a, b, W, key){ if (!G.pvp) return; for (const w of wdBurnables()) if (segDist(a, b, w.c) <= W + w.R) wdIgnite(w, key); }
+const wdMulOf = o => o && o.burnT > 0 && o.burnCoop ? 1.5 : 1;
+// burning wood: flames on it; allied fire also scorches what is near it
+function wdBurnFrame(o, dt, c, R){
+  if (!(o.burnT > 0) || !c) return; o.burnT -= dt;
+  if (Math.random() < .6) flameP(V3(c.x + rr(-R, R)*.7, c.y + rr(-R, R)*.5, c.z + rr(-R, R)*.7), V3(rr(-1, 1), rr(2, 4), rr(-1, 1)), rr(.2, .45), pick(FIRE_COLS), .5);
+  if (o.burnCoop) { o.fireTick = (o.fireTick || 0) - dt; if (o.fireTick <= 0) { o.fireTick = .5; woodArea(o.owner || o.key, o.team, c, R + 2, 6, {fire:true}); } }
+}
+
+/* ---------- persistent structures: lifetime, caps, withering ---------- */
+function wdStruct(s){
+  const cap = WD_CAP[s.kind];
+  if (cap) { const mine = WD.structs.filter(q => !q.dying && q.kind === s.kind && q.owner === s.owner); while (mine.length >= cap) wdWither(mine.shift()); }
+  s.t = 0; s.bodies = s.bodies || []; WD.structs.push(s); return s;
+}
+function wdWither(s){ if (s.dying) return; s.dying = .001; s.bodies.forEach(b => { if (b.world) world.removeBody(b); }); s.bodies = []; if (s.onWither) s.onWither(); }
+const wdOwn = (kind, key) => WD.structs.find(q => !q.dying && q.kind === kind && q.owner === (key || G.localKey));
+function wdStructsFrame(dt){
+  for (const s of WD.structs) {
+    s.t += dt;
+    if (!s.dying && s.life != null && s.t > s.life) wdWither(s);
+    if (s.dying) { s.dying += dt; const k = Math.max(.01, 1 - s.dying/(s.witherT || .9)); if (s.wither) s.wither(k); else if (s.g) { s.g.scale.y = k; s.g.position.y = (1 - k)*-2; } if (s.dying >= (s.witherT || .9)) { wdKill(s.g); s.dead = true; if (s.kill) s.kill(); } continue; }
+    if (s.update) s.update(dt);
+    wdBurnFrame(s, dt, s.c, s.R);
+  }
+  WD.structs = WD.structs.filter(s => !s.dead);
+}
+// the nearest grown tree of yours (Deep Forest or World Forest) to q, within maxD
+function wdNearestTree(key, q, maxD){
+  let best = null, bd = maxD || 30;
+  for (const s of WD.structs) { if (s.dying || s.owner !== key || !(s.kind === 'forest' || s.kind === 'wforest')) continue;
+    for (const t of s.trees) { if (t.gone || !t.grown) continue; const d = Math.hypot(t.x - q.x, t.z - q.z); if (d < bd) { bd = d; best = t; best.s = s; } } }
+  return best;
+}
+function wdUproot(t){ t.gone = true; if (t.vis) t.vis.hide(); if (t.inst) t.inst(); if (t.body && t.body.world) world.removeBody(t.body); }
+
+/* ---------- 0. Root Lash (Click with nothing selected) ---------- */
+function wdLash(ci, p, x){
+  const P = ci.C, a = wdHand(P, 1), d = avDirOf(x) || wdFace(P), end = beamEnd(a, d, 14), b = end.hit ? end.p.clone() : a.clone().addScaledVector(d, 14);
+  P.punchPose = .25; sfx('whipcrack');
+  const g = wdG(), pts = []; for (let i = 0; i <= 6; i++) { const k = i/6, q = a.clone().lerp(b, k); q.y += Math.sin(k*Math.PI)*.8; q.x += Math.sin(k*9)*.15; pts.push(q); }
+  const ch = wdChain(g, pts, .2, .09, wdMat().light); let t = 0, hit = false;
+  WD.fx.push({update(dt){ t += dt; ch.grow(t < .1 ? t/.1 : t < .22 ? 1 : 1 - (t - .22)/.2);
+    if (!hit && t >= .1) { hit = true; woodLine(ci.key, ci.team, a, b, .9, 10, {kb:7, up:3, props:15}); puff(b, 0x8A6A44, .5); }
+    if (t > .42) { wdKill(g); return false; } }});
+}
+
+/* ---------- 1. Root Surge ---------- */
+function wdRoots(ci, p, x){
+  const m = wdMul('wd_roots', x.c), n = WDN.roots(m), P = ci.C, d0 = avDirOf(x) || wdFace(P), dir = V3(d0.x, 0, d0.z); if (dir.lengthSq() < .01) dir.copy(wdFace(P)); dir.normalize();
+  wdPose(P, 'slam', .6); sfx('thud'); shakeAt(ci.pos, .3 + m*.08, 40);
+  wdRootWave(ci, ci.pos.clone().addScaledVector(dir, 1.2), dir, n.L, n, m);
+  // inside your forest, roots also burst from the tree nearest the target
+  const tgt = p ? p.clone() : ci.pos.clone().addScaledVector(dir, n.L), tr = wdNearestTree(ci.key, tgt, 30);
+  if (tr && hdist(tr, ci.pos) > 6) { const o = V3(tr.x, groundH(tr.x, tr.z), tr.z), d2 = V3(tgt.x - o.x, 0, tgt.z - o.z); if (d2.lengthSq() > 1) wdRootWave(ci, o, d2.normalize(), Math.min(n.L, hdist(o, tgt) + 8), n, m); }
+}
+function wdRootWave(ci, o, dir, L, n, m){
+  const g = wdG(), rng = ci.rng, chains = [], spikes = [], memo = new Map(), sp = 34, side = V3(-dir.z, 0, dir.x), mul = 1;
+  for (let i = 0; i < n.n; i++) { const off = (i/Math.max(1, n.n - 1) - .5)*n.W*1.4, oo = o.clone().addScaledVector(side, off*.35), dd = V3(dir.x + side.x*off*.012, 0, dir.z + side.z*off*.012).normalize();
+    chains.push(wdChain(g, wdRootPts(oo, dd, L*(.85 + rng()*.15), .6 + rng()*.8, rng()*6), .45 + .1*m, .16, i % 2 ? wdMat().dark : wdMat().bark)); }
+  for (let s = 3; s < L; s += 2.6) { const c = o.clone().addScaledVector(dir, s); for (let k = 0; k < 2 + (m > 2.5 ? 1 : 0); k++) { const q = c.clone().addScaledVector(side, (rng() - .5)*n.W*1.3); q.y = groundH(q.x, q.z) - .25;
+    const sk = wdSpike(g, q, (1.5 + .7*m)*(.7 + rng()*.6), .32 + .09*m); wdTilt(sk, dir, .3 + rng()*.35); sk.userData.s = s; spikes.push(sk); } }
+  addOutline(g);
+  let t = 0, hitS = 0; const endT = L/sp + .15;
+  WD.fx.push({update(dt){ t += dt; const front = Math.max(0, (t - .15)*sp), k = Math.min(1, front/L);
+    for (const ch of chains) ch.grow(t < endT + 2.4 ? k : Math.max(0, 1 - (t - endT - 2.4)/.6));
+    for (const sk of spikes) wdSpikeK(sk, t < endT + 2.2 ? (front - sk.userData.s)/1.5 : Math.max(0, 1 - (t - endT - 2.2)/.5));
+    while (hitS < Math.min(front, L)) { hitS += 2.5; const c = o.clone().addScaledVector(dir, Math.min(hitS, L)); c.y = groundH(c.x, c.z) + 1;
+      woodArea(ci.key, ci.team, c, n.W, n.dmg, {up:n.up, kb:6, dir, memo, props:30 + 15*m, flat:true, mul}); if (Math.random() < .45) puff(c, 0x8A6A44, .6); if (Math.random() < .2) sfx('crack'); }
+    if (t > endT + 3.1) { wdKill(g); return false; } }});
+  sfx('rumble');
+}
+
+/* ---------- 2. World Tree Spear ---------- */
+function wdSpear(ci, p, x){
+  const c = +x.c || 0, P = ci.C, rng = ci.rng, gy = groundH(p.x, p.z), g = wdG(); wdPose(P, 'point', .5);
+  if (c < .3) {   // a tap: a fast impaling spear
+    const spikes = [wdSpike(g, V3(p.x, gy - .6, p.z), 9, 1.05)]; spikes[0].rotation.set((rng() - .5)*.25, 0, (rng() - .5)*.25);
+    for (let i = 0; i < 5; i++) { const a = i/5*Math.PI*2 + rng(), q = V3(p.x + Math.cos(a)*1.3, gy - .3, p.z + Math.sin(a)*1.3), s2 = wdSpike(g, q, 3.5 + rng()*2.5, .4); wdTilt(s2, V3(Math.cos(a), 0, Math.sin(a)), .45); spikes.push(s2); }
+    addOutline(g); const ring = groundRing(0x8A5A32, .8, g); ring.set(p.x, p.z, 2.2); const memo = new Map(); let t = 0, hit = false; sfx('thunk');
+    WD.fx.push({update(dt){ t += dt; ring.visible = t < .2; const k = t < .16 ? 0 : t < .28 ? (t - .16)/.12 : t < 1.1 ? 1 : 1 - (t - 1.1)/.35; for (const m of spikes) wdSpikeK(m, k);
+      if (!hit && t >= .24) { hit = true; woodArea(ci.key, ci.team, V3(p.x, gy + 2, p.z), 2.8, 48, {up:22, stun:.7, memo, props:120}); shakeAt(p, .35, 40); sfx('crack'); debris(V3(p.x, gy + .5, p.z), 8, [0x8A6A44, 0x5A3820]); }
+      if (t > 1.5) { wdKill(g); return false; } }});
+    return;
+  }
+  const m = wdMul('wd_spear', c), n = WDN.spear(m), pts = [];
+  for (let i = 0; i <= 5; i++) { const k = i/5; pts.push(V3(p.x + Math.sin(k*3 + rng()*.5)*n.r*.2*k, gy - 1 + (n.H + 1)*k, p.z + Math.cos(k*2.5 + rng()*.5)*n.r*.2*k)); }
+  const trunk = wdChain(g, pts, n.r, n.r*.62);
+  const vines = []; for (let v = 0; v < 3; v++) { const vp = []; for (let i = 0; i <= 16; i++) { const k = i/16, a = v*2.1 + k*7, ax = wdAlong(pts, k), rr0 = n.r*(1 - .38*k)*.98; vp.push(V3(ax.x + Math.cos(a)*rr0, ax.y, ax.z + Math.sin(a)*rr0)); } vines.push(wdChain(g, vp, .2 + .05*m, .12, wdMat().dark)); }
+  const steps = []; for (let h = 2.2, a = rng()*6; h < n.H - 1.2; h += 1.45, a += 1.3) { const ax = wdAlong(pts, (h + 1)/(n.H + 1)), rr0 = n.r*(1 - .38*h/n.H), s0 = V3(ax.x + Math.cos(a)*rr0*.7, gy + h, ax.z + Math.sin(a)*rr0*.7), s1 = V3(ax.x + Math.cos(a)*(rr0 + 1.5), gy + h + .25, ax.z + Math.sin(a)*(rr0 + 1.5)); const sm = wdSeg(g, s0, s1, .34); wdSegK(sm, 0); steps.push({m:sm, a:s0, b:s1, h}); }
+  const tip = wdSpike(g, pts[5].clone().setY(pts[5].y - .6), n.r*2.4, n.r*.62);
+  addOutline(g);
+  const ring = groundRing(0x8A5A32, .8, g); ring.set(p.x, p.z, n.r + 1);
+  const s = wdStruct({kind:'spear', owner:ci.key, team:ci.team, c:V3(p.x, gy + n.H*.5, p.z), R:n.r + 1, top:V3(p.x, gy + n.H, p.z), H:n.H, r:n.r, g, life:40});
+  const memo = new Map(); sfx('rumble'); shakeAt(p, .3, 50);
+  s.update = dt => { const t = s.t, k = wdEase((t - .25)/.7); ring.visible = t < .3;
+    trunk.grow(k); vines.forEach((v, i) => v.grow(clamp((t - .45 - i*.08)/.7, 0, 1))); for (const st of steps) wdSegK(st.m, clamp((k*(n.H + 1) - st.h - 1)/1.2, 0, 1)); wdSpikeK(tip, clamp((k - .85)/.15, 0, 1));
+    if (t > .25 && t < 1.05) {   // everything above the growing trunk rides it up
+      const top = gy - 1 + (n.H + 1)*k + 1;
+      const A = bodyFor(ci.key, ci.team); if (A) { const q = A.P.body.position; if (hdist(q, p) < n.r + 1.2 && q.y < top + 1 && q.y > gy - 2 && wdMemo({memo}, 'me')) { if (A.harm) { painHurt(A.P, n.dmg, ci.key); knock(A.P, 0, n.up, 0, .6); } else { A.P.body.velocity.y = Math.max(A.P.body.velocity.y, n.up*.85); A.P.body._onGround = false; } } }
+      forEachObject(b => { if (b._wdHeld || hdist(b.position, p) > n.r + 1.5 || b.position.y > top + 1.5 || b.position.y < gy - 2 || !wdMemo({memo}, b)) return; if (b.wakeUp) b.wakeUp(); b.velocity.y = Math.max(b.velocity.y, n.up*.85); b._woodT = G.t; });
+      if (!s.hit && k > .5) { s.hit = true; summonsTakeArea(V3(p.x, gy + n.H*.6, p.z), n.r + 2, n.dmg, ci.key, ci.team); PAIN.dummies.forEach(dm => { if (!dm.dead && hdist(dm.body.position, p) < n.r + 1.5) dummyHit(dm.body, n.dmg); }); damageProps(V3(p.x, gy, p.z), n.r + 1.5, 200); }
+    }
+    if (!s.solid && k >= 1) { s.solid = true; const b = wdBody(p.x, gy, p.z); b.addShape(new CANNON.Box(new CANNON.Vec3(n.r*.78, n.H/2, n.r*.78)), new CANNON.Vec3(0, n.H/2, 0)); for (const st of steps) wdBoxBetween(b, st.a, st.b, .36, V3(p.x, gy, p.z)); s.bodies.push(wdAddBody(b)); sfx('thud'); }
+  };
+}
+
+/* ---------- 3. Wood Dragon ---------- */
+function wdDragonBuild(){
+  const M = wdMat(), Gm = wdGeo(), g = wdG(), N = 24, segs = [];
+  for (let i = 0; i < N; i++) { const r = lerp(1.2, .42, i/(N - 1)), m = new THREE.Mesh(Gm.blob, i % 3 === 0 ? M.dark : M.bark); m.scale.setScalar(.001); m.userData.r = r; m.castShadow = true; m.userData.noRay = true; g.add(m); segs.push(m);
+    if (i % 2 === 0 && i < N - 3) { const sp = new THREE.Mesh(Gm.cone, M.light); sp.scale.set(.25, 1.1, .25); sp.position.set(0, .75, 0); m.add(sp); } }
+  const head = new THREE.Group(); head.scale.setScalar(1.25); g.add(head);
+  const box = (sx, sy, sz, x, y, z, mat, par) => { const b = new THREE.Mesh(Gm.box, mat); b.scale.set(sx, sy, sz); b.position.set(x, y, z); b.castShadow = true; (par || head).add(b); return b; };
+  box(1.7, 1.3, 2, 0, 0, 0, M.bark); box(1.2, .7, 1.6, 0, .15, 1.6, M.bark); box(1.9, .35, .5, 0, .62, .3, M.dark);
+  const jawU = new THREE.Group(); jawU.position.set(0, -.15, .9); head.add(jawU); box(1.15, .3, 1.8, 0, 0, .9, M.dark, jawU);
+  const jawL = new THREE.Group(); jawL.position.set(0, -.55, .8); head.add(jawL); box(1.05, .3, 1.8, 0, 0, .9, M.dark, jawL);
+  for (let i = 0; i < 4; i++) for (const s of [-1, 1]) { const tU = new THREE.Mesh(Gm.cone, M.light); tU.scale.set(.1, .3, .1); tU.rotation.x = Math.PI; tU.position.set(s*.42, -.12, .35 + i*.4); jawU.add(tU); const tL = new THREE.Mesh(Gm.cone, M.light); tL.scale.set(.09, .26, .09); tL.position.set(s*.38, .12, .5 + i*.4); jawL.add(tL); }
+  for (const s of [-1, 1]) {   // branching horns
+    const h1 = new THREE.Mesh(Gm.seg, M.light); h1.scale.set(.2, 1.7, .2); h1.position.set(s*.55, .55, -.3); h1.rotation.set(-1, 0, -s*.45); head.add(h1);
+    const h2 = new THREE.Mesh(Gm.seg, M.light); h2.scale.set(.13, .9, .13); h2.position.set(s*.95, 1.05, -.55); h2.rotation.set(-.3, 0, -s*1.15); head.add(h2);
+    const h3 = new THREE.Mesh(Gm.seg, M.light); h3.scale.set(.12, .8, .12); h3.position.set(s*.75, 1.25, -1.05); h3.rotation.set(-1.5, 0, -s*.2); head.add(h3);
+    const e = new THREE.Mesh(Gm.blob, M.eye); e.scale.setScalar(.17); e.position.set(s*.62, .32, .78); head.add(e);
+    const wh = new THREE.Mesh(Gm.seg, M.dark); wh.scale.set(.06, 1.2, .06); wh.position.set(s*.5, -.2, 2.1); wh.rotation.set(1.3, 0, -s*.5); head.add(wh); }
+  head.visible = false; addOutline(g);
+  return {g, segs, head, jawU, jawL};
+}
+function wdDragon(ci, p, x){
+  if (WD.dragons[ci.key]) wdDragonEnd(WD.dragons[ci.key]);
+  const B = wdDragonBuild(), C = ci.C, f = wdFace(C);
+  WD.dragons[ci.key] = Object.assign(B, {key:ci.key, team:ci.team, t:0, state:'grow', h:V3(ci.pos.x, ci.pos.y + 1, ci.pos.z), v:f.clone(), T:p ? p.clone() : ci.pos.clone().addScaledVector(f, 30), trail:[], memo:new Map(), steerT:0, base:ci.pos.clone(), life:30});
+  wdPose(C, 'cast', .9); sfx('roar'); shakeAt(ci.pos, .3, 40);
+  if (ci.key === G.localKey) toast('🐉 Steer it while you hold Click. Release: it coils round the aimed spot and crushes it.');
+}
+function wdDragonCoil(ci, p){
+  const D = WD.dragons[ci.key]; if (!D || D.state === 'coil') return;
+  D.state = 'coil'; D.ct = 0; D.coil = {c:p.clone(), R:5};
+  // round your Forest Prison: the dragon wraps the cage and crushes it inward
+  const pr = WD.structs.find(s => !s.dying && s.kind === 'prison' && s.owner === ci.key && hdist(s.c, p) < s.R + 4);
+  if (pr) { D.coil.c = pr.c.clone(); D.coil.R = pr.R + 1.6; D.prison = pr; wdPrisonCrush(pr, 1.5); if (ci.key === G.localKey) toast('🐉🏯 The dragon wraps the prison and crushes it!'); }
+  sfx('roar');
+}
+function wdDragonEnd(D){ wdKill(D.g); if (WD.dragons[D.key] === D) delete WD.dragons[D.key]; }
+function wdDragonsFrame(dt){
+  for (const k in WD.dragons) {
+    const D = WD.dragons[k], C = chars[k], N = D.segs.length, mul = wdMulOf(D); D.t += dt;
+    if (!C) { wdDragonEnd(D); continue; }
+    const jaw = .25 + Math.abs(Math.sin(D.t*7))*.35; D.jawU.rotation.x = -jaw*.6; D.jawL.rotation.x = jaw;
+    if (D.state === 'grow') {   // it grows out of the ground, spiralling up round its summoner
+      const k0 = D.t/.9, c = C.root.position;
+      for (let i = 0; i < N; i++) { const a = D.t*3.5 + i*.42, r = 2.6 + i*.05, ki = clamp(k0*N*1.15 - (N - i), 0, 1); D.segs[i].position.set(c.x + Math.cos(a)*r, c.y + .4 + (N - i)*.2*Math.min(1, k0), c.z + Math.sin(a)*r); D.segs[i].scale.setScalar(Math.max(.001, D.segs[i].userData.r*wdBack(ki))); }
+      D.head.visible = k0 > .6; D.head.position.copy(D.segs[0].position).add(V3(0, .6, 0)); D.head.scale.setScalar(1.25*wdBack((k0 - .6)/.4));
+      if (D.t >= .9) { D.state = 'steer'; D.h.copy(D.segs[0].position); D.trail = D.segs.map(s => s.position.clone()); D.v = D.T.clone().sub(D.h).normalize(); }
+      continue;
+    }
+    if (D.state === 'steer') {
+      if (k === G.localKey && WD.mouse && WD.mouse.kind === 'dragon') D.T = aimPoint(150);
+      const want = D.T.clone(); want.y = Math.max(want.y + 2.5, groundH(want.x, want.z) + 2.5); const to = want.sub(D.h), dist = to.length();
+      if (dist > 2) D.v.lerp(to.divideScalar(dist), Math.min(1, dt*3.2)).normalize(); else D.v.applyAxisAngle(_wup, dt*2.5);
+      D.h.addScaledVector(D.v, 30*dt); D.h.y = Math.max(D.h.y, groundH(D.h.x, D.h.z) + 1.4); D.h.x = clamp(D.h.x, -ISL - 20, ISL + 20); D.h.z = clamp(D.h.z, -ISL - 20, ISL + 20);
+      D.steerT += dt; D.hitT = (D.hitT || 0) - dt;
+      if (D.hitT <= 0) { D.hitT = .1; woodArea(k, D.team, D.h, 3.4, 22, {kb:18, up:7, dir:D.v, memo:D.memo, memoT:.7, props:80, stun:.5, mul}); }
+      forEachObject(b => { if (b._wdHeld || b.position.distanceTo(D.h) > 5) return; if (b.wakeUp) b.wakeUp(); b.velocity.x = lerp(b.velocity.x, D.v.x*22, .25); b.velocity.z = lerp(b.velocity.z, D.v.z*22, .25); b.velocity.y = Math.max(b.velocity.y, 5); b._woodT = G.t; });   // swept up as it passes
+      if (D.steerT > 7 && k === G.localKey) localCast('wd_dragonx', D.T.clone(), {});
+      else if (D.steerT > 8.5) wdDragonCoil({key:k}, D.T.clone());   // the caster's release never came
+    }
+    if (D.state === 'coil') {
+      D.ct += dt; const cc = D.coil.c, R = D.coil.R*(1 - .5*clamp((D.ct - .8)/1.6, 0, 1));
+      const want = V3(cc.x, cc.y + N*.36 + 2, cc.z); D.h.lerp(want, Math.min(1, dt*5)); D.v.copy(cc).sub(D.h).normalize();
+      for (let i = 0; i < N; i++) { const a = i*.55 + D.ct*1.4, q = V3(cc.x + Math.cos(a)*R, groundH(cc.x, cc.z) + 1 + (N - i)*.34, cc.z + Math.sin(a)*R); D.segs[i].position.lerp(q, Math.min(1, dt*6)); }
+      D.hitT = (D.hitT || 0) - dt;
+      if (D.ct > .6 && D.ct < 2.7 && D.hitT <= 0) { D.hitT = .25; woodArea(k, D.team, V3(cc.x, groundH(cc.x, cc.z) + 2, cc.z), R + 1.5, 14, {pull:true, kb:8, up:2, flat:true, props:40, mul}); shakeAt(cc, .15, 40); }
+      if (D.ct > 2.7 && !D.burst) { D.burst = true; woodArea(k, D.team, V3(cc.x, groundH(cc.x, cc.z) + 2, cc.z), R + 3, 30, {up:10, flat:true, props:150, mul}); debris(V3(cc.x, groundH(cc.x, cc.z) + 3, cc.z), 16, [0x8A6A44, 0x5A3820, 0xA87445]); sfx('crack'); sfx('boom'); shakeAt(cc, .5, 60); }
+      if (D.ct > 3.2) { wdDragonEnd(D); continue; }
+    } else {
+      // the body follows the head's trail
+      D.trail.unshift(D.h.clone()); if (D.trail.length > 400) D.trail.length = 400;
+      let si = 0, acc = 0; const sp = 1.55;
+      for (let i = 0; i < D.trail.length - 1 && si < N; i++) { const L = D.trail[i].distanceTo(D.trail[i + 1]); while (si < N && acc + L >= si*sp) { const f = L > 0 ? (si*sp - acc)/L : 0; D.segs[si].position.copy(D.trail[i]).lerp(D.trail[i + 1], f); si++; } acc += L; }
+      for (; si < N; si++) D.segs[si].position.copy(D.trail[D.trail.length - 1]);
+    }
+    for (let i = 0; i < N; i++) D.segs[i].scale.setScalar(D.segs[i].userData.r*(1 + Math.sin(D.t*6 - i*.6)*.05));
+    D.head.position.copy(D.segs[0].position).addScaledVector(D.v, .9); D.head.lookAt(D.head.position.clone().add(D.v));
+    wdBurnFrame(D, dt, D.h, 3);
+  }
+}
+
+/* ---------- 4. Forest Prison ---------- */
+function wdPrison(ci, p, x){
+  const m = wdMul('wd_prison', x.c), R = WDN.prison(m).R, H = R*1.05 + 3, gy = groundH(p.x, p.z), rng = ci.rng, g = wdG(), N = Math.round(10 + R*1.2);
+  const roots = [], bars = [], rings = [];
+  for (let i = 0; i < N; i++) { const a = i/N*Math.PI*2 + rng()*.2; roots.push(wdChain(g, wdRootPts(V3(p.x, gy, p.z), V3(Math.cos(a), 0, Math.sin(a)), R, .4, rng()*6, 1.6), .32, .2)); }
+  for (let i = 0; i < N; i++) { const a = i/N*Math.PI*2, tw = (i % 2 ? 1 : -1)*.35, pts = []; for (let j = 0; j <= 7; j++) { const k = j/7, rr0 = R*(1 - .82*Math.pow(k, 2.2)), aa = a + tw*Math.sin(k*Math.PI); pts.push(V3(p.x + Math.cos(aa)*rr0, gy - .3 + H*Math.sin(k*Math.PI/2), p.z + Math.sin(aa)*rr0)); } bars.push(wdChain(g, pts, .42 + R*.025, .2)); }
+  for (const hk of [.3, .62]) { const pts = [], yk = Math.sin(hk*Math.PI/2), rr0 = R*(1 - .82*Math.pow(hk, 2.2)); for (let j = 0; j <= 26; j++) { const a = j/26*Math.PI*2; pts.push(V3(p.x + Math.cos(a)*rr0, gy - .3 + H*yk + Math.sin(j*1.7)*.2, p.z + Math.sin(a)*rr0)); } rings.push(wdChain(g, pts, .3, .3, wdMat().dark)); }
+  addOutline(g);
+  const s = wdStruct({kind:'prison', owner:ci.key, team:ci.team, c:V3(p.x, gy + 1, p.z), R, H, gy, N, g, life:18, bars});
+  s.update = dt => { const t = s.t;
+    for (const r of roots) r.grow(clamp(t/.5, 0, 1)); for (const b of bars) b.grow(wdEase((t - .35)/.8)); rings.forEach((r, i) => r.grow(clamp((t - .95 - i*.2)/.4, 0, 1)));
+    if (!s.walled && t > .9) { s.walled = true;   // the bars lock: a wall nothing gets through
+      const b = wdBody(p.x, gy, p.z), hh = H*.38; for (let i = 0; i < N; i++) { const a = (i + .5)/N*Math.PI*2, q = new CANNON.Quaternion(); q.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), -a - Math.PI/2); b.addShape(new CANNON.Box(new CANNON.Vec3(R*Math.PI/N*1.1, hh, .4)), new CANNON.Vec3(Math.cos(a)*R*.97, hh, Math.sin(a)*R*.97), q); }
+      s.bodies.push(wdAddBody(b)); woodArea(ci.key, ci.team, s.c, R, 6, {pin:1, flat:true, stun:0}); sfx('crack'); shakeAt(s.c, .3, 50); }
+    if (s.crush) { const cr = s.crush; cr.t += dt; const k = wdEase(cr.t/1.4), sc = 1 - .72*k; s.g.scale.set(sc, 1, sc); s.g.position.set(s.c.x*(1 - sc), 0, s.c.z*(1 - sc));
+      cr.tick -= dt; if (cr.t < 1.4 && cr.tick <= 0) { cr.tick = .2; woodArea(s.owner, s.team, s.c, R*sc + 1.2, 16, {pull:true, kb:10, flat:true, up:1, mul:cr.mul*wdMulOf(s)}); shakeAt(s.c, .2, 50); if (Math.random() < .5) sfx('crack'); }
+      if (cr.t >= 1.4 && !cr.done) { cr.done = true; woodArea(s.owner, s.team, s.c, R*.3 + 2.5, 70, {up:14, flat:true, props:200, mul:cr.mul*wdMulOf(s)}); debris(V3(s.c.x, s.c.y + 2, s.c.z), 18, [0x8A6A44, 0x5A3820, 0xA87445]); sfx('boom'); shakeAt(s.c, .6, 70); s.life = s.t; } }
+  };
+  sfx('rumble'); wdPose(ci.C, 'slam', .6);
+}
+function wdPrisonSpikes(ci){
+  const s = wdOwn('prison', ci.key); if (!s || s.crush) return;
+  const g = wdG(), spikes = [], memo = new Map(), mul = wdMulOf(s);
+  for (let i = 0; i < s.N; i++) for (const hk of [.18, .42]) { const a = i/s.N*Math.PI*2 + hk, rr0 = s.R*(1 - .82*Math.pow(hk, 2.2))*.95, q = V3(s.c.x + Math.cos(a)*rr0, s.gy + s.H*Math.sin(hk*Math.PI/2), s.c.z + Math.sin(a)*rr0), sk = wdSpike(g, q, rr0*.78, .28); wdPoint(sk, V3(-Math.cos(a), -.15, -Math.sin(a))); spikes.push(sk); }
+  addOutline(g); let t = 0, hit = false; sfx('slash');
+  WD.fx.push({update(dt){ t += dt; const k = t < .15 ? t/.15 : t < .55 ? 1 : 1 - (t - .55)/.3; for (const sk of spikes) wdSpikeK(sk, k);
+    if (!hit && t >= .15) { hit = true; woodArea(ci.key, ci.team, s.c, s.R - .3, 38, {flat:true, up:5, memo, props:40, mul}); shakeAt(s.c, .35, 50); sfx('crack'); }
+    if (t > .9) { wdKill(g); return false; } }});
+}
+function wdPrisonCrush(s, mul){ if (!s || s.crush || s.dying) return; s.crush = {t:0, tick:0, mul:mul || 1}; s.bodies.forEach(b => { if (b.world) world.removeBody(b); }); s.bodies = []; s.life = s.t + 3; sfx('rumble'); }
+
+/* ---------- 5. Thousand Branch Arms ---------- */
+function wdArmsStart(ci){
+  if (WD.arms[ci.key]) wdArmsEnd(WD.arms[ci.key]);
+  const g = wdG(), arms = [];
+  for (let i = 0; i < 4; i++) { const up = wdSeg(g, V3(0, 0, 0), V3(0, 1, 0), .42 - (i > 1 ? .06 : 0)), fo = wdSeg(g, V3(0, 1, 0), V3(0, 2, 0), .32 - (i > 1 ? .05 : 0)), fist = new THREE.Mesh(wdGeo().blob, wdMat().dark); fist.castShadow = true; g.add(fist);
+    const twig = []; for (let j = 0; j < 3; j++) { const tw = wdSeg(g, V3(0, 0, 0), V3(0, 1, 0), .1, wdMat().light); twig.push(tw); }
+    arms.push({i, side:i % 2 ? 1 : -1, tier:i > 1 ? 1 : 0, up, fo, fist, twig, st:null, fp:null}); }
+  addOutline(g);
+  WD.arms[ci.key] = {key:ci.key, team:ci.team, g, arms, t:0, life:22, held:null};
+  sfx('rumble'); wdPose(ci.C, 'cast', .6);
+  if (ci.key === G.localKey) toast('🙌 Branch arms: Click punches · hold Click and let go: every hand slams · G grabs, G again throws · 5 again puts them away.');
+}
+function wdArmsEnd(A){ wdKill(A.g); if (A.held) wdRelease(A.held, null); if (WD.arms[A.key] === A) delete WD.arms[A.key]; }
+// where an arm grows from (behind the shoulders), and where its fist rests
+function wdArmRoot(P, a){ const f = P.face, bx0 = -Math.sin(f), bz0 = -Math.cos(f), rx = -Math.cos(f), rz = Math.sin(f), p = P.root.position; return V3(p.x + bx0*.35 + rx*a.side*(.32 + a.tier*.15), p.y + 1.55 + a.tier*.35, p.z + bz0*.35 + rz*a.side*(.32 + a.tier*.15)); }
+function wdArmRest(P, a, t){ const f = P.face, bx0 = -Math.sin(f), bz0 = -Math.cos(f), rx = -Math.cos(f), rz = Math.sin(f), r = wdArmRoot(P, a), s = Math.sin(t*1.7 + a.i*1.3)*.25; return V3(r.x + rx*a.side*(1.5 + a.tier*.8) + bx0*.8, r.y + 1.9 + a.tier*.7 + s, r.z + rz*a.side*(1.5 + a.tier*.8) + bz0*.8); }
+function wdArmsFrame(dt){
+  for (const k in WD.arms) {
+    const A = WD.arms[k], P = chars[k]; if (!P || P.alive === false) { wdArmsEnd(A); continue; }
+    A.t += dt; if (A.t > A.life && !A.out) { A.out = A.t; }
+    const grow = A.out ? 1 - (A.t - A.out)/.4 : wdBack(A.t/.6); if (A.out && A.t - A.out > .4) { wdArmsEnd(A); continue; }
+    for (const a of A.arms) {
+      const root = wdArmRoot(P, a), rest = wdArmRest(P, a, A.t); let fp = rest;
+      if (a.st) { a.st.t += dt; const S = a.st, ext = S.ext || .12;
+        const kk = S.t < ext ? wdEase(S.t/ext) : S.t < ext + .07 ? 1 : 1 - (S.t - ext - .07)/.22; fp = rest.clone().lerp(S.q, clamp(kk, 0, 1));
+        if (!S.hit && S.t >= ext) { S.hit = true; if (S.onHit) S.onHit(); }
+        if (S.t > ext + .3) a.st = null; }
+      if (A.held && a.i === 0) fp = rest.clone().add(V3(0, 1.4, 0));
+      const side = V3(-Math.cos(P.face), 0, Math.sin(P.face)).multiplyScalar(a.side), d = fp.distanceTo(root), elbow = root.clone().lerp(fp, .5).add(V3(0, d*.22 + .5, 0)).addScaledVector(side, .9);
+      wdSegSet(a.up, root, elbow, null, grow); wdSegSet(a.fo, elbow, fp, null, grow); a.fist.position.copy(fp); a.fist.scale.setScalar(Math.max(.001, .62*grow)); a.fp = fp;
+      a.twig.forEach((tw, j) => { const at = root.clone().lerp(elbow, .4 + j*.25), tip = at.clone().add(V3(Math.sin(j*2.3 + a.i)*.6, .7, Math.cos(j*1.7 + a.i)*.6)); wdSegSet(tw, at, tip, null, grow); });
+    }
+    if (A.held) wdHoldAt(A.held, A.arms[0].fp.clone().add(V3(0, .6, 0)));
+    wdBurnFrame(A, dt, P.root.position.clone().add(V3(0, 2.5, 0)), 2);
+  }
+}
+function wdArmPunch(ci, p, i, slam){
+  const A = WD.arms[ci.key], P = ci.C; if (!A || !P) return;
+  const mul = wdMulOf(A), list = slam ? A.arms : [A.arms[(i | 0) % 4]], memo = new Map();
+  // inside your forest the punch comes out of the tree nearest the target instead
+  if (!slam) { const tr = wdNearestTree(ci.key, p, 22); if (tr && hdist(tr, P.root.position) > 6) { wdTreeArm(ci, tr, p, mul); return; } }
+  list.forEach((a, j) => {
+    const root = wdArmRoot(P, a), q = p.clone(); if (slam) q.add(V3(Math.cos(j*1.6)*1.6, 0, Math.sin(j*1.6)*1.6));
+    const d = q.clone().sub(root); if (d.length() > 16) q.copy(root).addScaledVector(d.normalize(), 16);
+    a.st = {t:0, q, ext:slam ? .2 : .12, hit:false, onHit: j === 0 ? () => {
+      const dir = p.clone().sub(P.root.position).setY(0).normalize();
+      if (slam) { woodArea(ci.key, ci.team, p, 6, 70, {kb:22, up:10, dir, props:200, memo, mul}); shakeAt(p, .6, 60); sfx('boom'); debris(p.clone().add(V3(0, .5, 0)), 14, [0x8A6A44, 0x5A3820]); }
+      else { woodArea(ci.key, ci.team, q, 2.8, 26, {kb:14, up:6, dir, props:60, memo, mul}); shakeAt(q, .25, 40); sfx('bonk'); puff(q, 0x8A6A44, .8); }
+    } : null};
+  });
+  P.punchPose = .2;
+}
+// a branch arm that grows out of a tree and punches
+function wdTreeArm(ci, tr, p, mul){
+  const g = wdG(), o = V3(tr.x, tr.gy + tr.H*.55, tr.z), mid = o.clone().lerp(p, .5).add(V3(0, 3, 0)), ch = wdChain(g, [o, mid, p.clone().add(V3(0, .8, 0))], .55, .32), fist = new THREE.Mesh(wdGeo().blob, wdMat().dark); fist.position.copy(p).add(V3(0, .8, 0)); fist.scale.setScalar(.001); g.add(fist); addOutline(g);
+  let t = 0, hit = false; sfx('whipcrack');
+  WD.fx.push({update(dt){ t += dt; const k = t < .16 ? wdEase(t/.16) : t < .3 ? 1 : 1 - (t - .3)/.3; ch.grow(k); fist.scale.setScalar(Math.max(.001, .9*clamp((k - .8)/.2, 0, 1)));
+    if (!hit && t >= .16) { hit = true; woodArea(ci.key, ci.team, p, 3.2, 30, {kb:15, up:7, dir:p.clone().sub(o).setY(0).normalize(), props:70, mul}); shakeAt(p, .25, 40); sfx('bonk'); puff(p, 0x8A6A44, .8); }
+    if (t > .6) { wdKill(g); return false; } }});
+}
+// grabbing and throwing loose things (branch arms, the guardian)
+function wdPickNear(p, R, maxMass){
+  let best = null, bd = R;
+  for (const b of world.bodies) { if (b.mass === 0 || b.player || b._wdHeld || b._frozen || b.tag === 'dummy' || b.wild || (maxMass && b.mass > maxMass)) continue; if (egg && b === egg.body) continue; const d = b.position.distanceTo(p); if (d < bd) { bd = d; best = b; } }
+  return best;
+}
+function wdHold(b){ b._wdHeld = true; b.collisionResponse = false; if (b.wakeUp) b.wakeUp(); }
+function wdHoldAt(b, q){ b.position.set(q.x, q.y, q.z); b.velocity.set(0, 0, 0); if (b.angularVelocity) b.angularVelocity.set(0, 0, 0); }
+function wdRelease(b, v){ b._wdHeld = false; b.collisionResponse = true; if (v) b.velocity.set(v.x, v.y, v.z); if (b.wakeUp) b.wakeUp(); }
+function wdLob(from, to, T){ const gy = world.gravity.y || -9.82; return V3((to.x - from.x)/T, (to.y - from.y - .5*gy*T*T)/T, (to.z - from.z)/T); }
+function wdThrowBody(ci, b, from, p, dmg){ const T = clamp(from.distanceTo(p)/38, .35, 1.2), v = wdLob(from, p, T); wdRelease(b, v); b._own = ci.key; b._ownTeam = ci.team; b._ownT = G.t; WD.thrown.push({b, key:ci.key, team:ci.team, t:0, dmg:dmg + Math.min(40, b.mass*.05), R:2.5 + Math.min(3, b.mass/300)}); sfx('rodThrow'); }
+function wdThrownFrame(dt){
+  WD.thrown = WD.thrown.filter(T => { T.t += dt; const b = T.b; if (!b.world) return false; const sp = Math.hypot(b.velocity.x, b.velocity.y, b.velocity.z);
+    if (T.t > .15 && (sp < 5 || b.position.y - groundH(b.position.x, b.position.z) < 1.2 || (T.prev && sp < T.prev*.55))) { woodArea(T.key, T.team, V3(b.position.x, b.position.y, b.position.z), T.R, T.dmg, {up:6, kb:10, props:60}); puff(V3(b.position.x, b.position.y, b.position.z), 0x8A6A44, 1); shakeAt(b.position, .25, 40); sfx('thud'); return false; }
+    T.prev = sp; return T.t < 4; });
+}
+function wdHeldFrame(dt){}
+
+/* ---------- 6. Blooming Catapult ---------- */
+function wdCata(ci, p, x){
+  const C = ci.C, m = wdMul('wd_cata', x.c), d0 = avDirOf(x) || wdFace(C), dir = V3(d0.x, 0, d0.z); if (dir.lengthSq() < .01) dir.copy(wdFace(C)); dir.normalize();
+  const base = ci.pos.clone(), g = wdG(), back = dir.clone().multiplyScalar(-1), pts = [];
+  for (let i = 0; i <= 5; i++) { const k = i/5; pts.push(V3(base.x + back.x*k*k*2.2, base.y - .6 + k*2.6, base.z + back.z*k*k*2.2)); }
+  const br = wdChain(g, pts, .5, .25, wdMat().bark); const leaves = []; for (let i = 0; i < 4; i++) { const lf = new THREE.Mesh(wdGeo().blob, i % 2 ? wdMat().bloom : wdMat().leaf[i % 3]); lf.scale.setScalar(.001); g.add(lf); leaves.push(lf); } addOutline(g);
+  // the shell that grows round the flier
+  const sh = new THREE.Group(); sh.userData.noRay = true; roundGroup.add(sh); const planks = [];
+  for (let i = 0; i < 9; i++) { const pl = new THREE.Mesh(wdGeo().box, i % 2 ? wdMat().bark : wdMat().dark); const a = i/9*Math.PI*2; pl.position.set(Math.cos(a)*.75, .95 + Math.sin(i*1.7)*.35, Math.sin(a)*.75); pl.lookAt(pl.position.clone().multiplyScalar(2).setY(pl.position.y)); pl.scale.set(.55, 1.5, .12); pl.castShadow = true; sh.add(pl); planks.push(pl); }
+  addOutline(sh); sh.userData.outlined = true;
+  WD.catas[ci.key] = {key:ci.key, team:ci.team, sh, planks, t:0};
+  let t = 0; sfx('whipcrack'); sfx('boing');
+  WD.fx.push({update(dt){ t += dt; const k = t < .12 ? wdEase(t/.12) : 1; br.grow(t < .9 ? k : Math.max(0, 1 - (t - .9)/.5));
+    const sw = t < .25 ? Math.sin(t/.25*Math.PI)*1.6 : 0; br.reshape(pts.map((q, i) => { const kk = i/5; return q.clone().addScaledVector(dir, sw*kk*kk*2.4 + (t >= .25 ? 1.2*kk*kk : 0)); }));
+    leaves.forEach((lf, i) => { lf.position.copy(br.pts[5]).add(V3(Math.cos(i*1.6)*.6, .3 + i*.15, Math.sin(i*1.6)*.6)); lf.scale.setScalar(Math.max(.001, .5*wdBack(t/.3)*(t < .9 ? 1 : Math.max(0, 1 - (t - .9)/.5)))); });
+    if (t > 1.45) { wdKill(g); return false; } }});
+  if (ci.key === G.localKey) {
+    const me = localP(); if (me) {
+      // from the top of a spear trunk: much further
+      const sp = WD.structs.find(s => !s.dying && s.kind === 'spear' && hdist(s.c, me.body.position) < s.R + 2.5 && me.body.position.y > s.top.y - 3.5), boost = sp ? 1.55 : 1, n = WDN.cata(m*boost > 4 ? 4 : m);
+      me.body.velocity.set(dir.x*n.h*boost, n.v*(sp ? 1.3 : 1), dir.z*n.h*boost); me.body._onGround = false; me.jumpT = G.t; me.lockT = 4;
+      WD.flight = {t:0, m:m*boost}; if (sp) toast('🏹🗡️ Launched from the trunk: much further!');
+    }
+  }
+}
+function wdCatasFrame(dt){
+  for (const k in WD.catas) { const S = WD.catas[k], P = chars[k]; if (!P) { wdKill(S.sh); delete WD.catas[k]; continue; } S.t += dt;
+    S.sh.position.copy(P.root.position); S.sh.rotation.y += dt*4; const k0 = wdBack(S.t/.35); S.planks.forEach(pl => pl.scale.set(.55*k0, 1.5*k0, .12)); S.sh.visible = k0 > .01;
+    if (S.t > 6) { wdKill(S.sh); delete WD.catas[k]; } }
+  const F = WD.flight, me = localP(); if (!F || !me) return; F.t += dt;
+  const b = me.body, low = b.position.y - groundH(b.position.x, b.position.z) < 1.1;
+  if (F.t > .3 && (me.grounded || (b.velocity.y <= .5 && low) || F.t > 5)) { WD.flight = null; me.lockT = 0; localCast('wd_catax', V3(b.position.x, b.position.y, b.position.z), {c:+F.m.toFixed(2)}); }
+}
+function wdCataLand(ci, p, x){
+  const S = WD.catas[ci.key]; if (S) { wdKill(S.sh); delete WD.catas[ci.key]; }
+  const m = clamp(+x.c || 1, 1, 6.2), R = 5 + 2*m, gy = groundH(p.x, p.z), c = V3(p.x, gy + 1, p.z), rng = ci.rng;
+  woodArea(ci.key, ci.team, c, R, 26 + 12*m, {up:12 + 2*m, kb:12, props:120, flat:true});
+  shakeAt(c, .5 + m*.08, 70); sfx('boom'); sfx('thud'); debris(c, 14, [0x8A6A44, 0x5A3820, 0xA87445]);
+  const g = wdG(), chains = [], spikes = [];
+  for (let i = 0; i < 12; i++) { const a = i/12*Math.PI*2 + rng()*.2, dir = V3(Math.cos(a), 0, Math.sin(a)); chains.push(wdChain(g, wdRootPts(V3(p.x, gy, p.z), dir, R*1.1, .5, rng()*6, 1.5), .35, .14)); const q = V3(p.x + dir.x*R*.8, 0, p.z + dir.z*R*.8); q.y = groundH(q.x, q.z) - .2; const sk = wdSpike(g, q, 2 + m*.5, .35); wdTilt(sk, dir, .5); spikes.push(sk); }
+  addOutline(g); let t = 0;
+  WD.fx.push({update(dt){ t += dt; const k = t < .25 ? wdEase(t/.25) : t < 1.4 ? 1 : 1 - (t - 1.4)/.5; chains.forEach(ch => ch.grow(k)); spikes.forEach(sk => wdSpikeK(sk, k)); if (t > 1.9) { wdKill(g); return false; } }});
+}
+
+/* ---------- 7. Living Timber Wheel ---------- */
+function wdWheel(ci, p, x){
+  if (WD.wheels[ci.key]) wdWheelUnravel(WD.wheels[ci.key]);
+  const C = ci.C, f = wdFace(C), g = wdG(), rot = new THREE.Group(); g.add(rot);
+  const rim = []; for (let i = 0; i < 16; i++) { const a0 = i/16*Math.PI*2, a1 = (i + 1)/16*Math.PI*2; rim.push(wdSeg(rot, V3((i % 2 ? .15 : -.15), Math.sin(a0), Math.cos(a0)), V3((i % 2 ? -.15 : .15), Math.sin(a1), Math.cos(a1)), .2, i % 3 ? wdMat().bark : wdMat().dark)); }
+  for (let i = 0; i < 6; i++) { const a = i/6*Math.PI*2; wdSeg(rot, V3(0, 0, 0), V3(0, Math.sin(a)*.95, Math.cos(a)*.95), .13, wdMat().dark); }
+  for (let i = 0; i < 14; i++) { const a = i/14*Math.PI*2 + .2, sk = new THREE.Mesh(wdGeo().cone, wdMat().light); sk.position.set(0, Math.sin(a)*1.02, Math.cos(a)*1.02); wdPoint(sk, V3(0, Math.sin(a), Math.cos(a))); sk.scale.set(.09, .45, .09); sk.castShadow = true; rot.add(sk); }
+  const hub = new THREE.Mesh(wdGeo().blob, wdMat().dark); hub.scale.set(.5, .3, .3); rot.add(hub);
+  addOutline(g);
+  const c = ci.pos.clone().addScaledVector(f, 4); c.y = groundH(c.x, c.z) + 2.2;
+  WD.wheels[ci.key] = {key:ci.key, team:ci.team, g, rot, R:2.2, c, v:V3(0, 0, 0), yaw:Math.atan2(f.x, f.z), T:p ? p.clone() : c.clone().addScaledVector(f, 20), col:[], memo:new Map(), t:0, life:22, collT:0, hitT:0, rng:ci.rng};
+  sfx('rumble'); wdPose(C, 'cast', .5);
+  if (ci.key === G.localKey) toast('🛞 The wheel rolls where you aim, crushing what it meets and gathering debris into itself. 7 again: unravel it.');
+}
+function wdWheelUnravel(W){
+  if (W.done) return; W.done = true; const n = W.col.length, mul = wdMulOf(W), c = W.c.clone(), g = wdG(), whips = [], R = W.R*3 + 4;
+  for (let i = 0; i < 10; i++) { const a = i/10*Math.PI*2 + W.t, pts = []; for (let j = 0; j <= 6; j++) { const k = j/6, aa = a + k*.9; pts.push(V3(c.x + Math.cos(aa)*R*k, c.y - W.R*.4 + Math.sin(k*Math.PI)*2, c.z + Math.sin(aa)*R*k)); } whips.push(wdChain(g, pts, .35, .12)); }
+  addOutline(g); let t = 0, hit = false; sfx('whipcrack'); sfx('crack');
+  WD.fx.push({update(dt){ t += dt; const k = t < .18 ? wdEase(t/.18) : t < .4 ? 1 : 1 - (t - .4)/.3; whips.forEach(w => w.grow(k)); if (!hit && t >= .15) { hit = true; woodArea(W.key, W.team, c, R, 35 + 3*n, {kb:18, up:8, props:120, mul}); shakeAt(c, .5, 60); } if (t > .75) { wdKill(g); return false; } }});
+  // everything it gathered flies outward
+  for (const h of W.col) { const b = h.b, d = V3(b.position.x - c.x, 0, b.position.z - c.z); if (d.lengthSq() < .01) d.set(1, 0, 0); d.normalize(); wdRelease(b, V3(d.x*22, 9, d.z*22)); WD.thrown.push({b, key:W.key, team:W.team, t:0, dmg:18, R:2.5}); }
+  W.col = []; wdKill(W.g); debris(c, 12, [0x8A6A44, 0x5A3820]); if (WD.wheels[W.key] === W) delete WD.wheels[W.key];
+}
+function wdWheelsFrame(dt){
+  for (const k in WD.wheels) {
+    const W = WD.wheels[k], C = chars[k]; if (!C) { wdWheelUnravel(W); continue; }
+    W.t += dt; if (W.t > W.life) { wdWheelUnravel(W); continue; }
+    if (k === G.localKey) W.T = aimPoint(150);
+    const n = W.col.length, speed = 15 - Math.min(6, n*.25), to = V3(W.T.x - W.c.x, 0, W.T.z - W.c.z), dist = to.length();
+    if (dist > 2) W.v.lerp(to.divideScalar(dist).multiplyScalar(speed), Math.min(1, dt*2)); else W.v.multiplyScalar(1 - Math.min(1, dt*2));
+    W.c.addScaledVector(W.v, dt); W.c.x = clamp(W.c.x, -ISL + 3, ISL - 3); W.c.z = clamp(W.c.z, -ISL + 3, ISL - 3); W.c.y = groundH(W.c.x, W.c.z) + W.R;
+    const sp = W.v.length(); if (sp > .5) W.yaw = Math.atan2(W.v.x, W.v.z);
+    const gk = wdBack(W.t/.5); W.g.position.copy(W.c); W.g.rotation.y = W.yaw; W.rot.scale.setScalar(Math.max(.01, W.R*gk)); W.rot.rotation.x += sp*dt/W.R;
+    const mul = wdMulOf(W), dir = sp > .5 ? W.v.clone().normalize() : V3(Math.sin(W.yaw), 0, Math.cos(W.yaw));
+    W.hitT -= dt; if (W.hitT <= 0) { W.hitT = .2; woodArea(k, W.team, W.c, W.R + .8, 14 + 2*n, {kb:12 + n*.3, up:5, dir, memo:W.memo, memoT:.6, props:50 + 10*n, flat:true, mul}); }
+    // it gathers loose debris into itself (and grabs what the roots throw up from further away)
+    W.collT -= dt; if (W.collT <= 0 && n < 24) { W.collT = .1;
+      for (const b of world.bodies) { if (b.mass === 0 || b.player || b._wdHeld || b._frozen || b.tag === 'dummy' || b.wild || b.mass > 500 || (egg && b === egg.body)) continue;
+        const d = b.position.distanceTo(W.c), reach = b._woodT && G.t - b._woodT < 1.5 ? W.R + 7 : W.R + 1.3; if (d > reach) continue;
+        wdHold(b); W.col.push({b, a:W.rng()*Math.PI*2, x:(W.rng() - .5)*.7}); W.R = Math.min(5.5, 2.2 + .14*W.col.length); sfx('thunk'); if (W.col.length >= 24) break; } }
+    const cy = Math.cos(W.yaw), sy = Math.sin(W.yaw);
+    for (const h of W.col) { const a = h.a + W.rot.rotation.x, ly = Math.sin(a)*W.R*1.02, lz = Math.cos(a)*W.R*1.02, lx = h.x*W.R; wdHoldAt(h.b, V3(W.c.x + lx*cy + lz*sy, W.c.y + ly, W.c.z - lx*sy + lz*cy)); h.b.velocity.set(W.v.x, 0, W.v.z); }
+    wdBurnFrame(W, dt, W.c, W.R);
+  }
+}
+
+/* ---------- 8. Deep Forest Emergence ---------- */
+function wdTree(g, t, rng){
+  const M = wdMat(), gy = t.gy, H = t.H, r = t.r, lean = (rng() - .5)*.7, la = rng()*6.28, pts = [];
+  for (let i = 0; i <= 3; i++) { const k = i/3; pts.push(V3(t.x + Math.cos(la)*lean*k*k*2, gy - .4 + (H*.78 + .4)*k, t.z + Math.sin(la)*lean*k*k*2)); }
+  const trunk = wdChain(g, pts, r, r*.5, M.bark), top = pts[3], brs = []; t.steps = [];
+  for (let i = 0; i < 2; i++) { const a = rng()*6.28, h = H*(.42 + .2*i), base = V3(t.x + Math.cos(la)*lean*.4, gy + h, t.z + Math.sin(la)*lean*.4), end = base.clone().add(V3(Math.cos(a)*H*.26, H*.14, Math.sin(a)*H*.26)); brs.push(wdChain(g, [base, base.clone().lerp(end, .5).add(V3(0, .35, 0)), end], r*.48, r*.26, M.bark)); t.steps.push({a:base, b:end}); }
+  const blobs = []; for (let i = 0; i < 3; i++) { const c = top.clone().add(V3((rng() - .5)*H*.25, H*.1 + rng()*H*.08, (rng() - .5)*H*.25)), m = new THREE.Mesh(wdGeo().blob, M.leaf[Math.floor(rng()*3)]); m.position.copy(c); m.userData.r = H*(.16 + rng()*.06); m.scale.setScalar(.001); m.castShadow = true; m.userData.noRay = true; g.add(m); blobs.push(m); }
+  if (rng() < .35) for (let i = 0; i < 3; i++) { const b0 = blobs[i], m = new THREE.Mesh(wdGeo().blob, M.bloom); m.position.copy(b0.position).add(V3(rng() - .5, rng() - .2, rng() - .5).multiplyScalar(b0.userData.r*1.5)); m.userData.r = .38; m.scale.setScalar(.001); g.add(m); blobs.push(m); }
+  t.top = top;
+  return {grow(k){ trunk.grow(clamp(k/.65, 0, 1)); for (const b of brs) b.grow(clamp((k - .4)/.4, 0, 1)); const kb = clamp((k - .55)/.45, 0, 1), e = kb > 0 ? wdBack(kb) : 0; for (const b of blobs) { b.scale.setScalar(Math.max(.001, b.userData.r*e)); b.visible = kb > 0; } },
+    hide(){ for (const p of [trunk, ...brs]) for (const m of p.segs) m.visible = false; for (const b of blobs) b.visible = false; }};
+}
+function wdTreeBody(t){ const o = V3(t.x, t.gy, t.z), b = wdBody(t.x, t.gy, t.z); b.addShape(new CANNON.Box(new CANNON.Vec3(t.r*.75, t.H*.4, t.r*.75)), new CANNON.Vec3(0, t.H*.4, 0)); for (const s of t.steps || []) wdBoxBetween(b, s.a, s.b, .32, o); return wdAddBody(b); }
+function wdForest(ci, p, x){
+  const m = wdMul('wd_forest', x.c), R = WDN.forest(m).R, rng = ci.rng, g = wdG(), trees = [], n = Math.round(R*1.15); let tries = 0;
+  while (trees.length < n && tries++ < n*14) { const a = rng()*Math.PI*2, r = Math.sqrt(rng())*R, tx = p.x + Math.cos(a)*r, tz = p.z + Math.sin(a)*r;
+    if (Math.abs(tx) > ISL - 3 || Math.abs(tz) > ISL - 3 || trees.some(t => Math.hypot(t.x - tx, t.z - tz) < 3.6)) continue;
+    if (G.mode === 'td' && TD.pd && (tdPathDist(tx, tz) < 3.5 || Math.hypot(tx, tz) < 8)) continue;
+    trees.push({x:tx, z:tz, d:r, H:7 + rng()*6, r:.45 + rng()*.35}); }
+  trees.forEach(t => { t.gy = groundH(t.x, t.z); t.vis = wdTree(g, t, rng); t.delay = .25 + t.d/R*1.6; });
+  addOutline(g);
+  const s = wdStruct({kind:'forest', owner:ci.key, team:ci.team, c:V3(p.x, groundH(p.x, p.z) + 4, p.z), R, g, trees, life:60});
+  s.update = dt => { for (const t of trees) { if (t.gone) continue; const k = clamp((s.t - t.delay)/.7, 0, 1); t.vis.grow(k);
+    if (!t.up && s.t >= t.delay) { t.up = true; woodArea(ci.key, ci.team, V3(t.x, t.gy + 1, t.z), 2.8, 18, {up:14, kb:4, flat:true, props:30}); puff(V3(t.x, t.gy + .3, t.z), 0x8A6A44, .7); if (Math.random() < .25) sfx('thunk'); }
+    if (k >= 1 && !t.body) { t.grown = true; t.body = wdTreeBody(t); s.bodies.push(t.body); } } };
+  sfx('rumble'); wdPose(ci.C, 'slam', .7); shakeAt(p, .4, 60);
+}
+
+/* ---------- 9. Colossal Wood Guardian ---------- */
+function wdGuardBuild(){
+  const M = wdMat(), Gm = wdGeo(), g = wdG(), parts = [];
+  const part = (t0, t1) => { const pg = new THREE.Group(); g.add(pg); parts.push({g:pg, t0, t1}); pg.scale.setScalar(.001); return pg; };
+  const seg = (par, a, b, r, mat) => wdSeg(par, a, b, r, mat);
+  const blob = (par, x, y, z, s, mat) => { const m = new THREE.Mesh(Gm.blob, mat || M.bark); m.position.set(x, y, z); m.scale.setScalar(s); m.castShadow = true; par.add(m); return m; };
+  const box = (par, sx, sy, sz, x, y, z, mat) => { const m = new THREE.Mesh(Gm.box, mat || M.bark); m.scale.set(sx, sy, sz); m.position.set(x, y, z); m.castShadow = true; par.add(m); return m; };
+  const legs = [-1, 1].map(s => { const lg = part(0, .6); lg.position.set(s*1.8, 6.6, 0); seg(lg, V3(0, 0, 0), V3(s*.2, -3.2, .5), 1.25); seg(lg, V3(s*.2, -3.2, .5), V3(s*.3, -6.3, 0), 1.0, M.dark); box(lg, 2.2, .9, 3.4, s*.3, -6.3, .5, M.dark);
+    for (let v = 0; v < 2; v++) { const vp = []; for (let i = 0; i <= 8; i++) { const k = i/8, a = v*3 + k*8; vp.push(V3(s*.2*k + Math.cos(a)*1.15, -6.2*k, .3*k + Math.sin(a)*1.15)); } wdChain(lg, vp, .2, .14, M.light).grow(1); } return lg; });
+  const hip = part(.4, .85); box(hip, 5.2, 1.7, 2.8, 0, 6.9, 0, M.dark);
+  const torso = part(.6, 1.25); seg(torso, V3(0, 7, 0), V3(0, 12.8, 0), 2.7); blob(torso, 0, 11.2, .4, 2.9); blob(torso, 0, 9.2, .9, 1.9, M.dark);
+  for (let v = 0; v < 3; v++) { const vp = []; for (let i = 0; i <= 10; i++) { const k = i/10, a = v*2.1 + k*9; vp.push(V3(Math.cos(a)*2.6*(1 - .2*k), 7 + 5.6*k, Math.sin(a)*2.6*(1 - .2*k))); } wdChain(torso, vp, .3, .2, M.light).grow(1); }
+  for (const s of [-1, 1]) { const sp = new THREE.Mesh(Gm.cone, M.light); sp.position.set(s*1.4, 12, -1.6); sp.rotation.set(-.9, 0, s*.4); sp.scale.set(.4, 3, .4); torso.add(sp); }
+  const arms = [-1, 1].map(s => { const sh = part(1, 1.6); sh.position.set(s*3.5, 12.4, 0); blob(sh, 0, 0, 0, 1.6); const arm = new THREE.Group(); sh.add(arm); seg(arm, V3(0, 0, 0), V3(0, -4, .3), 1.1); seg(arm, V3(0, -4, .3), V3(0, -7.6, .9), .9, M.dark); const fist = blob(arm, 0, -8.4, 1.1, 1.55, M.dark); return {sh, arm, fist, s}; });
+  const head = part(1.4, 2); box(head, 2.5, 2.7, 2.5, 0, 14.8, .2); box(head, 2.7, .5, 2.7, 0, 13.6, .2, M.dark);
+  for (const s of [-1, 1]) { const e = new THREE.Mesh(Gm.blob, M.eye); e.scale.setScalar(.3); e.position.set(s*.6, 15.1, 1.47); head.add(e); }
+  for (let i = 0; i < 7; i++) { const a = (i/6 - .5)*2.4, c = new THREE.Mesh(Gm.cone, M.light); c.position.set(Math.sin(a)*1.1, 16.1, -Math.cos(a)*.3); c.rotation.set(-.3, 0, -a*.5); c.scale.set(.25, 1.6 + (i % 2)*.8, .25); head.add(c); }
+  addOutline(g);
+  return {g, parts, legs, arms, head};
+}
+function wdGuard(ci){
+  if (WD.guards[ci.key]) wdGuardEnd(WD.guards[ci.key]);
+  const B = wdGuardBuild(); WD.guards[ci.key] = Object.assign(B, {key:ci.key, team:ci.team, t:0, life:30, memo:new Map(), side:1, held:null, weapon:null, act:null, knT:0});
+  sfx('rumble'); sfx('roar'); shakeAt(ci.pos, .5, 60); wdPose(ci.C, 'cast', 2);
+  // roots spiral up round you while it forms
+  const g = wdG(), chains = [], c = ci.pos.clone(); for (let v = 0; v < 6; v++) { const vp = []; for (let i = 0; i <= 14; i++) { const k = i/14, a = v*1.05 + k*7; vp.push(V3(c.x + Math.cos(a)*(4 - 1.5*k), groundH(c.x, c.z) + 12*k, c.z + Math.sin(a)*(4 - 1.5*k))); } chains.push(wdChain(g, vp, .5, .2)); }
+  addOutline(g); let t = 0;
+  WD.fx.push({update(dt){ t += dt; const k = t < .6 ? wdEase(t/.6) : 1 - (t - 1.2)/.6; chains.forEach(ch => ch.grow(clamp(k, 0, 1))); if (t > 1.8) { wdKill(g); return false; } }});
+  if (ci.key === G.localKey) { G.camZoomTgt = 3; G.camLiftY = 12; toast('🗿 Click: punch · hold Click and let go: sweep · F: stomp · G: grab / uproot a tree / throw · B: finisher.'); }
+}
+function wdGuardEnd(Gd){
+  wdKill(Gd.g); if (Gd.held) wdRelease(Gd.held, null); const P = chars[Gd.key]; if (P) P.rig.visible = true;
+  if (Gd.key === G.localKey) { G.camZoomTgt = 1; G.camLiftY = 0; }
+  if (WD.guards[Gd.key] === Gd) delete WD.guards[Gd.key];
+}
+function wdGFist(Gd, s){ const a = Gd.arms[s > 0 ? 1 : 0]; a.fist.updateWorldMatrix(true, false); return a.fist.getWorldPosition(new THREE.Vector3()); }
+function wdGuardsFrame(dt){
+  for (const k in WD.guards) {
+    const Gd = WD.guards[k], P = chars[k]; if (!P || P.alive === false) { wdGuardEnd(Gd); continue; }
+    Gd.t += dt; const mul = wdMulOf(Gd);
+    if (Gd.t > Gd.life && !Gd.fin) { Gd.fin = {t:0, auto:true}; }
+    P.rig.visible = false;
+    Gd.g.position.copy(P.root.position); Gd.g.rotation.y = P.face;
+    for (const pt of Gd.parts) { const kk = (Gd.t - pt.t0)/(pt.t1 - pt.t0); pt.g.scale.setScalar(Math.max(.001, kk >= 1 ? 1 : wdBack(kk))); }
+    const hs = P.remote ? (P.netHs || 0) : Math.hypot(P.body.velocity.x, P.body.velocity.z), sw = Math.sin(P.walk*.45)*Math.min(1, hs/5)*.45;
+    Gd.legs[0].rotation.x = sw; Gd.legs[1].rotation.x = -sw;
+    // its steps shove loose things and people aside
+    Gd.knT -= dt; if (Gd.knT <= 0 && Gd.t > 1) { Gd.knT = .2; const c = V3(Gd.g.position.x, Gd.g.position.y + 1, Gd.g.position.z);
+      forEachObject(b => { if (b._wdHeld) return; const d = hdist(b.position, c); if (d > 4.5 || b.position.y > c.y + 9) return; if (b.wakeUp) b.wakeUp(); const dx = (b.position.x - c.x)/(d || 1), dz = (b.position.z - c.z)/(d || 1); b.velocity.x += dx*8; b.velocity.z += dz*8; b.velocity.y += 3; });
+      const V = victimFor(k, Gd.team); if (V && hdist(V.body.position, c) < 3.6 && wdMemo({memo:Gd.memo, memoT:.8}, 'step')) { const d = V3(V.body.position.x - c.x, 0, V.body.position.z - c.z).normalize(); knock(V, d.x*12, 5, d.z*12, .3); } }
+    // arms: rest, punches, sweeps
+    const act = Gd.act; for (const a of Gd.arms) { a.arm.rotation.set(Math.sin(Gd.t*1.3 + a.s)*.08, 0, 0); a.arm.scale.setScalar(1); }
+    if (act) { act.t += dt;
+      if (act.kind === 'punch') { const a = Gd.arms[act.s > 0 ? 1 : 0], ext = act.t < .18 ? wdEase(act.t/.18) : act.t < .26 ? 1 : 1 - (act.t - .26)/.3;
+        const loc = Gd.g.worldToLocal(act.q.clone()), sh = a.sh.position, dv = loc.clone().sub(sh), L = dv.length(); a.arm.quaternion.setFromUnitVectors(V3(0, -1, 0), dv.normalize()); a.arm.quaternion.slerp(new THREE.Quaternion(), 1 - clamp(ext, 0, 1)); a.arm.scale.set(1, 1 + clamp(ext, 0, 1)*Math.max(0, L/8.6 - 1), 1);
+        if (!act.hit && act.t >= .18) { act.hit = true; const w = Gd.weapon ? 1.5 : 1; woodArea(k, Gd.team, act.q, 4.5 + (Gd.weapon ? 2 : 0), 50*w, {kb:24, up:10, dir:act.q.clone().sub(P.root.position).setY(0).normalize(), props:250, memo:new Map(), mul}); shakeAt(act.q, .55, 70); sfx('boom'); debris(act.q.clone().add(V3(0, .5, 0)), 10, [0x8A6A44, 0x5A3820]); }
+        if (act.t > .56) Gd.act = null; }
+      else if (act.kind === 'sweep') { const a = Gd.arms[1], ang = lerp(-1.6, 1.6, clamp(act.t/.5, 0, 1)); a.arm.rotation.set(-1.45, 0, ang); a.arm.scale.set(1, 1.25, 1);
+        const f = P.face, mem = act.memo; for (let i = 0; i < 6; i++) { const aa = f + lerp(1.4, -1.4, i/5); if (act.t >= i/5*.5 && !act['h' + i]) { act['h' + i] = true; const q = V3(Gd.g.position.x + Math.sin(aa)*9, groundH(Gd.g.position.x + Math.sin(aa)*9, Gd.g.position.z + Math.cos(aa)*9) + 2, Gd.g.position.z + Math.cos(aa)*9); woodArea(k, Gd.team, q, 4 + (Gd.weapon ? 2 : 0), 40*(Gd.weapon ? 1.5 : 1), {kb:26, up:8, dir:V3(Math.cos(aa), 0, -Math.sin(aa)), memo:mem, props:150, mul}); puff(q, 0x8A6A44, 1); } }
+        if (act.t > .7) Gd.act = null; }
+      else if (act.kind === 'stomp') { const lg = Gd.legs[1]; lg.rotation.x = act.t < .25 ? -act.t/.25*.9 : act.t < .35 ? lerp(-.9, 0, (act.t - .25)/.1) : 0;
+        if (!act.slam && act.t >= .35) { act.slam = true; const c = V3(Gd.g.position.x, Gd.g.position.y + 1, Gd.g.position.z); woodArea(k, Gd.team, c, 7, 35, {up:12, kb:10, props:150, flat:true, mul}); shakeAt(c, .7, 80); sfx('boom'); act.c = c; act.memo = new Map(); act.tag = 'wdst' + Math.random(); wdStompRing(c, Gd); }
+        if (act.slam) { const r = (act.t - .35)*32; if (r < 26) woodRing(k, Gd.team, act.c, r, 3.5, 22, {up:9, kb:10, memo:act.memo, tag:act.tag, mul}); }
+        if (act.t > 1.3) Gd.act = null; } }
+    // the weapon (an uprooted trunk) and held things
+    if (Gd.weapon) { const a = Gd.arms[1]; Gd.weapon.position.copy(a.fist.position); Gd.weapon.quaternion.identity(); a.arm.add(Gd.weapon); }
+    if (Gd.held) wdHoldAt(Gd.held, wdGFist(Gd, -1).add(V3(0, 1.5, 0)));
+    if (Gd.fin) { const F = Gd.fin; F.t += dt;
+      if (!F.auto) { for (const a of Gd.arms) { a.arm.rotation.set(F.t < .35 ? -2.6*F.t/.35 : lerp(-2.6, -1.2, clamp((F.t - .35)/.12, 0, 1)), 0, 0); } }
+      if (!F.auto && !F.slam && F.t >= .47) { F.slam = true; const f = V3(Math.sin(P.face), 0, Math.cos(P.face)), c = Gd.g.position.clone().addScaledVector(f, 7); c.y = groundH(c.x, c.z) + 1; woodArea(k, Gd.team, c, 7, 60, {up:14, kb:12, props:250, flat:true, mul}); shakeAt(c, .9, 90); sfx('boom'); flash(.25, .3); wdWoodWall(k, Gd.team, c, f, mul); }
+      const endT = F.auto ? .1 : 1.1; if (F.t > endT) { Gd.parts.forEach(pt => pt.g.position.y -= dt*12); }
+      if (F.t > endT + .9) { debris(Gd.g.position.clone().add(V3(0, 6, 0)), 20, [0x8A6A44, 0x5A3820, 0xA87445]); wdGuardEnd(Gd); continue; } }
+    wdBurnFrame(Gd, dt, V3(Gd.g.position.x, Gd.g.position.y + 8, Gd.g.position.z), 5);
+  }
+}
+function wdStompRing(c, Gd){
+  const g = wdG(), spikes = []; for (const R of [7, 11, 15, 19, 23]) for (let i = 0; i < 14; i++) { const a = i/14*Math.PI*2 + R, q = V3(c.x + Math.cos(a)*R, 0, c.z + Math.sin(a)*R); q.y = groundH(q.x, q.z) - .3; const sk = wdSpike(g, q, 2.2 + R*.05, .4); wdTilt(sk, V3(Math.cos(a), 0, Math.sin(a)), .4); sk.userData.R = R; spikes.push(sk); }
+  addOutline(g); let t = 0;
+  WD.fx.push({update(dt){ t += dt; const r = t*32; for (const sk of spikes) { const kk = (r - sk.userData.R)/3; wdSpikeK(sk, t < 1.5 ? kk : 1 - (t - 1.5)/.4); } if (t > 1.9) { wdKill(g); return false; } }});
+}
+// the guardian's finisher: an advancing wall of splintered wood
+function wdWoodWall(key, team, c, f, mul){
+  const g = wdG(), side = V3(-f.z, 0, f.x), rows = [], memo = new Map();
+  for (let i = 0; i < 16; i++) { const d = 4 + i*3, row = []; for (let j = -3; j <= 3; j++) { const q = c.clone().addScaledVector(f, d).addScaledVector(side, j*2.3 + Math.sin(i*1.7 + j)*.6); q.y = groundH(q.x, q.z) - .4; const sk = wdSpike(g, q, 4 + Math.abs(Math.sin(i*3.1 + j*1.3))*3.5, .75); wdTilt(sk, f, .35 + Math.sin(i + j)*.15); row.push(sk); } rows.push({d, row, hit:false}); }
+  addOutline(g); let t = 0;
+  WD.fx.push({update(dt){ t += dt; rows.forEach((R, i) => { const k = (t - i*.07)/.15; R.row.forEach(sk => wdSpikeK(sk, t < 2.2 ? k : 1 - (t - 2.2)/.5));
+    if (!R.hit && k >= .6) { R.hit = true; const q = c.clone().addScaledVector(f, R.d); q.y = groundH(q.x, q.z) + 1.5; woodArea(key, team, q, 8.5, 55, {up:16, kb:18, dir:f, memo, props:200, flat:true, mul}); if (i % 3 === 0) { shakeAt(q, .4, 60); sfx('crack'); } debris(q, 4, [0x8A6A44, 0xA87445]); } });
+    if (t > 2.8) { wdKill(g); return false; } }});
+}
+function wdGuardGrab(ci, p){
+  const Gd = WD.guards[ci.key]; if (!Gd || Gd.held || Gd.weapon) return;
+  const gp = Gd.g.position;
+  // one of your trees: uproot it and wield it
+  const tr = wdNearestTree(ci.key, p, 9) || wdNearestTree(ci.key, gp, 11);
+  const ptree = !tr && props.find(pr => !pr.dead && pr.kind === 'tree' && (Math.hypot(pr.x - p.x, pr.z - p.z) < 8 || Math.hypot(pr.x - gp.x, pr.z - gp.z) < 9));
+  if (tr || ptree) {
+    if (tr) wdUproot(tr); else destroyProp(ptree, V3(ptree.x, ptree.y + 1, ptree.z), 9999);
+    const club = new THREE.Group(); club.userData.noRay = true; const tk = wdChain(club, [V3(0, 0, 0), V3(0, -3, 2.5), V3(0, -5.5, 6)], .9, .55); tk.grow(1); const cn = new THREE.Mesh(wdGeo().blob, wdMat().leaf[0]); cn.position.set(0, -5.8, 6.8); cn.scale.setScalar(2); club.add(cn); addOutline(club);
+    Gd.weapon = club; Gd.arms[1].arm.add(club); club.position.copy(Gd.arms[1].fist.position); sfx('crack'); sfx('thud'); shakeAt(gp, .4, 50);
+    if (ci.key === G.localKey) toast('🗿🌳 Uprooted! Your punches swing the trunk now. G throws it.'); return;
+  }
+  const b = wdPickNear(p, 8) || wdPickNear(gp, 7); if (b) { wdHold(b); Gd.held = b; sfx('grab'); }
+}
+function wdGuardThrow(ci, p){
+  const Gd = WD.guards[ci.key]; if (!Gd) return; const from = wdGFist(Gd, Gd.weapon ? 1 : -1);
+  if (Gd.held) { const b = Gd.held; Gd.held = null; wdThrowBody(ci, b, from, p, 40); return; }
+  if (Gd.weapon) { const club = Gd.weapon; Gd.weapon = null; if (club.parent) club.parent.remove(club);
+    const g = wdG(), log = wdChain(g, [V3(0, 0, -4), V3(0, 0, 4)], 1, .7); log.grow(1); addOutline(g); g.position.copy(from); const T = clamp(from.distanceTo(p)/40, .5, 1.3), v = wdLob(from, p, T); let t = 0, hit = false; sfx('rodThrow');
+    WD.fx.push({update(dt){ t += dt; g.position.set(from.x + v.x*t, from.y + v.y*t + .5*(world.gravity.y || -9.82)*t*t, from.z + v.z*t); g.rotation.x += dt*8; g.rotation.y = Math.atan2(v.x, v.z);
+      if (!hit && t >= T) { hit = true; woodArea(ci.key, ci.team, p, 5.5, 60, {up:12, kb:16, props:250, mul:wdMulOf(Gd)}); shakeAt(p, .6, 70); sfx('boom'); debris(p, 14, [0x8A6A44, 0x5A3820]); wdKill(g); return false; } }}); }
+}
+
+/* ---------- 10. Thousand-Handed Deity ---------- */
+function wdDeity(ci){
+  if (WD.deities[ci.key]) wdDeityEnd(WD.deities[ci.key]);
+  const C = ci.C, f = wdFace(C), B = ci.pos.clone().addScaledVector(f, -18); B.y = groundH(B.x, B.z);
+  const M = wdMat(), Gm = wdGeo(), g = wdG(); g.position.copy(B); g.rotation.y = Math.atan2(f.x, f.z);
+  const body = new THREE.Group(); g.add(body);
+  for (let i = 0; i < 3; i++) { const d = new THREE.Mesh(new THREE.CylinderGeometry(7 - i*1.4, 7.6 - i*1.4, 1, 18), i % 2 ? M.dark : M.deity); d.position.y = .5 + i; d.castShadow = true; body.add(d); }
+  for (let i = 0; i < 12; i++) { const a = i/12*Math.PI*2, pe = new THREE.Mesh(Gm.cone, M.bloom); pe.position.set(Math.cos(a)*6.5, 1.5, Math.sin(a)*6.5); pe.rotation.set(Math.sin(a)*.9, 0, -Math.cos(a)*.9); pe.scale.set(1.2, 2.6, .5); body.add(pe); }
+  wdSeg(body, V3(0, 3, 0), V3(0, 15, 0), 4.6, M.deity); const hd = new THREE.Mesh(Gm.blob, M.deity); hd.position.set(0, 19.5, 0); hd.scale.setScalar(3.9); body.add(hd);
+  for (let i = 0; i < 9; i++) { const a = (i/8 - .5)*2.6, c = new THREE.Mesh(Gm.cone, M.light); c.position.set(Math.sin(a)*2.6, 23, -Math.cos(a)*.6); c.rotation.set(-.25, 0, -a*.45); c.scale.set(.5, 3 + (i % 2)*1.5, .5); body.add(c); }
+  for (const s of [-1, 1]) { const e = new THREE.Mesh(Gm.blob, M.eye); e.scale.setScalar(.6); e.position.set(s*1.4, 20, 3.4); body.add(e); wdSeg(body, V3(s*5, 13.5, 0), V3(s*1.2, 10.5, 4.6), 1.6, M.deity); }
+  const hands = new THREE.Mesh(Gm.blob, M.dark); hands.position.set(0, 10.5, 5); hands.scale.set(2.2, 3, 1.5); body.add(hands);
+  // the fan of arms behind it: rings that unfold one after another (hundreds of arms)
+  const fan = [], RINGS = [30, 40, 52, 64], armI = wdInst(Gm.seg, M.deity, 200, g), fistI = wdInst(Gm.blob, M.dark, 200, g), Fc = V3(0, 17, -4);
+  RINGS.forEach((n, ri) => { const Rk = 11 + ri*5.2; for (let j = 0; j < n; j++) { const a = -.35*Math.PI + j/(n - 1)*1.7*Math.PI; fan.push({ri, a, Rk, arm:armI.add({a:Fc.clone(), b:Fc.clone().add(V3(0, 1, 0)), r:.55 - ri*.06}), fist:fistI.add({c:Fc.clone(), r:.9 - ri*.08})}); } });
+  addOutline(body);
+  WD.deities[ci.key] = {key:ci.key, team:ci.team, g, body, fan, armI, fistI, Fc, t:0, life:24, B};
+  sfx('rumble'); sfx('holy'); shakeAt(B, .7, 90); wdPose(C, 'cast', 1.5); flash(.15, .4);
+  if (ci.key === G.localKey) { toast('🪷 Hold Click: a barrage of colossal fists where you aim (sweep it around) · N again: every hand strikes at once.'); }
+}
+function wdDeityEnd(Dt){ wdKill(Dt.g); if (Dt.key === G.localKey) { G.camZoomTgt = 1; G.camLiftY = 0; } if (WD.deities[Dt.key] === Dt) delete WD.deities[Dt.key]; }
+function wdFanTip(Dt, F, u){ const a = lerp(Math.PI/2, F.a, u), r = lerp(4, F.Rk, u); return V3(Dt.Fc.x + Math.cos(a)*r, Dt.Fc.y + Math.sin(a)*r, Dt.Fc.z - F.ri*.9); }
+function wdDeitiesFrame(dt){
+  for (const k in WD.deities) {
+    const Dt = WD.deities[k]; Dt.t += dt; const mul = wdMulOf(Dt);
+    if (k === G.localKey && !Dt.fin) { const rev = Dt.t < 3.8; G.camZoomTgt = rev ? 9 : 1.3; G.camLiftY = rev ? 14 : 3; }   // the camera pulls back to show it rise behind you, then settles so the fists fly over you
+    const rise = wdEase(Dt.t/1.8); Dt.g.position.y = Dt.B.y - 40*(1 - rise);
+    if (Dt.t > Dt.life && !Dt.fin) Dt.fin = {t:0, auto:true};
+    const fin = Dt.fin;
+    for (const F of Dt.fan) {
+      const u = wdBack((Dt.t - 1.6 - F.ri*.45)/.6), i = Dt.fan.indexOf(F);
+      let tip = wdFanTip(Dt, F, clamp(u, 0, 1.1)), base = V3(Dt.Fc.x + Math.cos(F.a)*3.2*clamp(u, 0, 1), Dt.Fc.y + Math.sin(F.a)*3.2*clamp(u, 0, 1), Dt.Fc.z);
+      if (fin && !fin.auto && fin.q) { const kk = clamp(fin.t/.28, 0, 1), tq = Dt.g.worldToLocal(fin.q.clone().add(V3(Math.cos(i)*3, 1 + Math.sin(i*1.3)*2, Math.sin(i*.7)*3))); tip = tip.lerp(tq, wdEase(kk)); }
+      const it = Dt.armI.items[F.arm === null ? 0 : Dt.armI.items.indexOf(F.arm)];
+      if (F.arm) { F.arm.a = base; F.arm.b = tip; F.arm.k = -1; Dt.armI.set(Dt.armI.items.indexOf(F.arm), u > 0 ? 1 : 0); }
+      if (F.fist) { F.fist.c = tip; F.fist.k = -1; Dt.fistI.set(Dt.fistI.items.indexOf(F.fist), u > 0 ? 1 : 0); }
+    }
+    Dt.armI.flush(); Dt.fistI.flush();
+    if (fin) { fin.t += dt;
+      if (!fin.auto && !fin.hit && fin.t >= .3) { fin.hit = true; woodArea(k, Dt.team, fin.q, 16, 140, {up:22, kb:26, props:400, mul}); flash(.5, .4); shakeAt(fin.q, 1, 160); sfx('boom'); sfx('bboom'); boomVisual(fin.q.clone(), false, 2.2, {ball:0x8A6A44, core:0xE8D2A8, ring:0xA87445}); debris(fin.q.clone().add(V3(0, 2, 0)), 24, [0x8A6A44, 0x5A3820, 0xA87445]); }
+      const endT = fin.auto ? 0 : .6; if (fin.t > endT) { Dt.g.position.y -= dt*14*(fin.t - endT); }
+      if (fin.t > endT + 1.6) { wdDeityEnd(Dt); continue; } }
+    wdBurnFrame(Dt, dt, V3(Dt.g.position.x, Dt.g.position.y + 12, Dt.g.position.z), 8);
+  }
+}
+// one barrage volley: four colossal fists from the fan onto the aimed area
+function wdBarrage(ci, p){
+  const Dt = WD.deities[ci.key]; if (!Dt || Dt.fin || Dt.t < 2.2) return; const rng = ci.rng, mul = wdMulOf(Dt);
+  for (let i = 0; i < 4; i++) {
+    const F = Dt.fan[Math.floor(rng()*Dt.fan.length)], from = Dt.g.localToWorld(wdFanTip(Dt, F, 1)), q = p.clone().add(V3((rng() - .5)*9, 0, (rng() - .5)*9)); q.y = groundH(q.x, q.z) + .8;
+    const g = wdG(), arm = wdSeg(g, from, q, .9, wdMat().deity), fist = new THREE.Mesh(wdGeo().blob, wdMat().dark); fist.scale.setScalar(.001); g.add(fist); const delay = i*.05; let t = 0, hit = false;
+    WD.fx.push({update(dt){ t += dt; const tt = t - delay, k = tt < 0 ? 0 : tt < .12 ? wdEase(tt/.12) : tt < .2 ? 1 : 1 - (tt - .2)/.2; wdSegK(arm, k); const fp = from.clone().lerp(q, k); fist.position.copy(fp); fist.scale.setScalar(Math.max(.001, 1.7*Math.min(1, k*1.5)));
+      if (!hit && tt >= .12) { hit = true; woodArea(ci.key, ci.team, q, 3.4, 12, {kb:10, up:7, dir:q.clone().sub(from).setY(0).normalize(), props:40, mul}); shakeAt(q, .25, 50); puff(q, 0x8A6A44, 1); if (Math.random() < .5) sfx('bonk'); }
+      if (tt > .42) { wdKill(g); return false; } }});
+  }
+}
+
+/* ---------- 11. World Forest ---------- */
+function wdWorldForest(ci){
+  const rng = ci.rng, C = ci.pos.clone(), g = wdG(), M = wdMat(), Gm = wdGeo();
+  const rootI = wdInst(Gm.seg, M.bark, 760, g), trunkI = wdInst(Gm.seg, M.bark, 300, g), brI = wdInst(Gm.seg, M.dark, 300, g), leafI = [wdInst(Gm.blob, M.leaf[0], 160, g), wdInst(Gm.blob, M.leaf[1], 160, g)];
+  leafI.forEach(L => { L.m.castShadow = false; });
+  // roots racing outward to the edge of the island
+  for (let i = 0; i < 18; i++) { const a = i/18*Math.PI*2 + rng()*.2, dir = V3(Math.cos(a), 0, Math.sin(a)), L = wdEdgeDist(C, dir), pts = wdRootPts(C, dir, L, 3, rng()*6, 4.5); for (let j = 0; j < pts.length - 1; j++) rootI.add({a:pts[j], b:pts[j + 1], r:Math.max(.35, 1.2 - j*.025), d:hdist(C, pts[j])}); }
+  // trees all over the map
+  const trees = []; let tries = 0;
+  while (trees.length < 140 && tries++ < 4000) { const tx = (rng()*2 - 1)*(ISL - 6), tz = (rng()*2 - 1)*(ISL - 6), gy = groundH(tx, tz);
+    if (gy < .3 || Math.hypot(tx - C.x, tz - C.z) < 6 || trees.some(t => Math.hypot(t.x - tx, t.z - tz) < 7.5)) continue;
+    if (G.mode === 'td' && TD.pd && (tdPathDist(tx, tz) < 4 || Math.hypot(tx, tz) < 10)) continue;
+    if (egg && egg.alive && Math.hypot(egg.body.position.x - tx, egg.body.position.z - tz) < 8) continue;
+    trees.push({x:tx, z:tz, gy, H:14 + rng()*9, r:.9 + rng()*.6, d:Math.hypot(tx - C.x, tz - C.z)}); }
+  for (const t of trees) {
+    t.delay = .6 + t.d/45; const lean = V3((rng() - .5)*1.5, 0, (rng() - .5)*1.5), top = V3(t.x + lean.x, t.gy + t.H, t.z + lean.z), mid = V3(t.x + lean.x*.3, t.gy + t.H*.5, t.z + lean.z*.3);
+    t.top = top; t.parts = [trunkI.add({a:V3(t.x, t.gy - .6, t.z), b:mid, r:t.r}), trunkI.add({a:mid, b:top, r:t.r*.7})];
+    t.blobs = []; for (let i = 0; i < 2; i++) t.blobs.push(leafI[i].add({c:top.clone().add(V3((rng() - .5)*3, 1 + rng()*2.5, (rng() - .5)*3)), r:3 + rng()*1.6, sy:.8}));
+  }
+  // thick branches reach across to their neighbours: walkways in the canopy
+  for (const t of trees) { let nb = null, nd = 14; for (const u of trees) { if (u === t || u.bridged === t) continue; const d = Math.hypot(u.x - t.x, u.z - t.z); if (d < nd) { nd = d; nb = u; } }
+    if (nb) { t.bridged = nb; const h = Math.min(t.H, nb.H)*.6; t.br = {a:V3(t.x, t.gy + h, t.z), b:V3(nb.x, nb.gy + h, nb.z)}; t.br.it = brI.add({a:t.br.a, b:t.br.b, r:.55}); } }
+  const s = wdStruct({kind:'wforest', owner:ci.key, team:ci.team, c:C, R:999, g, trees, life:120, witherT:2.5, rootI, trunkI, brI, leafI});
+  s.update = dt => { const t = s.t;
+    rootI.items.forEach((it, i) => rootI.set(i, t < 6 ? clamp((t*70 - it.d)/6, 0, 1) : clamp(1 - (t - 6)/1.5, 0, 1)));
+    for (const tr of trees) { if (tr.gone) continue; const k = clamp((t - tr.delay)/.9, 0, 1);
+      trunkI.set(trunkI.items.indexOf(tr.parts[0]), clamp(k/.5, 0, 1)); trunkI.set(trunkI.items.indexOf(tr.parts[1]), clamp((k - .4)/.4, 0, 1));
+      if (tr.br) brI.set(brI.items.indexOf(tr.br.it), clamp((k - .7)/.3, 0, 1));
+      if (!tr.up && t >= tr.delay) { tr.up = true; woodArea(ci.key, ci.team, V3(tr.x, tr.gy + 1, tr.z), 3.2, 20, {up:16, kb:4, flat:true, props:40}); if (Math.random() < .3) puff(V3(tr.x, tr.gy + .4, tr.z), 0x8A6A44, 1); if (Math.random() < .1) sfx('thunk'); }
+      if (k >= 1 && !tr.body) { tr.grown = true; const b = wdBody(tr.x, tr.gy, tr.z); b.addShape(new CANNON.Box(new CANNON.Vec3(tr.r*.75, tr.H*.45, tr.r*.75)), new CANNON.Vec3(0, tr.H*.45, 0)); if (tr.br) wdBoxBetween(b, tr.br.a, tr.br.b, .6, V3(tr.x, tr.gy, tr.z)); tr.body = wdAddBody(b); s.bodies.push(tr.body); } }
+    // the canopy thins out right above you so you can always see yourself
+    s.fadeT = (s.fadeT || 0) - dt; const me = localP(), cam = camera.position;
+    for (const tr of trees) { if (tr.gone) continue; const k = clamp((t - tr.delay - .5)/.5, 0, 1); for (const bl of tr.blobs) { let kk = wdBack(k); if (me && Math.hypot(bl.c.x - me.body.position.x, bl.c.z - me.body.position.z) < 9 && cam.y < bl.c.y + 2) kk = Math.min(kk, .22); const L = leafI[tr.blobs.indexOf(bl)]; L.set(L.items.indexOf(bl), kk); } }
+    rootI.flush(); trunkI.flush(); brI.flush(); leafI.forEach(L => L.flush());
+    if (t > .8 && t < 6 && Math.random() < .3) shakeAt(me ? me.body.position : C, .15, 999);
+  };
+  s.wither = k => { for (const I of [rootI, trunkI, brI, ...leafI]) { I.items.forEach((it, i) => { I.set(i, Math.min(it.k, k)); }); I.flush(); } };
+  for (const tr of trees) tr.inst = () => { tr.parts.forEach(it => trunkI.set(trunkI.items.indexOf(it), 0)); tr.blobs.forEach((bl, i) => leafI[i].set(leafI[i].items.indexOf(bl), 0)); if (tr.br) brI.set(brI.items.indexOf(tr.br.it), 0); trunkI.flush(); brI.flush(); leafI.forEach(L => L.flush()); };
+  sfx('rumble'); sfx('rumble'); shakeAt(C, .8, 999); wdPose(ci.C, 'slam', 1.5); flash(.12, .3);
+  if (ci.key === G.localKey) toast('🌳 The world forest! Its trees feed your roots and branch arms everywhere. M again: the whole forest attacks.');
+}
+function wdWorldForestAttack(ci){
+  const s = wdOwn('wforest', ci.key); if (!s || s.attacked) return; s.attacked = true; const rng = ci.rng, mul = wdMulOf(s), live = s.trees.filter(t => !t.gone && t.grown); if (!live.length) return;
+  const near = q => { let b = live[0], bd = 1e9; for (const t of live) { const d = Math.hypot(t.x - q.x, t.z - q.z); if (d < bd) { bd = d; b = t; } } return b; };
+  // roots burst up round enemies and hold them
+  const P = victimFor(ci.key, ci.team); if (P) wdSnare(ci, V3(P.body.position.x, P.body.position.y, P.body.position.z), 2.5);
+  const slams = []; for (let i = 0; i < 40; i++) { const t = live[Math.floor(rng()*live.length)], a = rng()*Math.PI*2; slams.push({t, q:V3(t.x + Math.cos(a)*6, 0, t.z + Math.sin(a)*6), at:.3 + i*.06}); }
+  PAIN.dummies.filter(dm => !dm.dead).sort((u, v) => hdist(u.body.position, ci.pos) - hdist(v.body.position, ci.pos)).slice(0, 30).forEach((dm, i) => { const q = V3(dm.body.position.x, 0, dm.body.position.z); slams.push({t:near(q), q, at:.4 + i*.05}); });
+  if (P) { const q = V3(P.body.position.x, 0, P.body.position.z); slams.push({t:near(q), q, at:.9}); }
+  if (G.mode === 'td') TD.list.filter(b => !b.dead).slice(0, 20).forEach((b, i) => slams.push({t:near(b.pos), q:b.pos.clone().setY(0), at:.35 + i*.05}));
+  slams.forEach(sl => wdBranchSlam(ci, sl.t, sl.q, sl.at, mul));
+  sfx('rumble'); shakeAt(ci.pos, .6, 999);
+}
+function wdSnare(ci, at, pin){
+  const g = wdG(), spikes = []; for (let i = 0; i < 7; i++) { const a = i/7*Math.PI*2, q = V3(at.x + Math.cos(a)*1.1, groundH(at.x, at.z) - .3, at.z + Math.sin(a)*1.1), sk = wdSpike(g, q, 3, .3); wdTilt(sk, V3(-Math.cos(a), 0, -Math.sin(a)), .35); spikes.push(sk); }
+  addOutline(g); woodArea(ci.key, ci.team, V3(at.x, at.y + 1, at.z), 2.5, 20, {pin, stun:.4}); let t = 0;
+  WD.fx.push({update(dt){ t += dt; const k = t < .2 ? t/.2 : t < pin ? 1 : 1 - (t - pin)/.4; spikes.forEach(sk => wdSpikeK(sk, k)); if (t > pin + .4) { wdKill(g); return false; } }});
+}
+function wdBranchSlam(ci, tr, q, delay, mul){
+  q = q.clone(); q.y = groundH(q.x, q.z) + .5; const g = wdG(), o = V3(tr.x, tr.gy + tr.H*.7, tr.z), mid = o.clone().lerp(q, .5).add(V3(0, 6, 0)), ch = wdChain(g, [o, mid, q], 1, .5); addOutline(g); let t = 0, hit = false;
+  WD.fx.push({update(dt){ t += dt; const tt = t - delay, k = tt < 0 ? 0 : tt < .25 ? wdEase(tt/.25) : tt < .7 ? 1 : 1 - (tt - .7)/.4; ch.grow(k);
+    if (!hit && tt >= .25) { hit = true; woodArea(ci.key, ci.team, q, 5, 40, {up:12, kb:8, props:150, flat:true, mul}); shakeAt(q, .4, 60); puff(q, 0x8A6A44, 1.2); if (Math.random() < .4) sfx('thud'); }
+    if (tt > 1.1) { wdKill(g); return false; } }});
+}
+
+/* ---------- 12. The World Tree ---------- */
+const WT_SD = new THREE.Vector3(.45, .5, -.74).normalize();
+function wdWorldTree(ci){
+  if (WD.wtree) { if (ci.key === G.localKey) toast('🌍 There is already a World Tree.'); return; }
+  const rng = ci.rng, M = wdMat(), Gm = wdGeo(), night = G.night > 0;
+  let base = V3(0, 0, 0); if (egg && egg.alive) { const e = egg.body.position, d = V3(ci.pos.x - e.x, 0, ci.pos.z - e.z); if (d.lengthSq() < .01) d.set(1, 0, 0); base = V3(e.x, 0, e.z).addScaledVector(d.normalize(), 24); }
+  const gy = groundH(base.x, base.z), H = 340, g = wdG();
+  const trunk = []; for (let i = 0; i < 9; i++) { const k0 = i/9, k1 = (i + 1)/9, a = V3(base.x + Math.sin(k0*4)*6*k0, gy - 4 + (H + 4)*k0, base.z + Math.cos(k0*3)*6*k0), b = V3(base.x + Math.sin(k1*4)*6*k1, gy - 4 + (H + 4)*k1, base.z + Math.cos(k1*3)*6*k1), m = wdSeg(g, a, b, lerp(14, 5, k0), i % 2 ? M.bark : M.dark); m.userData.k0 = k0; m.userData.k1 = k1; m.userData.th = .35; wdSegK(m, 0); trunk.push(m); }
+  const crown = V3(base.x + Math.sin(4)*6, gy + H, base.z + Math.cos(3)*6);
+  const rootI = wdInst(Gm.seg, M.bark, 900, g), vineI = wdInst(Gm.seg, M.light, 140, g), leafI = wdInst(Gm.blob, M.leaf[0], 90, g); leafI.m.castShadow = false;
+  for (let i = 0; i < 24; i++) { const a = i/24*Math.PI*2 + rng()*.15, dir = V3(Math.cos(a), 0, Math.sin(a)), pts = wdRootPts(V3(base.x + dir.x*9, gy, base.z + dir.z*9), dir, wdEdgeDist(base, dir), 4, rng()*6, 5); for (let j = 0; j < pts.length - 1; j++) rootI.add({a:pts[j], b:pts[j + 1], r:Math.max(.5, 3 - j*.07), d:j*5}); }
+  for (let v = 0; v < 3; v++) for (let i = 0; i < 44; i++) { const k0 = i/44, k1 = (i + 1)/44, aa = v*2.1 + k0*22, ab = v*2.1 + k1*22, r0 = lerp(14, 5, k0)*1.02, r1 = lerp(14, 5, k1)*1.02; vineI.add({a:V3(base.x + Math.sin(k0*4)*6*k0 + Math.cos(aa)*r0, gy + H*k0*.95, base.z + Math.cos(k0*3)*6*k0 + Math.sin(aa)*r0), b:V3(base.x + Math.sin(k1*4)*6*k1 + Math.cos(ab)*r1, gy + H*k1*.95, base.z + Math.cos(k1*3)*6*k1 + Math.sin(ab)*r1), r:1.6, k0}); }
+  const branches = []; for (let i = 0; i < 12; i++) { const a = i/12*Math.PI*2 + rng()*.3, h = gy + H*(.6 + rng()*.35), o = V3(base.x + Math.sin(h/H*4)*6, h, base.z + Math.cos(h/H*3)*6), L = 70 + rng()*80, e = o.clone().add(V3(Math.cos(a)*L, L*(.15 + rng()*.25), Math.sin(a)*L)), m1 = o.clone().lerp(e, .5).add(V3(0, L*.12, 0));
+    branches.push(wdChain(g, [o, m1, e], 4.5, 1.6, M.bark)); for (let j = 0; j < 7; j++) leafI.add({c:o.clone().lerp(e, .45 + j*.09).add(V3((rng() - .5)*20, 6 + rng()*14, (rng() - .5)*20)), r:16 + rng()*16, sy:.7}); }
+  // the trunk: something you can stand on and climb a long way up
+  const body = wdBody(base.x, gy, base.z); body.addShape(new CANNON.Box(new CANNON.Vec3(10, 40, 10)), new CANNON.Vec3(0, 40, 0)); const steps = [];
+  for (let h = 3, a = rng()*6; h < 70; h += 2.2, a += .55) { const r0 = lerp(14, 5, h/H) - 1, s0 = V3(base.x + Math.cos(a)*r0, gy + h, base.z + Math.sin(a)*r0), s1 = V3(base.x + Math.cos(a)*(r0 + 3.5), gy + h + .2, base.z + Math.sin(a)*(r0 + 3.5)); steps.push(wdSeg(g, s0, s1, .8, M.bark)); wdBoxBetween(body, s0, s1, .7, V3(base.x, gy, base.z)); }
+  steps.forEach(m => wdSegK(m, 0));
+  // the sun (by day) or the moon (by night), and the branches that will drag it down
+  const orb = new THREE.Group(); orb.userData.noRay = true; roundGroup.add(orb);
+  if (!night) { const core = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 3), new THREE.MeshBasicMaterial({color:0xFFF3C0, fog:false})); orb.add(core); for (const [c, o, s] of [[0xFFB040, .35, 1.25], [0xFF7A20, .18, 1.6]]) { const gl = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 2), new THREE.MeshBasicMaterial({color:c, transparent:true, opacity:o, fog:false, depthWrite:false, blending:THREE.AdditiveBlending})); gl.scale.setScalar(s); orb.add(gl); } }
+  else { const core = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 3), new THREE.MeshBasicMaterial({color:0xD8DCE6, fog:false})); orb.add(core); for (let i = 0; i < 14; i++) { const cr = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshBasicMaterial({color:0xA8AEBC, fog:false})); const d = V3(rng() - .5, rng() - .5, rng() - .5).normalize(); cr.position.copy(d).multiplyScalar(.93); cr.scale.setScalar(.08 + rng()*.12); orb.add(cr); } const gl = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 2), new THREE.MeshBasicMaterial({color:0xBFD8FF, transparent:true, opacity:.16, fog:false, depthWrite:false, blending:THREE.AdditiveBlending})); gl.scale.setScalar(1.3); orb.add(gl); }
+  orb.visible = false;
+  const reach = []; for (let i = 0; i < 5; i++) { const pts = []; for (let j = 0; j <= 7; j++) pts.push(crown.clone().add(V3(0, j, 0))); reach.push({ch:wdChain(g, pts, 3.2, 1.4, M.bark), a:i/5*Math.PI*2}); }
+  const wraps = []; for (let i = 0; i < 3; i++) { const pts = []; for (let j = 0; j <= 20; j++) pts.push(crown.clone().add(V3(j, 0, 0))); wraps.push({ch:wdChain(g, pts, 2.6, 2.6, M.dark), tilt:i*1.1}); }
+  WD.wtree = {key:ci.key, team:ci.team, t:0, state:'grow', base, gy, H, crown, g, trunk, rootI, vineI, leafI, branches, steps, body:wdAddBody(body), orb, reach, wraps, night, P0:crown.clone().addScaledVector(WT_SD, 1700), R0:160, R1:470, sky:scene.background.getHex(), sunCol:sun.color.getHex(), sunI:sun.intensity, hemiI:hemi.intensity, fragT:0, memo:new Map()};
+  WD.wtree.P1 = crown.clone().add(V3(WT_SD.x, .55, WT_SD.z).normalize().multiplyScalar(470*1.12));
+  WD.hideSun = true; sfx('rumble'); sfx('rumble'); shakeAt(ci.pos, 1, 999); wdPose(ci.C, 'slam', 2.5); flash(.2, .4);
+  if (ci.key === G.localKey) toast(`🌍 The World Tree rises! Its branches will drag down the ${night ? 'moon' : 'sun'}. Z again: pull it into the crown.`);
+}
+function wdTreeFrame(dt){
+  const T = WD.wtree; T.t += dt; const t = T.t, me = localP();
+  // growth: roots, then the trunk rising and thickening, vines, branches, canopy
+  T.rootI.items.forEach((it, i) => T.rootI.set(i, clamp((t*80 - it.d - 10)/12, 0, 1))); T.rootI.flush();
+  const hk = wdEase((t - 1.2)/6.3), th = .35 + .65*wdEase((t - 2.4)/6);
+  if (T.state === 'grow' || T.state === 'hold' || T.state === 'pull') for (const m of T.trunk) { m.userData.th = th; wdSegK(m, clamp((hk - m.userData.k0)/(m.userData.k1 - m.userData.k0), 0, 1)); }
+  T.vineI.items.forEach((it, i) => { it.th = th; T.vineI.set(i, clamp((hk - it.k0)*9, 0, 1)); }); T.vineI.flush();
+  T.steps.forEach((m, i) => wdSegK(m, clamp((t - 4 - i*.05)/.4, 0, 1)));
+  T.branches.forEach((b, i) => b.grow(wdEase((t - 5.2 - i*.15)/2.8))); T.leafI.items.forEach((it, i) => T.leafI.set(i, wdBack((t - 7.6 - i*.02)/1))); T.leafI.flush();
+  if (t < 9 && Math.random() < .25) shakeAt(me ? me.body.position : T.base, .2, 9999);
+  // the sun or moon: the highest branches reach it, wrap it, and drag it down
+  const desc = wdEase((t - 14)/16), R = lerp(T.R0, T.R1, desc), pos = T.state === 'pull' || T.state === 'boom' ? T.orbPos : T.P0.clone().lerp(T.P1, desc);
+  if (T.state !== 'pull' && T.state !== 'boom') T.orbPos = pos.clone();
+  T.orb.visible = t > 8 && T.state !== 'boom'; T.orb.position.copy(T.orbPos); T.orb.scale.setScalar(T.state === 'pull' ? T.orbR : R); if (T.state !== 'pull') T.orbR = R;
+  const reachK = clamp((t - 10)/3.5, 0, 1);
+  T.reach.forEach((rc, i) => { const from = T.crown.clone().add(V3(Math.cos(rc.a)*12, -6 + i*2, Math.sin(rc.a)*12)), to = T.orb.position.clone().add(from.clone().sub(T.orb.position).normalize().multiplyScalar(T.orb.scale.x*.95)).add(V3(Math.cos(rc.a)*T.orb.scale.x*.3, Math.sin(rc.a*2)*T.orb.scale.x*.2, Math.sin(rc.a)*T.orb.scale.x*.3)), pts = [];
+    const span = from.distanceTo(to), side = V3(-Math.sin(rc.a), .3, Math.cos(rc.a)).normalize(); for (let j = 0; j <= 7; j++) { const k = j/7; pts.push(from.clone().lerp(to, k).addScaledVector(side, Math.sin(k*Math.PI)*(span*.04 + Math.sin(t*6 + i + j)*span*.008*desc))); }
+    rc.ch.segs.forEach(m => { m.userData.th = 1 - .45*desc; }); rc.ch.reshape(pts); rc.ch.grow(T.state === 'boom' ? 0 : reachK); });
+  T.wraps.forEach((w, i) => { const c = T.orb.position, rr0 = T.orb.scale.x*1.02, pts = []; for (let j = 0; j <= 20; j++) { const a = j/20*Math.PI*2, v = V3(Math.cos(a), Math.sin(a)*Math.cos(w.tilt), Math.sin(a)*Math.sin(w.tilt)); pts.push(c.clone().addScaledVector(v, rr0)); } w.ch.segs.forEach(m => { m.userData.r = T.orb.scale.x*.03; }); w.ch.reshape(pts); w.ch.grow(T.state === 'boom' ? 0 : clamp((t - 12.5 - i*.3)/1, 0, 1)); });
+  // the sky as it comes down: fiery gold by day, cold and dark by night
+  const sk = T.state === 'boom' ? Math.max(0, 1 - (t - T.boomT)/2.5) : clamp(desc*1.1 + (T.state === 'pull' ? .2 : 0), 0, 1);
+  _wdC.setHex(T.sky).lerp(_wdC2.setHex(T.night ? 0x05060E : 0xFF7A2E), sk*.85); scene.background.copy(_wdC);
+  sun.color.setHex(T.sunCol).lerp(_wdC2.setHex(T.night ? 0x9FC4FF : 0xFFB45A), sk); sun.intensity = lerp(T.sunI, T.night ? .95 : 1.35, sk); hemi.intensity = lerp(T.hemiI, T.night ? .32 : .75, sk);
+  if (me && sk > .15) {
+    if (!T.night) { for (let i = 0; i < 2; i++) if (Math.random() < sk) flameP(V3(camera.position.x + rr(-25, 25), camera.position.y + rr(4, 18), camera.position.z + rr(-25, 25)), V3(rr(-1, 1), -rr(3, 6), rr(-1, 1)), rr(.08, .2), pick(FIRE_COLS), 2.2); }
+    else { T.fragT -= dt; if (T.fragT <= 0) { T.fragT = .5 - .3*sk; wdMoonShard(T, V3(me.body.position.x + rr(-45, 45), 0, me.body.position.z + rr(-45, 45))); } }
+  }
+  if (T.state === 'grow' && t > 14) T.state = 'hold';
+  if ((T.state === 'grow' || T.state === 'hold') && t > 46 && T.key === G.localKey && !T.asked) { T.asked = true; localCast('wd_wtreex', null, {}); }
+  if (T.state === 'hold' && t > 52) wdTreePull({key:T.key});
+  if (T.state === 'pull') { const k = clamp((t - T.pullT)/1.8, 0, 1), e = k*k*k; T.orb.position.copy(T.pullFrom).lerp(T.crown.clone().add(V3(0, T.orbR*.35, 0)), e); T.orbPos = T.orb.position.clone(); shakeAt(T.crown, .3 + e, 9999); if (k >= 1) wdTreeImpact(T); }
+  if (T.state === 'boom') { const bt = t - T.boomT;
+    const r = bt*120; if (r < 300) woodRing(T.key, T.team, V3(T.base.x, T.gy + 1, T.base.z), r, 9, 60, {up:22, kb:26, memo:T.memo, tag:T.tag, h:40});
+    if (T.wave) T.wave.set(T.base.x, T.base.z, Math.max(1, r), 6);
+    if (bt < 1.2) { const glow = T.night ? WDM.glowMoon : WDM.glowSun; for (const m of T.trunk) m.material = glow; T.branches.forEach(b => b.segs.forEach(m => { m.material = glow; })); }
+    if (bt >= 1.2 && !T.burst) { T.burst = true; for (let i = 0; i < 80; i++) { const q = V3(T.base.x + rr(-30, 30), T.gy + rr(10, T.H), T.base.z + rr(-30, 30)); sparkle(q, T.night ? 0xBFE6FF : 0xFFE9A8); } for (let i = 0; i < 10; i++) debris(V3(T.base.x + rr(-15, 15), T.gy + rr(5, 120), T.base.z + rr(-15, 15)), 6, [0x8A6A44, 0x5A3820, 0xA87445]); sfx('crack'); sfx('boom'); }
+    if (bt >= 1.2) { const k = Math.max(.01, 1 - (bt - 1.2)/1.4); for (const m of T.trunk) wdSegK(m, k); T.branches.forEach(b => b.grow(k)); T.steps.forEach(m => wdSegK(m, k)); T.leafI.items.forEach((it, i) => T.leafI.set(i, k)); T.leafI.flush(); T.rootI.items.forEach((it, i) => T.rootI.set(i, Math.min(it.k, k))); T.rootI.flush(); T.vineI.items.forEach((it, i) => T.vineI.set(i, Math.min(it.k, k))); T.vineI.flush(); }
+    if (bt > 3) wdTreeEnd(T);
+  }
+}
+const _wdC = new THREE.Color(), _wdC2 = new THREE.Color();
+function wdMoonShard(T, at){
+  const m = new THREE.Mesh(PAIN_ROCK, new THREE.MeshBasicMaterial({color:0xC8D2E6})); m.scale.setScalar(rr(.8, 1.6)); at.y = groundH(at.x, at.z); m.position.set(at.x - 20, at.y + 70, at.z + 14); m.userData.noRay = true; roundGroup.add(m);
+  const from = m.position.clone(); let t = 0;
+  WD.fx.push({update(dt){ t += dt; const k = t/1.4; m.position.copy(from).lerp(V3(at.x, at.y + .5, at.z), k); m.rotation.x += dt*5; if (Math.random() < .5) sparkle(m.position, 0xBFE6FF);
+    if (k >= 1) { roundGroup.remove(m); puff(V3(at.x, at.y + .5, at.z), 0xDDE6F5, 1.2); woodArea(T.key, T.team, V3(at.x, at.y + 1, at.z), 3, 8, {up:6}); sfx('thud'); return false; } }});
+}
+function wdTreePull(ci){
+  const T = WD.wtree; if (!T || T.key !== ci.key || T.state === 'pull' || T.state === 'boom') return;
+  if (T.t < 14) T.t = 14;   // pulled early: everything snaps into place first
+  T.state = 'pull'; T.pullT = T.t; T.pullFrom = T.orbPos ? T.orbPos.clone() : T.P1.clone(); sfx('rumble'); sfx('roar');
+}
+function wdTreeImpact(T){
+  T.state = 'boom'; T.boomT = T.t; T.tag = 'wdtree' + Math.random(); T.memo = new Map(); T.orb.visible = false;
+  const c = T.crown.clone(); flash(.9, 1.2); sfx('boom'); sfx('bboom'); sfx('thunder');
+  if (!T.night) { boomVisual(c, false, 8, {ball:0xFF7A20, core:0xFFF3C0, ring:0xFFB040}); for (let i = 0; i < 60; i++) flameP(c.clone().add(V3(rr(-60, 60), rr(-40, 40), rr(-60, 60))), V3(rr(-30, 30), rr(-10, 30), rr(-30, 30)), rr(2, 5), pick(FIRE_COLS), 2); }
+  else { const ring = new THREE.Mesh(new THREE.RingGeometry(.8, 1, 64), new THREE.MeshBasicMaterial({color:0xE8F2FF, transparent:true, opacity:.8, side:THREE.DoubleSide, fog:false, depthWrite:false, blending:THREE.AdditiveBlending})); ring.rotation.x = -Math.PI/2; ring.position.copy(c); ring.userData.noRay = true; roundGroup.add(ring); let t = 0;
+    WD.fx.push({update(dt){ t += dt; ring.scale.setScalar(20 + t*500); ring.material.opacity = Math.max(0, .8 - t*.35); if (t > 2.3) { roundGroup.remove(ring); return false; } }}); boomVisual(c, false, 6, {ball:0xBFD8FF, core:0xFFFFFF, ring:0xE8F2FF}); }
+  T.wave = groundRing(T.night ? 0xBFE6FF : 0xFFC46A, .85); T.wave.renderOrder = 31;
+  if (T.body && T.body.world) world.removeBody(T.body);
+}
+function wdTreeEnd(T){
+  wdKill(T.g); if (T.orb.parent) T.orb.parent.remove(T.orb); if (T.wave) T.wave.kill(); if (T.body && T.body.world) world.removeBody(T.body);
+  scene.background.setHex(T.sky); sun.color.setHex(T.sunCol); sun.intensity = T.sunI; hemi.intensity = T.hemiI; WD.hideSun = false; if (WD.wtree === T) WD.wtree = null;
+}
+
+/* ---------- casting, input, the per-frame loop ---------- */
+function runWood(id, p, x){
+  const ci = casterInfo(); if (!ci.C) return; x = x || {};
+  ci.rng = mulberry32((p ? seedOf(p) : seedOf(ci.pos)) ^ 0x3D0D);
+  if (WOOD_SK[id] && WOOD_SK[id].ult) { G.ultUsed = G.ultUsed || {}; if (ci.key === G.localKey) { G.ultUsed[id] = true; renderTray(); } }
+  switch (id) {
+    case 'wd_lash': wdLash(ci, p, x); break;
+    case 'wd_roots': wdRoots(ci, p, x); break;
+    case 'wd_spear': if (p) wdSpear(ci, p, x); break;
+    case 'wd_dragon': wdDragon(ci, p, x); break;
+    case 'wd_dragonx': if (p) wdDragonCoil(ci, p); break;
+    case 'wd_steer': { if (!p) break; const D = WD.dragons[ci.key]; if (x.k === 'd' && D && D.state === 'steer' && ci.key !== G.localKey) D.T = p.clone(); const W = WD.wheels[ci.key]; if (x.k === 'w' && W && ci.key !== G.localKey) W.T = p.clone(); break; }
+    case 'wd_prison': if (p) wdPrison(ci, p, x); break;
+    case 'wd_prisonx': wdPrisonSpikes(ci); break;
+    case 'wd_prisonc': wdPrisonCrush(wdOwn('prison', ci.key), 1); break;
+    case 'wd_arms': wdArmsStart(ci); break;
+    case 'wd_armsx': { const A = WD.arms[ci.key]; if (A && !A.out) A.out = A.t; break; }
+    case 'wd_apunch': if (p) wdArmPunch(ci, p, x.i, false); break;
+    case 'wd_aslam': if (p) wdArmPunch(ci, p, 0, true); break;
+    case 'wd_grab': { const A = WD.arms[ci.key]; if (A && !A.held && p) { const b = wdPickNear(p, 7); if (b && b.position.distanceTo(ci.pos) < 34) { wdHold(b); A.held = b; A.arms[0].st = {t:0, q:V3(b.position.x, b.position.y, b.position.z), ext:.15}; sfx('grab'); } } break; }
+    case 'wd_throw': { const A = WD.arms[ci.key]; if (A && A.held && p) { const b = A.held; A.held = null; wdThrowBody(ci, b, A.arms[0].fp || ci.pos, p, 28); A.arms[0].st = {t:0, q:p.clone(), ext:.12}; } break; }
+    case 'wd_cata': wdCata(ci, p, x); break;
+    case 'wd_catax': if (p) wdCataLand(ci, p, x); break;
+    case 'wd_wheel': wdWheel(ci, p, x); break;
+    case 'wd_wheelx': { const W = WD.wheels[ci.key]; if (W) wdWheelUnravel(W); break; }
+    case 'wd_forest': if (p) wdForest(ci, p, x); break;
+    case 'wd_guard': wdGuard(ci); break;
+    case 'wd_gpunch': { const Gd = WD.guards[ci.key]; if (Gd && !Gd.fin && p && !(Gd.act && Gd.act.kind !== 'punch')) Gd.act = {kind:'punch', t:0, s:x.s > 0 ? 1 : -1, q:p.clone()}; break; }
+    case 'wd_gsweep': { const Gd = WD.guards[ci.key]; if (Gd && !Gd.fin) { Gd.act = {kind:'sweep', t:0, memo:new Map()}; sfx('whipcrack'); } break; }
+    case 'wd_gstomp': { const Gd = WD.guards[ci.key]; if (Gd && !Gd.fin) { Gd.act = {kind:'stomp', t:0}; sfx('rumble'); } break; }
+    case 'wd_ggrab': if (p) wdGuardGrab(ci, p); break;
+    case 'wd_gthrow': if (p) wdGuardThrow(ci, p); break;
+    case 'wd_guardx': { const Gd = WD.guards[ci.key]; if (Gd && !Gd.fin) { Gd.fin = {t:0}; Gd.act = null; sfx('roar'); } break; }
+    case 'wd_deity': wdDeity(ci); break;
+    case 'wd_barr': if (p) wdBarrage(ci, p); break;
+    case 'wd_deityx': { const Dt = WD.deities[ci.key]; if (Dt && !Dt.fin && p) { Dt.fin = {t:0, q:p.clone()}; sfx('roar'); } break; }
+    case 'wd_wforest': wdWorldForest(ci); break;
+    case 'wd_wforestx': wdWorldForestAttack(ci); break;
+    case 'wd_wtree': wdWorldTree(ci); break;
+    case 'wd_wtreex': wdTreePull(ci); break;
+  }
+}
+// the keys: 1-8 select (the left mouse fires), B N M Z fire their ultimate (again: its finale), G grab / throw, F stomp
+function woodKeyDown(k){
+  if (k === 'tab') return false;
+  const P = localP(), me = G.localKey; if (!P || P.alive === false || P.stun > 0) return true;
+  if (k === 'g' && (WD.guards[me] || WD.arms[me])) { if (G.spCd > 0) return true; G.spCd = .3;
+    const Gd = WD.guards[me]; if (Gd) { if (Gd.held || Gd.weapon) localCast('wd_gthrow', aimPoint(120), {}); else localCast('wd_ggrab', aimPoint(40), {}); return true; }
+    const A = WD.arms[me]; if (A.held) localCast('wd_throw', aimPoint(120), {}); else localCast('wd_grab', aimPoint(40), {}); return true; }
+  if (k === 'f' && WD.guards[me]) { if (G.spCd <= 0 && !WD.guards[me].fin) { G.spCd = .5; localCast('wd_gstomp', null, {}); } return true; }
+  const id = WD_KEYS[k]; if (!id) return false;
+  woodUse(id); return true;
+}
+function woodUse(id){
+  const d = WOOD_SK[id], P = localP(), me = G.localKey; if (!d || d.hide || !P || P.alive === false || P.stun > 0) return;
+  if (G.phase !== 'attack' || (G.egg && G.egg.over)) return;
+  if (amDefender() && id !== 'wd_lash') { cdToast2('🛡️ Defenders only get the root lash (click).'); return; }
+  if (id === 'wd_lash') { woodMouseDown(); WD.mouse = null; return; }
+  // an ultimate's second press is its finale; a running power's key puts it away / unravels it
+  if (id === 'wd_guard' && WD.guards[me]) { if (!WD.guards[me].fin) localCast('wd_guardx', aimPoint(80), {}); return; }
+  if (id === 'wd_deity' && WD.deities[me]) { if (!WD.deities[me].fin) localCast('wd_deityx', aimPoint(250), {}); return; }
+  if (id === 'wd_wforest' && wdOwn('wforest')) { if (!wdOwn('wforest').attacked) localCast('wd_wforestx', null, {}); else toast('🌳 Your forest has already struck.'); return; }
+  if (id === 'wd_wtree' && WD.wtree) { if (WD.wtree.key === me && (WD.wtree.state === 'grow' || WD.wtree.state === 'hold')) localCast('wd_wtreex', null, {}); else if (WD.wtree.key !== me) toast('🌍 There is already a World Tree.'); return; }
+  if (id === 'wd_arms' && WD.arms[me]) { localCast('wd_armsx', null, {}); return; }
+  if (id === 'wd_wheel' && WD.wheels[me]) { localCast('wd_wheelx', null, {}); return; }
+  if (P.lockT > 0) return;
+  if (id === 'wd_prison' && wdOwn('prison')) { if (G.targeting !== id) setTargeting(id); else { G.targeting = null; marker.visible = false; renderTray(); return; } toast('🏯 Click: drive branches inward · hold Click: crush the whole cage. 4 again puts it away.'); return; }
+  if (d.ult && !ultReady(id)) return;
+  if (!d.ult && G.pvp && (G.cd[id] || 0) > 0) { cdToast(id); return; }
+  if (d.kind === 'now') { if (G.spCd > 0) return; G.spCd = .3; localCast(id, aimPoint(120), {d:avAimArr()}); return; }
+  setTargeting(id);
+  if (G.targeting === id) toast(wdHowTo(id) + ` ${d.key} again puts it away.`);
+}
+// the left mouse (returns true when it handled the click)
+function woodMouseDown(){
+  const P = localP(), me = G.localKey; if (!P || P.alive === false || P.stun > 0) return true;
+  WD.mouse = {t0:G.t, kind:null};
+  const sel = G.targeting && WOOD_SK[G.targeting] ? G.targeting : null;
+  if (sel) { const d = WOOD_SK[sel];
+    if (sel === 'wd_prison' && wdOwn('prison')) { WD.mouse.kind = 'prison'; return true; }   // tap = branches, hold = crush (decided on release)
+    if (G.pvp && (G.cd[sel] || 0) > 0) { cdToast(sel); WD.mouse = null; return true; }
+    if (P.lockT > 0) { WD.mouse = null; return true; }
+    if (d.kind === 'steer') { localCast('wd_dragon', aimPoint(150), {d:avAimArr()}); WD.mouse.kind = 'dragon'; WD.steerT = 0; G.targeting = null; marker.visible = false; renderTray(); return true; }
+    if (d.kind === 'clickcharge' || d.kind === 'aimcharge') { WD.charge = {id:sel, t0:performance.now()/1000}; WD.mouse.kind = 'charge'; return true; }
+    return true; }
+  // nothing selected: the form you are in decides what a click does
+  if (WD.guards[me]) { if (!WD.guards[me].fin && G.spCd <= 0) { G.spCd = .35; const Gd = WD.guards[me]; Gd.side = -(Gd.side || 1); localCast('wd_gpunch', aimPoint(80), {s:Gd.side}); } WD.mouse.kind = 'guard'; return true; }
+  if (WD.deities[me] && !WD.deities[me].fin) { WD.mouse.kind = 'barrage'; WD.barrT = 0; return true; }
+  if (WD.arms[me]) { if (G.spCd <= 0) { G.spCd = .22; const A = WD.arms[me]; A.next = ((A.next || 0) + 1) % 4; localCast('wd_apunch', aimPoint(60), {i:A.next}); } WD.mouse.kind = 'arms'; return true; }
+  if (G.spCd <= 0 && !(G.pvp && (G.cd.wd_lash || 0) > 0)) { G.spCd = .45; localCast('wd_lash', aimPoint(60), {d:avAimArr()}); }
+  WD.mouse.kind = 'lash'; return true;
+}
+function woodMouseUp(){
+  const M = WD.mouse; WD.mouse = null; if (!M) return false; const held = G.t - M.t0, me = G.localKey;
+  if (M.kind === 'charge') { const ch = WD.charge; WD.charge = null; wdPrevHide(); chargeUI.style.display = 'none'; if (!ch) return true;
+    const c = +(performance.now()/1000 - ch.t0).toFixed(2), d = WOOD_SK[ch.id];
+    if (d.kind === 'aimcharge') { const pt = G.targetPoint; if (!pt) { toast(G.targetWhy || 'Aim at the ground.'); return true; } localCast(ch.id, pt.clone(), {c}); }
+    else localCast(ch.id, aimPoint(150), {c, d:avAimArr()});
+    return true; }
+  if (M.kind === 'prison') { localCast(held >= .45 ? 'wd_prisonc' : 'wd_prisonx', null, {}); G.targeting = null; marker.visible = false; renderTray(); return true; }
+  if (M.kind === 'dragon') { const D = WD.dragons[me]; if (D && D.state !== 'coil') localCast('wd_dragonx', aimPoint(150), {}); return true; }
+  if (M.kind === 'guard' && held >= .45 && WD.guards[me] && !WD.guards[me].fin) { localCast('wd_gsweep', null, {}); return true; }
+  if (M.kind === 'arms' && held >= .4 && WD.arms[me]) { localCast('wd_aslam', aimPoint(60), {}); return true; }
+  return true;
+}
+// while you hold: steering the dragon and the wheel, the Deity's barrage
+function wdInputFrame(dt){
+  const me = G.localKey; WD.steerT -= dt; WD.barrT -= dt;
+  const D = WD.dragons[me]; if (D && D.state === 'steer' && WD.steerT <= 0) { WD.steerT = .15; localCast('wd_steer', aimPoint(150), {k:'d'}); }
+  else if (WD.wheels[me] && WD.steerT <= 0) { WD.steerT = .2; localCast('wd_steer', aimPoint(150), {k:'w'}); }
+  if (WD.mouse && WD.mouse.kind === 'barrage' && WD.deities[me] && !WD.deities[me].fin && WD.barrT <= 0) { WD.barrT = .2; localCast('wd_barr', aimPoint(220), {}); }
+}
+// charging: the bar, and a preview of what you will get
+function wdPrevHide(){ for (const k in WD.prev) if (WD.prev[k]) WD.prev[k].visible = false; }
+function wdPrevRing(name, col){ if (!WD.prev[name]) WD.prev[name] = groundRing(col, .85); return WD.prev[name]; }
+function wdChargeFrame(dt){
+  const ch = WD.charge, me = localP(); wdPrevHide();
+  if (!ch || !me || me.alive === false || !woodKit()) { if (ch) { WD.charge = null; chargeUI.style.display = 'none'; } return; }
+  const s = performance.now()/1000 - ch.t0, m = wdMul(ch.id, s), d = WOOD_SK[ch.id], bar = chargeUI.querySelector('i'), label = chargeUI.querySelector('span'), p = me.body.position;
+  me.pushPose = Math.max(me.pushPose || 0, .12); chargeUI.style.display = 'block'; bar.style.width = ((m - 1)/((d.max || 2) - 1)*100) + '%'; bar.style.background = 'linear-gradient(90deg, #6E4526, #8FD45A)';
+  if (Math.random() < .3) puff(V3(p.x + rr(-1, 1), groundH(p.x, p.z) + .1, p.z + rr(-1, 1)), 0x8A6A44, .4);
+  if (ch.id === 'wd_roots') { const n = WDN.roots(m), dir = V3(Math.sin(G.yaw), 0, Math.cos(G.yaw)), e = V3(p.x + dir.x*n.L, 0, p.z + dir.z*n.L); wdPrevRing('end', 0x8FD45A).set(e.x, e.z, n.W); label.textContent = `🌱 Root Surge ×${m.toFixed(1)}: ${Math.round(n.L)} m long, ${n.W.toFixed(1)} m wide, ${Math.round(n.dmg)} damage. Release to send it`; }
+  else if (ch.id === 'wd_spear') { const tap = s < .3, n = WDN.spear(m); TARGET_R.wd_spear = tap ? 2.2 : n.r + 1; label.textContent = tap ? '🗡️ Release now for a fast impaling spear, or keep holding for a towering trunk' : `🗡️ World Tree Spear ×${m.toFixed(1)}: a ${Math.round(n.H)} m trunk, ${n.r.toFixed(1)} m thick (it stays: climb it). Release to grow it`; }
+  else if (ch.id === 'wd_prison') { const R = WDN.prison(m).R; TARGET_R.wd_prison = R; label.textContent = `🏯 Forest Prison ×${m.toFixed(1)}: a cage ${Math.round(R*2)} m across. Release to raise it`; }
+  else if (ch.id === 'wd_forest') { const R = WDN.forest(m).R; TARGET_R.wd_forest = R; label.textContent = `🌲 Deep Forest ×${m.toFixed(1)}: ${Math.round(R*2)} m across, about ${Math.round(R*1.15)} trees. Release to grow it`; }
+  else if (ch.id === 'wd_cata') { const sp = WD.structs.find(q => !q.dying && q.kind === 'spear' && hdist(q.c, p) < q.R + 2.5 && p.y > q.top.y - 3.5), boost = sp ? 1.55 : 1, n = WDN.cata(Math.min(4, m*boost)), dir = V3(Math.sin(G.yaw), 0, Math.cos(G.yaw)), vy = n.v*(sp ? 1.3 : 1), vh = n.h*boost, gy = -(world.gravity.y || -9.82), T = (vy + Math.sqrt(vy*vy + 2*gy*Math.max(0, p.y - groundH(p.x, p.z))))/gy, e = V3(p.x + dir.x*vh*T, 0, p.z + dir.z*vh*T);
+    wdPrevRing('end', 0x8FD45A).set(e.x, e.z, 5 + 2*m*boost); label.textContent = `🏹 Blooming Catapult ×${m.toFixed(1)}${sp ? ' (from the trunk: +55%)' : ''}: about ${Math.round(vh*T)} m. Release to fly`; }
+}
+function woodAnim(P, dt){
+  const W = P.wdPose; if (!W) return; W.t -= dt; if (W.t <= 0) { P.wdPose = null; return; }
+  const k = 1 - W.t/W.s;
+  if (W.kind === 'slam') { const a = k < .35 ? -2.2*k/.35 : lerp(-2.2, .5, Math.min(1, (k - .35)/.15)); P.arms[0].rotation.x = P.arms[1].rotation.x = a; P.arms[0].rotation.z = .15; P.arms[1].rotation.z = -.15; P.rig.rotation.x = k > .35 && k < .8 ? .35 : 0; }
+  else if (W.kind === 'cast') { P.arms[0].rotation.x = P.arms[1].rotation.x = -2.7; P.arms[0].rotation.z = .5; P.arms[1].rotation.z = -.5; }
+  else if (W.kind === 'point') { P.arms[1].rotation.x = -1.7; P.arms[1].rotation.z = 0; }
+}
+function woodOwnerDied(id){
+  if (WD.arms[id]) wdArmsEnd(WD.arms[id]); if (WD.dragons[id]) wdDragonEnd(WD.dragons[id]); if (WD.wheels[id]) wdWheelUnravel(WD.wheels[id]);
+  if (WD.guards[id]) wdGuardEnd(WD.guards[id]); if (WD.deities[id]) wdDeityEnd(WD.deities[id]); if (WD.catas[id]) { wdKill(WD.catas[id].sh); delete WD.catas[id]; }
+  if (id === G.localKey) { WD.charge = null; WD.mouse = null; WD.flight = null; wdPrevHide(); }
+}
+function woodReset(){
+  for (const s of WD.structs) { wdKill(s.g); s.bodies.forEach(b => { if (b.world) world.removeBody(b); }); }
+  for (const k in WD.arms) wdArmsEnd(WD.arms[k]); for (const k in WD.dragons) wdDragonEnd(WD.dragons[k]); for (const k in WD.wheels) { const W = WD.wheels[k]; W.col.forEach(h => wdRelease(h.b, null)); wdKill(W.g); }
+  for (const k in WD.guards) wdGuardEnd(WD.guards[k]); for (const k in WD.deities) wdDeityEnd(WD.deities[k]); for (const k in WD.catas) wdKill(WD.catas[k].sh);
+  if (WD.wtree) wdTreeEnd(WD.wtree);
+  Object.assign(WD, {charge:null, mouse:null, fx:[], structs:[], dragons:{}, wheels:{}, arms:{}, guards:{}, deities:{}, catas:{}, held:[], thrown:[], wtree:null, flight:null, hideSun:false});
+  wdPrevHide(); G.camZoomTgt = 1; G.camLiftY = 0;
+}
+// the combination indicator: which of your powers work with what you have out right now
+function woodComboOk(){
+  const s = new Set(), me = G.localKey; if (!woodKit()) return s;
+  if (wdOwn('prison')) s.add('wd_dragon');
+  if (WD.wheels[me]) s.add('wd_roots');
+  if (wdOwn('forest') || wdOwn('wforest')) { s.add('wd_arms'); s.add('wd_roots'); s.add('wd_guard'); }
+  if (wdOwn('spear')) s.add('wd_cata');
+  if (WD.guards[me]) { s.add('wd_forest'); s.add('wd_wforest'); }
+  return s;
+}
+function woodFrame(dt){
+  if (!G.pvp) return;
+  { const cur = WD.fx; WD.fx = []; const keep = cur.filter(e => { try { return e.update(dt) !== false; } catch (er) { console.warn(er); return false; } }); WD.fx = keep.concat(WD.fx); }
+  wdStructsFrame(dt); wdDragonsFrame(dt); wdWheelsFrame(dt); wdArmsFrame(dt); wdGuardsFrame(dt); wdDeitiesFrame(dt); wdCatasFrame(dt); wdThrownFrame(dt);
+  if (WD.wtree) wdTreeFrame(dt);
+  if (G.phase === 'attack') { wdChargeFrame(dt); wdInputFrame(dt); }
+}
+
+/* ---------- Balloon Defense: wood turret visuals ---------- */
+function wdPulseFX(c, R){
+  const g = wdG(), spikes = []; for (let i = 0; i < 12; i++) { const a = i/12*Math.PI*2, r = R*(.4 + (i % 3)*.25), q = V3(c.x + Math.cos(a)*r, groundH(c.x + Math.cos(a)*r, c.z + Math.sin(a)*r) - .2, c.z + Math.sin(a)*r), sk = wdSpike(g, q, 1.6, .25); wdTilt(sk, V3(Math.cos(a), 0, Math.sin(a)), .3); spikes.push(sk); }
+  let t = 0; WD.fx.push({update(dt){ t += dt; const k = t < .12 ? t/.12 : 1 - (t - .12)/.25; spikes.forEach(sk => wdSpikeK(sk, k)); if (t > .37) { wdKill(g); return false; } }});
 }
 
 /* ===================================== SWORDSMAN =====================================
@@ -13853,6 +14995,7 @@ function comboUI(){
     const br = bar ? bar.getBoundingClientRect() : null;
     if (br && br.top < innerHeight/2) { el.style.top = (br.bottom + 8) + 'px'; el.style.bottom = 'auto'; }   // touch: the bar sits at the top
     else { const top = tabs ? tabs.getBoundingClientRect().top : br ? br.top : innerHeight - 160; el.style.bottom = Math.max(8, innerHeight - top + 8) + 'px'; el.style.top = 'auto'; } }
+  if (G.cls === 'wood') { const w = woodComboOk(); comboMarkTray(w, w.size > 0, []); return; }
   comboMarkTray(building ? ok : null, building, list);
 }
 function comboMarkTray(ok, active, list){
@@ -14224,6 +15367,7 @@ function runSkill(id, p, x){
   if (BOMBER[id]) { runBomber(id, p, x); return; }
   if (SWORD[id]) { runSword(id, p, x); return; }
   if (AVATAR[id]) { runAvatar(id, p, x); return; }
+  if (WOOD_SK[id]) { runWood(id, p, x); return; }
   if (SUMMON[id]) { runSummon(id, p, x); return; }
   if (NECRO_SK[id]) { runNecro(id, p, x); return; }
   if (GUARD[id]) { runGuard(id, p, x); return; }
@@ -14316,10 +15460,11 @@ function chargeState(){
   if (TK.chargeT0 && TK.mine) return ['p_throw', +(now - TK.chargeT0).toFixed(1)];
   if (BX.nade) return ['b_nade', +(now - BX.nade.t0).toFixed(1)];
   if (AV.charge) return [AV.charge.id, +(now - AV.charge.t0).toFixed(1)];
+  if (WD.charge) return [WD.charge.id, +(now - WD.charge.t0).toFixed(1)];
   return null;
 }
 // other players charging: a growing orb in their hand (and for the Gate of Babylon the gates opening behind them)
-const CH_COL = {pain:0x9D6BFF, sword:0xFFD84D, bomber:0xFF8A3A, avatar:0xFF7A1F};
+const CH_COL = {pain:0x9D6BFF, sword:0xFFD84D, bomber:0xFF8A3A, avatar:0xFF7A1F, wood:0x6FBF4A};
 function remoteChargeFX(){
   for (const k in chars) {
     const P = chars[k]; if (!P || !P.remote) continue;
@@ -14703,7 +15848,7 @@ function showMatchEnd(w, text){
 }
 function killFeedText(t){ const box = $('killfeed'); if (!box) return; const d = document.createElement('div'); d.textContent = t; box.prepend(d); while (box.children.length > 5) box.removeChild(box.lastChild); setTimeout(() => d.remove(), 6000); }
 function killFeed(m){
-  if (m.v && m.v !== G.localKey) { painOwnerDied(m.v); bomberOwnerDied(m.v); swordOwnerDied(m.v); avatarOwnerDied(m.v); summonOwnerDied(m.v); necroOwnerDied(m.v); }
+  if (m.v && m.v !== G.localKey) { painOwnerDied(m.v); bomberOwnerDied(m.v); swordOwnerDied(m.v); avatarOwnerDied(m.v); woodOwnerDied(m.v); summonOwnerDied(m.v); necroOwnerDied(m.v); }
   const v = chars[m.v], by = m.by && chars[m.by];
   const vn = v ? v.name : 'Someone', bn = by ? by.name : null;
   killFeedText(bn ? `💥 ${bn} knocked out ${vn}` : `💥 ${vn} got knocked out`);
@@ -14748,13 +15893,14 @@ function renderPhase(){
   const map = {title:'Egg Defense', intro:`Round ${G.round}`, build:`${teamName(G.defender)} builds`, handoff:'Swap players', attack: G.pvp ? (G.mode === 'pain' ? 'Pain' : 'Chaos Arena') : `${teamName(attacker())} attacks`, end:'Round over'};
   if (eggOn()) { eggHud(true); eggHelp(); $('tAct').textContent = G.phase === 'build' && amDefender() ? 'Place' : 'Shoot'; return; }
   if (G.pvp && G.mode === 'tennis') { const help = $('help'); help.style.display = 'block'; help.innerHTML = painHelp() + '<br>🎾 Fling everything over the net: when the clock runs out, the side with fewer things wins. Knocked off the court, it drops back on your side.'; $('phase').innerHTML = '🎾 Pain Tennis<small>Fewer things on your side wins</small>'; $('tAct').textContent = 'Cast'; return; }
-  if (G.pvp && G.mode === 'td') { tdHud(); const help = $('help'); help.style.display = 'block'; help.innerHTML = (G.cls === 'bomber' ? bomberHelp() : G.cls === 'sword' ? swordHelp() : G.cls === 'avatar' ? avatarHelp() : painHelp()) + '<br><b>Enter</b> start the next round · <b>Y</b> turrets (1-5 pick, Click place; aim at one: <b>U</b> upgrade, <b>K</b> sell) · <b>Tab</b> switch class'; $('tAct').textContent = 'Cast'; return; }
+  if (G.pvp && G.mode === 'td') { tdHud(); const help = $('help'); help.style.display = 'block'; help.innerHTML = (G.cls === 'bomber' ? bomberHelp() : G.cls === 'sword' ? swordHelp() : G.cls === 'avatar' ? avatarHelp() : G.cls === 'wood' ? woodHelp() : painHelp()) + '<br><b>Enter</b> start the next round · <b>Y</b> turrets (1-5 pick, Click place; aim at one: <b>U</b> upgrade, <b>K</b> sell) · <b>Tab</b> switch class'; $('tAct').textContent = 'Cast'; return; }
   $('phase').innerHTML = map[G.phase] + (G.phase==='build' ? `<small>Place your protection</small>` : G.phase==='attack' ? (G.mode === 'swarm' ? '<small>Swarm mode</small>' : G.pvp ? `<small>First team to ${WIN_SCORE}</small>` : `<small>Break the egg!</small>`) : '');
   const help = $('help');
   if (G.phase === 'build') { help.style.display = 'block'; help.innerHTML = '<b>WASD</b> move, <b>Space</b> jump, <b>Shift</b> Naruto run, <b>Shift ×2</b> dash, <b>Space ×2</b> double jump<br><b>Click</b> place, <b>R</b> rotate, <b>1–3</b> or scroll to pick<br><b>E</b> pick up or put down, <b>click</b> while carrying to throw<br>Protection: press its key (see the Protection bar)<br><b>F</b> done building'; }
   else if (G.phase === 'attack' && G.cls === 'bomber') { help.style.display = 'block'; help.innerHTML = bomberHelp(); }
   else if (G.phase === 'attack' && G.cls === 'sword') { help.style.display = 'block'; help.innerHTML = swordHelp(); }
   else if (G.phase === 'attack' && G.cls === 'avatar') { help.style.display = 'block'; help.innerHTML = avatarHelp(); }
+  else if (G.phase === 'attack' && G.cls === 'wood') { help.style.display = 'block'; help.innerHTML = woodHelp(); }
   else if (G.phase === 'attack' && G.cls === 'summon') { help.style.display = 'block'; help.innerHTML = summonHelp(); }
   else if (G.phase === 'attack' && G.cls === 'necro') { help.style.display = 'block'; help.innerHTML = necroHelp(); }
   else if (G.phase === 'attack' && painKit()) { help.style.display = 'block'; help.innerHTML = painHelp() + '<br><b>Tab</b> switch class'; }
@@ -14770,6 +15916,7 @@ function eggHelp(){
     : G.cls === 'bomber' ? bomberHelp()
     : G.cls === 'sword' ? swordHelp()
     : G.cls === 'avatar' ? avatarHelp()
+    : G.cls === 'wood' ? woodHelp()
     : G.cls === 'summon' ? summonHelp()
     : G.cls === 'necro' ? necroHelp()
     : G.cls === 'pain' ? painHelp()
@@ -14913,6 +16060,7 @@ function actionDown(){
   if (P.carry) { dropCarry(P, true); G.skipUp = true; return; }
   if (G.phase === 'attack' && painKit() && PAIN.circBuild && !G.targeting && circuitClick()) { G.skipUp = true; return; }   // placing the Falling Circuit
   if (G.phase === 'attack' && painKit() && G.targeting && PAIN_SKILLS[G.targeting] && PAIN_SKILLS[G.targeting].kind === 'aimcharge') { chargeStart(G.targeting, 'mouse'); return; }   // hold to charge the selected gravity ring
+  if (G.phase === 'attack' && G.cls === 'wood' && G.pvp && woodMouseDown()) return;   // Wood Sage: the left mouse charges / fires the selected power, or punches in a giant form
   if (G.phase === 'attack' && G.cls === 'avatar' && G.targeting && AVATAR[G.targeting] && avatarClickSel()) return;   // Genos: the left mouse charges / unleashes the selected power   // hold to charge the pillar
   if ((G.phase === 'attack' || guardActive()) && G.targeting) { castAt(); G.skipUp = true; return; }
   if (guardActive()) { fortRocket(); return; }   // the defender's click: rocket launcher
@@ -14920,7 +16068,7 @@ function actionDown(){
   else if (G.phase === 'attack' && G.pvp) { if (G.cls === 'bomber') fireBazooka(); else if (G.cls === 'sword') swordSwing(); else if (G.cls === 'summon') summonCommand(); else if (G.cls === 'necro') fireSkull(); else if (G.cls === 'avatar') avatarClick(); else if (painKit()) tkDown(); else fireKi(); }
   else if (G.phase === 'attack') { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('Pick a skill first: press its key or tap it in the Skills bar.'); } }
 }
-function actionUp(){ if (PAIN.charge && PAIN.charge.key === 'mouse') { chargeRelease('mouse'); return; } if (AV.charge && AV.charge.key === 'mouse') { avatarKeyUp('mouse'); return; } if (painKit()) tkUp(); if (G.skipUp) { G.skipUp = false; return; } if (G.phase === 'attack' && G.charging) fire(); }
+function actionUp(){ if (WD.mouse) { woodMouseUp(); return; } if (PAIN.charge && PAIN.charge.key === 'mouse') { chargeRelease('mouse'); return; } if (AV.charge && AV.charge.key === 'mouse') { avatarKeyUp('mouse'); return; } if (painKit()) tkUp(); if (G.skipUp) { G.skipUp = false; return; } if (G.phase === 'attack' && G.charging) fire(); }
 
 let rdrag = null;
 const touches = {stick:null, look:null};
@@ -15009,6 +16157,7 @@ addEventListener('keydown', e => {
   if (k === 'enter' && !e.repeat && tdOn() && (TD.state === 'build' || TD.state === 'wave')) { tdAskWave(); return; }   // anyone: switch sides
   if ((G.phase === 'attack' || G.phase === 'build') && guardActive()) { if (e.repeat) return; if (guardKeyDown(k)) return; if (G.phase === 'build' && (k === 'f' || k === 'enter')) finishBuild(); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'bomber') { bomberKeyDown(k); return; }
+  if (G.phase === 'attack' && !e.repeat && G.cls === 'wood' && woodKeyDown(k)) return;
   if (G.phase === 'attack' && !e.repeat && G.cls === 'avatar') { avatarKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'sword') { swordKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'summon') { summonKeyDown(k); return; }
@@ -15024,7 +16173,7 @@ addEventListener('keyup', e => { const k = keyName(e); keys[k] = false; guardKey
 // leaving the tab never delivers the key-up for keys that were held, so start clean when it hides and when it comes back
 document.addEventListener('visibilitychange', () => { for (const k in keys) keys[k] = false; if (document.hidden) painKeyUp(null); });
 addEventListener('focus', () => { for (const k in keys) keys[k] = false; });
-addEventListener('blur', () => { for (const k in keys) keys[k] = false; painKeyUp(null); bomberKeyUp(null); SW.charge = null; avatarKeyUp(null); });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; painKeyUp(null); bomberKeyUp(null); SW.charge = null; avatarKeyUp(null); WD.charge = null; WD.mouse = null; });
 
 function readInput(){
   let x = 0, z = 0;
@@ -15276,7 +16425,7 @@ function frame(now){
     const bp = interpOn ? interpPos : act.body.position;
     const cp = Math.cos(G.pitch), f3 = tmpA.set(Math.sin(G.yaw)*cp, Math.sin(G.pitch), Math.cos(G.yaw)*cp);
     const right = tmpB.set(-Math.cos(G.yaw), 0, Math.sin(G.yaw));
-    const ty = bp.y + 1.75;
+    const ty = bp.y + 1.75 + (G.camLiftY || 0);   // the Wood Guardian lifts the camera to its shoulders
     if (!CAM.ok || Math.hypot(bp.x - CAM.px, ty - CAM.py, bp.z - CAM.pz) > 6) { CAM.px = bp.x; CAM.py = ty; CAM.pz = bp.z; CAM.len = -1; CAM.lift = null; CAM.ok = true; }
     else { CAM.px = bp.x; CAM.pz = bp.z; CAM.py += (ty - CAM.py)*(1 - Math.pow(.0004, rdt)); }
     const piv = tmpL.set(CAM.px, CAM.py, CAM.pz).addScaledVector(right, .75);
@@ -15339,7 +16488,7 @@ function frame(now){
   { const hm = (inPlay() && !isTouch && !G.locked && !G.eggCam) ? (G.fallback ? 2 : 1) : 0;
     if (hm !== G.hintMode) { G.hintMode = hm; const h = $('lockHint'); h.style.display = hm ? 'block' : 'none'; h.classList.toggle('fb', hm === 2);
       h.innerHTML = hm === 2 ? `🖱️ Mouse lock is blocked in this tab (${G.lockErr || 'refused'}). The camera follows your mouse; hold it at the screen edge to keep turning.<br><small>Click to retry. If it keeps happening, close this tab and open the game link again.</small>` : 'Click to control your character'; } }
-  updateVisuals(rdt); worldFrame(rdt); updateEdge(); pvpFrame(rdt); if (G.pvp && G.phase === 'attack') painFrame(rdt); bomberFrame(rdt * G.fxScale); wildFrame(rdt * G.fxScale); fortFrame(rdt * G.fxScale); barrierFrame(rdt * G.fxScale); swarmFrame(rdt * G.fxScale); comboFrame(rdt); swordFrame(rdt); avatarFrame(rdt); voiceFrame(rdt); summonFrame(rdt * G.fxScale); necroFrame(rdt * G.fxScale);
+  updateVisuals(rdt); worldFrame(rdt); updateEdge(); pvpFrame(rdt); if (G.pvp && G.phase === 'attack') painFrame(rdt); bomberFrame(rdt * G.fxScale); wildFrame(rdt * G.fxScale); fortFrame(rdt * G.fxScale); barrierFrame(rdt * G.fxScale); swarmFrame(rdt * G.fxScale); comboFrame(rdt); swordFrame(rdt); avatarFrame(rdt); woodFrame(rdt); voiceFrame(rdt); summonFrame(rdt * G.fxScale); necroFrame(rdt * G.fxScale);
   SpaceWarp.render();
   perfTune(performance.now() - t0, rdt);
 }

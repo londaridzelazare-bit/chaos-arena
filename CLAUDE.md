@@ -631,3 +631,18 @@ back. Teams by lobby order (red near z<0, blue far). Pain only (classCycle), hur
 Pain Tennis v2: the whole island is the court (TN_CW 130 × TN_CL 132), TN_NET 12 m net (physics box), invisible 800 m walls round the
 court for everything (people-only wall only at the net), 160 junk, flat terrain, no grass. Chibaku core/orb: black ball + bubbleMat white rim,
 warp mesh hidden (SpaceWarp only). Genos sun: no particle trail.
+
+## Wood Sage (class id 'wood', 2026-10-11.4)
+Module "WOOD SAGE" just before SWORDSMAN. Skill table is WOOD_SK (NOT `WOOD`: that name is a colour palette). Keys 1-8 select, the
+left mouse charges/fires (woodMouseDown/Up hook at the top of actionDown/actionUp); B N M Z ults fire from the key, the same key again
+= finale (wd_guardx / wd_deityx / wd_wforestx / wd_wtreex). G grab/throw (arms, guardian), F stomp (guardian). Hidden follow-up casts:
+wd_steer {k:d|w} (dragon / wheel aim, ~6/s), wd_barr (deity barrage, 5/s), wd_apunch/aslam/grab/throw, wd_g*, wd_catax (landing, sent
+by the flier), wd_prisonx/c, wd_dragonx, wd_wheelx, wd_armsx. Hits: woodArea / woodLine / woodRing (victim-side, summonsTakeArea for
+balloons/swarm/summons, dummies, objects pushed via forEachObject, o.memo = once per target). Structures (WD.structs: spear, prison,
+forest, wforest) have static bodies, life, WD_CAP per owner; wdWither removes bodies. Creatures: WD.dragons/wheels/arms/guards/deities
+(by caster key), WD.catas (catapult shell), WD.wtree (one at a time). Held things: b._wdHeld + collisionResponse false, positioned each
+frame; thrown things in WD.thrown hit on landing. Instanced pieces via wdInst (World Forest, World Tree, deity fan). Camera: G.camLiftY
+(added to the pivot height) + G.camZoomTgt for the guardian/deity. WD.hideSun hides the sky sun while the World Tree pulls the sun/moon.
+Fire x wood: fireArea/fireLine call woodFireTouch(Line); allied/co-op fire -> burnT + burnCoop (+50% via wdMulOf, fire aura), enemy fire
+-> life cut to 3.2 s + charred; avHitP x1.5 on a Wood Sage. Combo indicator: comboUI -> woodComboOk(). Wood turrets w_* in TD.
+Tests t78 (every power), t79/t79b (camera shots).
