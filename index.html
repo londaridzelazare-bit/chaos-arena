@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-12.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-12.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -394,7 +394,7 @@ const SFX = {
   whipcrack(){ noise(.05,.95,6500,'highpass'); tone('square',3000,600,.04,.14); noise(.3,.3,2200,'bandpass'); }
 };
 function sfx(n){
-  if (muted || !actx) return;
+  if (muted || !actx || G.replaying) return;
   const now = performance.now(); if (lastSfx[n] && now - lastSfx[n] < 70) return; lastSfx[n] = now;
   try { SFX[n](); } catch(e) {}
 }
@@ -432,6 +432,19 @@ let MAX_PR = PIXEL.on ? 1/pixelScale() : Math.min(window.devicePixelRatio||1, 1.
 renderer.setPixelRatio(MAX_PR); if (PIXEL.on) canvas.style.imageRendering = 'pixelated';
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = PIXEL.on ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+/* Performance: three.js recomposes every object's matrix and multiplies it into its parent's every frame, moving or not. A
+   map holds thousands of meshes that never move (trees, rocks, walls, their outlines), so an object whose position, rotation
+   and scale are the same as last frame (and whose parent didn't change) keeps its matrices. Same result, a fraction of the work. */
+{ const P = THREE.Object3D.prototype;
+  P.updateMatrixWorld = function(force){
+    if (this.matrixAutoUpdate) { const p = this.position, q = this.quaternion, s = this.scale, c = this._mc;
+      if (!c || c[0] !== p.x || c[1] !== p.y || c[2] !== p.z || c[3] !== q.x || c[4] !== q.y || c[5] !== q.z || c[6] !== q.w || c[7] !== s.x || c[8] !== s.y || c[9] !== s.z) {
+        this.updateMatrix(); const m = this._mc || (this._mc = new Float64Array(10)); m[0] = p.x; m[1] = p.y; m[2] = p.z; m[3] = q.x; m[4] = q.y; m[5] = q.z; m[6] = q.w; m[7] = s.x; m[8] = s.y; m[9] = s.z; } }
+    if (this.matrixWorldNeedsUpdate || force) { if (this.parent === null) this.matrixWorld.copy(this.matrix); else this.matrixWorld.multiplyMatrices(this.parent.matrixWorld, this.matrix); this.matrixWorldNeedsUpdate = false; force = true; }
+    const ch = this.children; for (let i = 0, l = ch.length; i < l; i++) ch[i].updateMatrixWorld(force);
+  };
+  /* someone writing obj.matrix by hand (applyMatrix4, lookAt...) goes through these: forget the cache */
+  for (const k of ['applyMatrix4', 'lookAt']) { const f = P[k]; P[k] = function(...a){ this._mc = null; return f.apply(this, a); }; } }
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9ED8F5);
 const FOG = {near:70, far:900};   // distance haze; rain thickens it (rainLight). Far enough that things thrown high into the sky stay visible
@@ -471,6 +484,8 @@ const MAPK = (ISL/70)*(ISL/70);   // how many times more ground than the origina
 /* ---------------- deformable procedural terrain (the play area) ---------------- */
 const TN = ISL + 1, TES = 2;
 const terrH = new Float32Array(TN*TN), terrDmg = new Float32Array(TN*TN);
+// Balloon Defense and Fortress Siege: the ground is never damaged (no scorch, no split, no burnt island): always green, the paths always clear
+const groundSafe = () => G.pvp && G.mode === 'td';
 const terrGeo = new THREE.PlaneGeometry(ISL*2, ISL*2, TN-1, TN-1); terrGeo.rotateX(-Math.PI/2);
 terrGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(TN*TN*3), 3));
 const terrainMat = pixelGrain(new THREE.MeshToonMaterial({color:0xffffff, gradientMap:TOON, flatShading:true, vertexColors:true}), 1.6, .26);
@@ -561,10 +576,10 @@ world.gravity.set(0,-9.81,0);
    rebuilt when bodies are added or removed, and every 30 steps in case one was moved by hand); every moving body
    only looks at the cells it overlaps, plus a short list of huge statics (terrain, outer ground) and the other movers. */
 class HashBroadphase extends CANNON.Broadphase {
-  constructor(){ super(); this.useBoundingBoxes = true; this.C = 8; this.cells = new Map(); this.big = []; this.dirty = true; this.n = 0; this.stamp = 0; this.k = 0; }
+  constructor(){ super(); this.useBoundingBoxes = true; this.C = 8; this.cells = new Map(); this.big = []; this.dirty = true; this.n = 0; this.stamp = 0; this.k = 0; this.ns = -1; }
   key(i, j){ return i*65536 + j; }
   rebuild(world){
-    this.cells.clear(); this.big = []; this.n = world.bodies.length; this.dirty = false;
+    this.cells.clear(); this.big = []; this.n = world.bodies.length; this.dirty = false; this.ns = HB_STATIC.n;
     for (const b of world.bodies) {
       if (b.type !== CANNON.Body.STATIC) continue;
       b.computeAABB(); const A = b.aabb, C = this.C;
@@ -574,18 +589,19 @@ class HashBroadphase extends CANNON.Broadphase {
     }
   }
   collisionPairs(world, p1, p2){
-    if (this.dirty || world.bodies.length !== this.n || ++this.k % 30 === 0) this.rebuild(world);
+    /* (only when a static body came or went; projectiles and debris coming and going don't need it) */
+    if (this.dirty || this.ns !== HB_STATIC.n || ++this.k % 60 === 0) this.rebuild(world);
     const movers = []; for (const b of world.bodies) if (b.type !== CANNON.Body.STATIC) movers.push(b);
     const C = this.C;
     for (let m = 0; m < movers.length; m++) {
       const bi = movers[m];
       if (bi.aabbNeedsUpdate) bi.computeAABB();
-      if (bi.sleepState !== CANNON.Body.SLEEPING) {
+      if (bi.sleepState !== CANNON.Body.SLEEPING && bi.type !== CANNON.Body.KINEMATIC) {   /* (kinematic bodies never touch statics) */
         const A = bi.aabb, st = ++this.stamp;
         const i0 = Math.floor(A.lowerBound.x/C), i1 = Math.floor(A.upperBound.x/C), j0 = Math.floor(A.lowerBound.z/C), j1 = Math.floor(A.upperBound.z/C);
         if ((i1 - i0 + 1)*(j1 - j0 + 1) <= 64) {
           for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const c = this.cells.get(this.key(i + 32768, j + 32768)); if (!c) continue;
-            for (const bj of c) { if (bj._hbStamp === st) continue; bj._hbStamp = st; if (this.needBroadphaseCollision(bi, bj)) this.intersectionTest(bi, bj, p1, p2); } }
+            for (const bj of c) { if (bj._hbStamp === st || bj.type !== CANNON.Body.STATIC) continue; bj._hbStamp = st; if (this.needBroadphaseCollision(bi, bj)) this.intersectionTest(bi, bj, p1, p2); } }
         } else { for (const c of this.cells.values()) for (const bj of c) { if (bj._hbStamp === st) continue; bj._hbStamp = st; if (this.needBroadphaseCollision(bi, bj)) this.intersectionTest(bi, bj, p1, p2); } }
         for (const bj of this.big) if (this.needBroadphaseCollision(bi, bj)) this.intersectionTest(bi, bj, p1, p2);
       }
@@ -595,6 +611,11 @@ class HashBroadphase extends CANNON.Broadphase {
   aabbQuery(world, aabb, result){ result = result || []; for (const b of world.bodies) { if (b.aabbNeedsUpdate) b.computeAABB(); if (b.aabb.overlaps(aabb)) result.push(b); } return result; }
 }
 world.broadphase = new HashBroadphase();
+// statics added or removed (or turned static) mark the hash stale
+const HB_STATIC = {n:0};
+{ const add = world.addBody.bind(world), rem = world.removeBody.bind(world);
+  world.addBody = b => { if (b.type !== CANNON.Body.DYNAMIC) HB_STATIC.n++; return add(b); };
+  world.removeBody = b => { if (b.type !== CANNON.Body.DYNAMIC) HB_STATIC.n++; return rem(b); }; }
 // the dense collision matrix is N^2/2 entries cleared every step (500 000 with a thousand props); the sparse one only stores real contacts
 world.collisionMatrix = new CANNON.ObjectCollisionMatrix(); world.collisionMatrixPrevious = new CANNON.ObjectCollisionMatrix();
 world.solver.iterations = 14;
@@ -1186,13 +1207,13 @@ function buildRound(seed, keepChars){
   }
   wildBuild(place, addRock);    // ruins, villages, towers, crates, barrels and loot first, while there is room (WILD)
   // forests
-  const nF = Math.round((5 + Math.floor(rand()*4))*MAPK*(sgMap ? 1.8 : 1));
+  const nF = Math.round((5 + Math.floor(rand()*4))*MAPK*(sgMap ? 1.4 : 1));
   for (let i=0;i<nF;i++){
     const c = place(6, 18, true); if (!c) continue;
     const n = sgMap ? 5 + Math.floor(rand()*5) : G.pvp && G.mode === 'td' ? 2 + Math.floor(rand()*2) : 6 + Math.floor(rand()*7);
     for (let k=0;k<n;k++){ const a = rr(0,Math.PI*2), d = rr(0,6); addTree(c.x + Math.cos(a)*d, c.z + Math.sin(a)*d, rr(.8,1.5)); }
   }
-  for (let i=0;i<18*MAPK*(sgMap ? 1.6 : .7);i++){ const p = place(1.5, 15, true); if (p) addTree(p.x, p.z, rr(.8,1.4)); }
+  for (let i=0;i<18*MAPK*(sgMap ? 1 : .7);i++){ const p = place(1.5, 15, true); if (p) addTree(p.x, p.z, rr(.8,1.4)); }
   // rocks of every size: pebbles, stones, rocks, boulders and a few huge ones
   for (let i=0;i<26*MAPK*.6;i++){ const r = rr(.6,1.6), p = place(r+.5, 14); if (p) addRock(p.x, p.z, r); }
   for (let i=0;i<6*MAPK;i++){ const r = rr(2.4,4), p = place(r+1, 20); if (p) addRock(p.x, p.z, r); }
@@ -3200,7 +3221,7 @@ function worldEnd(W){
   roundGroup.remove(W.orb);
   debris(M, 40, [0x9C1E14,0xFFE3A0,0xFFC94A,0x6A120C,0xFFFFFF]);
   // the sky burns, the sea boils, the ground cracks open
-  tintSky(0x2A0505, 60); sea.material.color.set(0x7A1010); islandTop.material = M3(0x3B2A26);
+  tintSky(0x2A0505, 60); sea.material.color.set(0x7A1010); if (!groundSafe()) islandTop.material = M3(0x3B2A26);
   const light = new THREE.Mesh(new THREE.IcosahedronGeometry(1,3), bmat(0xFFFFFF,.95)); light.position.copy(M); light.userData.noRay = true; roundGroup.add(light);
   const rings = [0,1,2].map(i => { const r = new THREE.Mesh(new THREE.RingGeometry(.9,1.1,64), bmat(i === 1 ? 0xFF3B1F : 0xFFE9A8,.9)); r.rotation.x = -Math.PI/2; r.position.set(M.x, .1 + i*.02, M.z); r.userData.noRay = true; roundGroup.add(r); return r; });
   booms.push({t:0, parts:[light, ...rings], custom(b){ const t = b.t; light.scale.setScalar(1 + t*90); light.material.opacity = Math.max(0, .95 - t/2.2); rings.forEach((r,i) => { const tt = Math.max(0, t - i*.35); r.scale.setScalar(1 + tt*70); r.material.opacity = Math.max(0, .9 - tt/2); }); return t > 3; }});
@@ -4723,7 +4744,7 @@ function addPlayer(info, isLocal){
 function removePlayer(id){ const P = chars[id]; if (!P) return; roundGroup.remove(P.root); if (P.body.world) world.removeBody(P.body); delete chars[id]; }
 function startMatch(seed, list, score, mode, cdOn, eg){
   hideOverlay(); $('matchEnd').style.display = 'none'; $('eggBanner').style.display = 'none';
-  G.siege = mode === 'siege'; G.siegeN = list.length; if (G.siege) mode = 'td';   /* Fortress Siege runs on Balloon Defense */
+  G.siege = mode === 'siege'; G.siegeN = (G.siegeNP | 0) || list.length; G.siegeNP = 0;   /* the host's path count (np) wins: a late joiner must build the same paths */ if (G.siege) mode = 'td';   /* Fortress Siege runs on Balloon Defense */
   G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' || mode === 'swarm' || mode === 'td' || mode === 'tennis' ? mode : mode === 'chaos' ? 'td' : 'chaos'; G.cdOn = !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
   if (G.mode === 'egg' && !eg) eg = {def:G.localKey, round:1, total:1, pts:{}};
   buildRound(seed);
@@ -5390,6 +5411,7 @@ function tdAskWave(){ if (!tdOn() || !(TD.state === 'build' || TD.state === 'wav
 function tdStartWave(){
   if (!tdOn() || !(TD.state === 'build' || TD.state === 'wave') || TD.wave >= TD_ROUNDS) return;
   if (siegeOn() && TD.state !== 'build') return;   /* Fortress Siege: one round at a time, when everyone is ready */
+  if (siegeOn() && tdAuth() && (TD.wantP | 0) > TD.P.length) { const n = TD.wantP; TD.wantP = 0; netBroadcast({t:'sgp', n}); siegeSetPaths(n); }
   TD.ready = {};
   // sent early, on top of the round still going: that round's bonus is paid now, the new balloons queue up behind
   const early = TD.state === 'wave'; if (early) ttEarn(100 + 20*TD.wave); else { TD.t = 0; TD.queue = []; }
@@ -5579,7 +5601,7 @@ function tdLeak(T){
 function tdWaveDone(){
   TD.state = 'build'; TD.autoT = 0; sfx('win'); const bonus = 100 + 20*TD.wave; ttEarn(bonus);
   if (TD.wave >= TD_ROUNDS) { tdEnd(true); return; }
-  if (siegeOn()) { TD.ready = {}; siegeRoundReset(); toast(`🎉 Round ${TD.wave} cleared! +💰${bonus}. Walls rebuilt, the defences refilled. Press Enter (✅ Ready) when you’re set: the next round starts when everyone is.`); tdHud(); tdSend(true); return; }
+  if (siegeOn()) { TD.ready = {}; siegeRoundReset(); toast(`🎉 Round ${TD.wave} cleared! +💰${bonus}. Walls rebuilt, every defence repaired. Press Enter (✅ Ready) when you’re set: the next round starts when everyone is.`); tdHud(); tdSend(true); return; }
   toast(`🎉 Round ${TD.wave} cleared! +💰${bonus}. ${TD.auto ? 'The next one starts in a moment.' : 'Enter (or the button) starts the next one.'}`); tdHud(); tdSend(true);
 }
 function tdEnd(win){
@@ -5591,7 +5613,7 @@ function tdShowEnd(){
   setTimeout(() => {
     G.matchOver = true; releaseLock();
     const e = $('matchEnd');
-    e.innerHTML = `<div class="panel sticker" style="background:linear-gradient(180deg,#FFF7D6,#FFE08A)"><div class="title" style="color:${win ? '#2E9B3A' : '#E8332E'}">${win ? '🏆 The egg is safe!' : '💔 The egg cracked!'}</div><p style="font-size:18px">${win ? `All ${TD_ROUNDS} rounds beaten.` : `You made it to round ${TD.wave} of ${TD_ROUNDS}.`} 🎈 ${TD.pops.toLocaleString()} balloons popped.</p>${tdAuth() ? '<div class="actions"><button class="btn primary" id="tdAgain">Play again</button></div>' : '<p class="muted">Waiting for the host to start again…</p>'}</div>`;
+    e.innerHTML = `<div class="panel sticker" style="background:linear-gradient(180deg,#FFF7D6,#FFE08A)"><div class="title" style="color:${win ? '#2E9B3A' : '#E8332E'}">${win ? '🏆 The egg is safe!' : '💔 The egg cracked!'}</div><p style="font-size:18px">${win ? `All ${TD_ROUNDS} rounds beaten.` : `You made it to round ${TD.wave} of ${TD_ROUNDS}.`} 🎈 ${TD.pops.toLocaleString()} balloons popped.</p>${tdAuth() ? '<div class="actions"><button class="btn primary" id="tdAgain">Play again</button></div>' : '<p class="muted">Waiting for the host to start again…</p><div class="actions"><button class="btn" onclick="location.reload()">Back to menu</button></div>'}</div>`;
     e.style.display = 'flex';
     const b = $('tdAgain'); if (b) b.onclick = () => { e.style.display = 'none'; if (NET.peer && NET.host) hostStart(); else { const me = myInfo(); me.id = 'me'; startMatch(Math.floor(Math.random()*90000) + 10000, [me], null, G.siege ? 'siege' : 'td', ME.cdOn); } };
   }, win ? 600 : 2600);
@@ -5690,7 +5712,7 @@ function tdScenery(){
   for (let d = 18; d < TD.len - 12; d += 45) { const q = tdAt(d, null, pi), dir = tdDir(d, pi), side = (Math.floor(d/45) % 2 ? 1 : -1)*4.4, fx0 = q.x + Math.cos(dir)*side, fz0 = q.z - Math.sin(dir)*side, fy = groundH(fx0, fz0);
     const pole = new THREE.Group(); pole.position.set(fx0, fy, fz0); bx(.12, 3, .12, 0xF2F2F2, 0, 1.5, 0, pole); const fl = bx(.9, .55, .06, cols[Math.floor(d/45) % 5], .45, 2.7, 0, pole); fl.rotation.y = .3; g.add(pole); } }
   const ring = new THREE.Mesh(new THREE.TorusGeometry(4.2, .22, 8, 48), M3(0xFFD84D)); ring.rotation.x = Math.PI/2; ring.position.set(0, groundH(0, 0) + .15, 0); g.add(ring);
-  mergeToon(g, signs); addOutline(g); g.traverse(o => o.userData.noRay = true); roundGroup.add(g);
+  mergeToon(g, signs); addOutline(g); g.traverse(o => o.userData.noRay = true); roundGroup.add(g); TD.scen = g;
 }
 
 /* ===================================== FORTRESS SIEGE (G.mode 'td' with G.siege) =====================================
@@ -5705,15 +5727,35 @@ function tdScenery(){
    rebuilds broken wall segments and recharges everything (siegeRoundReset, on every screen). The host owns the balloons and
    the wall / dome / roof health (siegePack in the 'td' snapshot). */
 function siegeStart(){
+  G.fortLog = [];
   const defs = {}; for (const k in chars) defs[k] = true;
   G.egg = {siege:true, def:G.localKey, defs, ready:{}, gaveUp:{}, left2:{}, pts:{}, round:1, total:1, over:false, ph:'attack', endT:Infinity};
   G.eggHP = G.eggHPMax = 100; G.domeChew = 0; TD.ready = {};
   zoneRing.geometry.dispose(); zoneRing.geometry = new THREE.RingGeometry(AREA_R - .35, AREA_R, 128); zoneRing.visible = true;
   G.cls = 'kit';
 }
+// more players joined: lay out the paths again for that many (between rounds, so no balloon is on them), repaint the sand,
+// clear trees and rocks off the new paths, new start gates
+function siegeSetPaths(n){
+  n = clamp(n | 0, 1, 6); if (!siegeOn() || !TD.P || n === TD.P.length) return;
+  G.siegeN = n; tdBuildPath();
+  const col = terrGeo.attributes.color; for (let j = 0; j < TN; j++) for (let i = 0; i < TN; i++) { const v = i + j*TN, c = terrainColor(v, -ISL + i*TES, -ISL + j*TES); col.setXYZ(v, c.r, c.g, c.b); } col.needsUpdate = true;
+  for (const pr of props) if (!pr.dead && tdPathDist(pr.x, pr.z) < 4) { pr.dead = true; if (pr.body && pr.body.world) world.removeBody(pr.body); if (pr.mesh) roundGroup.remove(pr.mesh); if (pr.cap) roundGroup.remove(pr.cap); }
+  if (TD.scen) roundGroup.remove(TD.scen); tdScenery(); if (TDMAP.el) TDMAP.base = null;
+  toast(`🏰 ${n} defenders: ${n} paths now.`); sfx('rumble');
+}
+// what a joiner replays (built things, and this round's broken walls); per-cast powers and ultimates aren't kept
+const FORTLOG_SKIP = new Set(['f_rocket', 'f_gun', 'f_repair', 'f_swarm', 'f_god']);
+function siegeReplay(m){
+  if (!Array.isArray(m.log) || !chars[m.id]) return;
+  G.replaying = true; const ck = G.casterKey;
+  try { for (const e of m.log.slice(0, 600)) { if (!e || typeof e.s !== 'string' || !GUARD[e.s]) continue; G.casterKey = m.id; try { runSkill(e.s, Array.isArray(e.p) ? V3(e.p[0], e.p[1], e.p[2]) : null, e.x || {}); } catch (er) { console.warn(er); } } }
+  finally { G.replaying = false; G.casterKey = ck; }
+  renderTray();
+}
 function siegeIntro(){
   const n = TD.P.length;
-  toast(`🏰 Fortress Siege! ${n} path${n > 1 ? 's' : ''} of balloons lead${n > 1 ? '' : 's'} to the egg. 🛡️ Defences tab: walls, dome, lava, drones… (free, refilled every round).`);
+  toast(`🏰 Fortress Siege! ${n} path${n > 1 ? 's' : ''} of balloons lead${n > 1 ? '' : 's'} to the egg. 🛡️ Defences tab: walls, dome, lava, drones… (free; the team shares a few of each, kept and repaired all game).`);
   setTimeout(() => toast('Class tabs (Tab): your powers, and turrets (Y) bought with 💰. Press Enter (✅ Ready) when you’re set.'), 2700);
 }
 // the host: someone pressed Ready. Everyone ready: the round starts
@@ -5811,7 +5853,9 @@ function siegeRoundReset(){
   for (const k in FORT.roofs) FORT.roofs[k].hp = FORT.roofs[k].max;
   for (const g of FORT.golems) if (!g.dead) g.hp = 400;
   for (const k in FORT.spirits) { const S = FORT.spirits[k]; if (S && !S.dead) S.hp = S.max; }
-  if (G.egg) G.egg.left2 = {}; ultReset(); G.domeChew = 0;
+  if (G.egg && G.egg.left2) { if (!FORT.roofs.mirror) G.egg.left2.f_roof = 0; if (!FORT.roofs.tele) G.egg.left2.f_tele = 0; }   /* the kit isn't refilled (it stays): only a roof that broke can go up again */
+  ultReset(); G.domeChew = 0;
+  if (G.fortLog) G.fortLog = G.fortLog.filter(e => e.s !== 'g_break');   /* everything is whole again */
   renderTray();
 }
 
@@ -11364,7 +11408,7 @@ function wdObliterate(pr, sun){
 function wdTreeEnd(T){
   wdKill(T.g); if (T.orb.parent) T.orb.parent.remove(T.orb); if (T.wave) T.wave.kill(); if (T.body && T.body.world) world.removeBody(T.body);
   scene.background.setHex(T.sky); sun.color.setHex(T.sunCol); sun.intensity = T.sunI; hemi.intensity = T.hemiI; WD.hideSun = false; if (WD.wtree === T) WD.wtree = null;
-  if (T.boomT != null) { if (!T.night) { tintSky(0x5A1A08, 45); sea.material.color.set(0x7A1010); islandTop.material = M3(0x3B2A26); } else { tintSky(0x0A0E1A, 45); islandTop.material = M3(0x4A4E58); } }   // the world after it: burnt, or shattered
+  if (T.boomT != null) { if (!T.night) { tintSky(0x5A1A08, 45); sea.material.color.set(0x7A1010); if (!groundSafe()) islandTop.material = M3(0x3B2A26); } else { tintSky(0x0A0E1A, 45); if (!groundSafe()) islandTop.material = M3(0x4A4E58); } }   // the world after it: burnt, or shattered
 }
 
 /* ---------- casting, input, the per-frame loop ---------- */
@@ -12295,6 +12339,7 @@ function fireStrip(q, key, team){
     return b.t > 8; }});
 }
 function severWorld(c, n){
+  if (groundSafe()) return;   /* the island stays whole in the balloon modes (the cut itself still hits) */
   const snap = Float32Array.from(terrH), sp = {c, n, s:0, snap}; G.splits.push(sp);
   const sample = (x, z) => { if (Math.abs(x) >= ISL || Math.abs(z) >= ISL) return 0; const fx = (x + ISL)/TES, fz = (z + ISL)/TES, i = Math.min(TN - 2, Math.max(0, Math.floor(fx))), j = Math.min(TN - 2, Math.max(0, Math.floor(fz))), tx = fx - i, tz = fz - j; const a = snap[i + j*TN], b = snap[i + 1 + j*TN], cc = snap[i + (j + 1)*TN], d = snap[i + 1 + (j + 1)*TN]; return (a*(1 - tx) + b*tx)*(1 - tz) + (cc*(1 - tx) + d*tx)*tz; };
   // everything sitting on the island, and which half it is on
@@ -13786,6 +13831,7 @@ function barMesh(b){
   if (t.crystal) for (let i = 0; i < 3; i++) { const c = new THREE.Mesh(new THREE.OctahedronGeometry(.35), new THREE.MeshBasicMaterial({color:0xC8FFF4})); c.position.set((i - 1)*L*.3, H + .4, 0); g.add(c); }
   if (t.bounce) { const j = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 6), bmat(0xE08AF0, .35)); j.scale.set(L/2 + .2, H/2 + .1, T/2 + .3); j.position.y = H/2; g.add(j); }
   if (t.steel) for (const s of [-1, 1]) bx(.12, H + .05, T + .06, 0xDCE3EA, s*(L/2 - .06), H/2, 0, g);
+  if (b.segL) mergeToon(g);   /* a ring segment: one mesh (rings have dozens of them) */
   g.traverse(m => { m.userData.noRay = false; }); addOutline(g);
   return g;
 }
@@ -13905,7 +13951,9 @@ const GUARD = {
 const GUARD_KEYS = {}; for (const id in GUARD) { const k = GUARD[id].key; if (k && k.length === 1 && /[0-9A-Z]/.test(k)) GUARD_KEYS[k.toLowerCase()] = id; }
 for (const id in GUARD) if (GUARD[id].r) TARGET_R[id] = GUARD[id].r;
 // how many of a power a round allows (Fortress Siege: the team shares them, more with more players; one-offs stay one)
-const fortLim = id => { const d = GUARD[id]; if (!d || !d.lim) return 0; return siegeOn() && d.lim > 1 ? d.lim*clamp(Object.keys(chars).length, 1, 6) : d.lim; };
+// Fortress Siege: a small shared set for the whole team, kept for the whole game (repaired every round, never refilled)
+const SIEGE_LIM = {f_dome:2, f_laser:4, f_sam:2, f_tesla:3, f_lava:1, f_drones:1, f_angel:1, f_devil:1, f_brick:2, f_steel:2, f_energy:2, f_mirror:2, f_roof:1, f_tele:1, f_cosmic:2, f_golem:3, f_dragon:1, f_sorc:1};
+const fortLim = id => { const d = GUARD[id]; if (!d || !d.lim) return 0; return siegeOn() ? (SIEGE_LIM[id] || d.lim) : d.lim; };
 BAR_TYPES.brick = {name:'Brick', e:'🧱', col:0xB5523B, hp:160};
 BAR_TYPES.mirror = {name:'Reflective', e:'🪞', col:0xDCEBFF, hp:150};
 const FORT = {rings:[], layers:[], roofs:{}, store:0, stars:[], lines:[], devices:[], golems:[], drones:[], minions:[], spirits:{}, lava:null, river:null, charge:null, wait:0};
@@ -13932,7 +13980,7 @@ function guardUse(id){
   const d = GUARD[id], P = localP(); if (!d || d.hide || !guardActive() || !P || P.alive === false || P.stun > 0) return;
   if (id === 'f_rocket') { fortRocket(); return; }
   if (d.ult && !ultReady(id)) return;
-  if (d.lim && G.egg.left2 && (G.egg.left2[id] | 0) >= fortLim(id)) { cdToast2(`${d.e} ${d.name}: all ${fortLim(id)} used${siegeOn() ? ' this round' : ''}.`); return; }
+  if (d.lim && G.egg.left2 && (G.egg.left2[id] | 0) >= fortLim(id)) { cdToast2(siegeOn() ? `${d.e} ${d.name}: the team has placed all ${fortLim(id)}. They stay all game (repaired every round).` : `${d.e} ${d.name}: all ${fortLim(id)} used.`); return; }
   if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
   if (d.kind === 'aim') { setTargeting(id); return; }
   if (d.kind === 'charge') { toast(`${d.e} Hold ${d.key} to charge.`); return; }
@@ -13970,8 +14018,10 @@ function fortOK(c, m){
 function runGuard(id, p, x){
   const ci = casterInfo(); if (!ci.C) return;
   const {key, C, team} = ci, d = GUARD[id];
+  if (siegeOn() && tdAuth() && !G.replaying && !FORTLOG_SKIP.has(id) && !(d && d.lim && (G.egg.left2[id] | 0) >= fortLim(id))) (G.fortLog = G.fortLog || []).push({s:id, p:p ? [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)] : null, x:x ? JSON.parse(JSON.stringify(x)) : null});   /* the host's log of what was built (and this round's broken walls), for anyone joining later */
   if (id === 'g_break') { if (x && typeof x.b === 'string') breakBarrier(x.b); return; }
-  if (d && d.lim) { G.egg.left2 = G.egg.left2 || {}; G.egg.left2[id] = (G.egg.left2[id] | 0) + 1; if (amDefender() || siegeOn()) renderTray(); }   // the bar shows used/limit
+  if (d && d.lim) { G.egg.left2 = G.egg.left2 || {}; if (siegeOn() && (G.egg.left2[id] | 0) >= fortLim(id)) return;   /* the team's cap, on every screen */
+    G.egg.left2[id] = (G.egg.left2[id] | 0) + 1; if (amDefender() || siegeOn()) renderTray(); }   // the bar shows used/limit
   if (d && d.ult && key === G.localKey) { G.ultUsed = G.ultUsed || {}; G.ultUsed[id] = true; renderTray(); }
   if (id !== 'f_rocket') C.castPose = .5;
   switch (id) {
@@ -14255,7 +14305,7 @@ function fortRing(type, p){
     for (const id of ring.segs) { const b = BARS.list.find(q => q.id === id && !q.dead); if (b) mergeTrait(b, type, 1); }
     sfx('grab'); sfx('thud'); fortNote(`${BAR_TYPES[type].e} Combined: the ${ring.types.map(k => BAR_TYPES[k].name.toLowerCase()).join(' + ')} ring is now level ${ring.level}, taller and stronger.`); return; }
   if (t.bad) { fortNote('🧱 ' + t.bad); return; }
-  const r = t.r, N = Math.ceil(Math.PI*2*r/2.8), segs = [];
+  const r = t.r, N = Math.ceil(Math.PI*2*r/(siegeOn() ? 4.4 : 2.8)), segs = [];
   for (let i = 0; i < N; i++) { const a = (i + .5)/N*Math.PI*2, x = Math.cos(a)*r, z = Math.sin(a)*r;
     const b = {id:'B' + (++BARS.seq), owner:def, team:C ? C.team : 'blue', p:V3(x, groundH(x, z), z), rot:-a - Math.PI/2, traits:{[type]:1}, tier:1, hp:BAR_TYPES[type].hp, maxHp:BAR_TYPES[type].hp, dead:false, ring:type, segL:Math.PI*2*r/N + .2};
     BARS.list.push(b); barRebuild(b); segs.push(b.id); }
@@ -14591,6 +14641,7 @@ function splashAt(p){ for (let i = 0; i < 10; i++) { const m = pmesh('oct', rr(.
 
 /* ---------- the ground only scorches ---------- */
 function scorchAt(p, r, depth){
+  if (groundSafe()) return;
   if (Math.abs(p.x) > ISL - 1 || Math.abs(p.z) > ISL - 1) return;
   const i0 = Math.max(0, Math.floor((p.x - r + ISL)/TES)), i1 = Math.min(TN - 1, Math.ceil((p.x + r + ISL)/TES));
   const j0 = Math.max(0, Math.floor((p.z - r + ISL)/TES)), j1 = Math.min(TN - 1, Math.ceil((p.z + r + ISL)/TES));
@@ -15923,10 +15974,15 @@ function resetPeer(){
   if (NET.peer && !NET.started) { try { NET.peer.destroy(); } catch (e) {} }
   if (!NET.started) { if (NET.hostConn && NET.hostConn.relay) NET.hostConn.close(); NET.peer = null; NET.hostConn = null; NET.conns = []; }
 }
+// a player who dropped and came back within 10 minutes (same name, new id): their wallet and turrets move to the new id
+function netRegain(p){
+  const g = NET.gone && NET.gone[p.name]; if (!g || g.id === p.id || performance.now() - g.t > 600000) return; delete NET.gone[p.name];
+  if (tdOn()) { if (TD.wallet && TD.wallet[g.id] != null) { TD.wallet[p.id] = TD.wallet[g.id]; delete TD.wallet[g.id]; } for (const t of TT.list) if (t.own === g.id) t.own = p.id; if (TD.ready) delete TD.ready[g.id]; }
+}
 function adoptConn(c){
   NET.conns.push(c);
   c.on('data', m => hostHandle(c, m));
-  c.on('close', () => { if (c.superseded) return; NET.conns = NET.conns.filter(x => x !== c); const p = NET.players[c.peer]; if (p) { delete NET.players[c.peer]; netBroadcast({t:'left', id:c.peer}); removePlayer(c.peer); broadcastLobby(); if (eggOn() && G.egg.defs[c.peer] && !G.egg.over) { delete G.egg.defs[c.peer]; G.egg.def = Object.keys(G.egg.defs)[0] || null; netBroadcast({t:'erole', id:c.peer, r:'atk'}); eggCheckReady(); } killFeedText(`${p.name} left`); } });
+  c.on('close', () => { if (c.superseded) return; NET.conns = NET.conns.filter(x => x !== c); const p = NET.players[c.peer]; if (p && NET.started) { NET.gone = NET.gone || {}; NET.gone[p.name] = {id:c.peer, t:performance.now()}; } if (p) { delete NET.players[c.peer]; netBroadcast({t:'left', id:c.peer}); removePlayer(c.peer); broadcastLobby(); if (eggOn() && G.egg.defs[c.peer] && !G.egg.over) { delete G.egg.defs[c.peer]; G.egg.def = Object.keys(G.egg.defs)[0] || null; netBroadcast({t:'erole', id:c.peer, r:'atk'}); eggCheckReady(); } killFeedText(`${p.name} left`); } });
 }
 function hostGame(wanted, tries = 0){
   if (typeof Peer === 'undefined') { lobbyMsg('Online play is not available here. Open the game from its own website link.'); return; }
@@ -15966,6 +16022,23 @@ function hostGame(wanted, tries = 0){
     lobbyMsg('Connection problem: ' + e.type);
   });
 }
+/* The link to the host dropped in the middle of a game (a network blip, or the backup relay's broker cut us off): the host is
+   usually still there, so join the same room again, quietly, a few times, while the game keeps going. The host sends 'start'
+   (and the defences, 'fortlog') again and recognises us by name (our money and turrets come back). Only after 8 failed tries
+   is it over, and then there's always a way back to the menu. */
+function netRejoin(code, n){
+  if (n >= 8 || !code) { rejoinBox(0); NET.rejoin = null; G.phase = 'end'; releaseLock(); showMatchEnd(null, 'Lost the connection to the host (they may have left).'); return; }
+  try { if (NET.hostConn) NET.hostConn.close(); } catch (e) {} try { if (NET.peer) NET.peer.destroy(); } catch (e) {}
+  NET.peer = null; NET.hostConn = null; NET.started = false; NET.rejoin = {code, n}; rejoinBox(n + 1);
+  clearTimeout(NET.rejoinT); NET.rejoinT = setTimeout(() => joinGame(code), n ? 3000 : 700);
+}
+function rejoinBox(k){
+  let b = document.getElementById('rejoinBox');
+  if (!k) { if (b) b.remove(); return; }
+  if (!b) { b = document.createElement('div'); b.id = 'rejoinBox'; b.style.cssText = 'position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 140px);transform:translateX(-50%);z-index:30;padding:10px 16px;border-radius:14px;background:#FFF3DC;color:#3B2A1A;border:3px solid #3B2A1A;font:800 15px Nunito,system-ui,sans-serif;display:flex;gap:10px;align-items:center;box-shadow:0 4px 0 #3B2A1A'; document.body.appendChild(b); }
+  b.innerHTML = `<span>📡 Lost the host for a moment. Reconnecting (try ${k}/8)…</span><button class="btn" style="padding:4px 12px">Leave</button>`;
+  b.querySelector('button').onclick = () => location.reload();
+}
 function joinGame(code){
   if (typeof Peer === 'undefined') { lobbyMsg('Online play is not available here. Open the game from its own website link.'); return; }
   code = cleanCode(code); if (code.length < 4) { lobbyMsg('Type the room code your friend gave you.'); return; }
@@ -15974,7 +16047,8 @@ function joinGame(code){
   const peer = new Peer(PEER_OPTS); NET.peer = peer; voiceAttach(peer); relayWarm();
   const nonce = relayNonce();
   let ice = '', opened = false, reached = false, answered = false, relaying = false, rtc = null, fbT = 0;
-  const fail = t => { clearTimeout(to); clearTimeout(fbT); if (NET.peer !== peer || opened) return; lobbyMsg(t); if (NET.hostConn && NET.hostConn.relay) NET.hostConn.close(); try { peer.destroy(); } catch (e) {} NET.peer = null; NET.hostConn = null; };
+  const fail = t => { clearTimeout(to); clearTimeout(fbT); if (NET.peer !== peer || opened) return; lobbyMsg(t); if (NET.hostConn && NET.hostConn.relay) NET.hostConn.close(); try { peer.destroy(); } catch (e) {} NET.peer = null; NET.hostConn = null;
+    if (NET.rejoin) netRejoin(NET.rejoin.code, NET.rejoin.n + 1); };   /* reconnecting after a drop: try again */
   const blocked = () => `Found room ${code}, but ${NET_BLOCKED}`;
   let to = setTimeout(() => fail(!reached ? SERVER_DOWN : ice || answered ? blocked() : `Could not reach room ${code}. Check the code, and that the host still has the room open.`), 15000);
   // the same handlers for the direct link and the relay; whichever opens first becomes NET.hostConn
@@ -15988,7 +16062,7 @@ function joinGame(code){
   const wire = c => {
     if (!c.relay) c.on('open', () => opening(c));
     c.on('data', m => { if (NET.hostConn === c) clientHandle(m); });
-    c.on('close', () => { if (!opened || NET.hostConn !== c) return; if (G.pvp) { G.phase = 'end'; releaseLock(); showMatchEnd(null, 'The host left the match.'); } else lobbyMsg('The host closed the match.'); });
+    c.on('close', () => { if (!opened || NET.hostConn !== c) return; if (G.pvp && !G.matchOver) netRejoin(code, 0); else if (G.pvp) { G.phase = 'end'; releaseLock(); showMatchEnd(null, 'The host left the match.'); } else lobbyMsg('The host closed the match.'); });
   };
   // direct route blocked: carry the game over the backup relay instead
   const fallback = () => {
@@ -16019,10 +16093,13 @@ function hostHandle(c, m){
     case 'hello': {
       const p = {id:c.peer, name:clean(m.name), team:m.team === 'red' ? 'red' : 'blue', look:(m.look|0) % LOOK_COUNT};
       NET.players[c.peer] = p; broadcastLobby();
+      if (NET.started) netRegain(p);
       if (NET.started) {
         const E = eggOn() ? G.egg : null; if (E && NET.eggOrder && !NET.eggOrder.includes(p.id)) { NET.eggOrder.push(p.id); E.total = NET.eggOrder.length; }
-        c.send({t:'start', seed:NET.seed, players:lobbyList(), score:G.score, mode:NET.mode, cd:NET.cdOn ? 1 : 0, eg:E ? {def:E.def, defs:E.defs, round:E.round, total:E.total, pts:E.pts, ph:E.ph, left:Math.max(1, E.endT - G.t)} : undefined});
-        netBroadcast({t:'join', p}, c); if (!chars[p.id]) addPlayer(E ? Object.assign({}, p, {team:'red'}) : p, false); killFeedText(`${p.name} joined ${p.team === 'blue' ? 'Blue' : 'Red'}`); }
+        if (siegeOn()) TD.wantP = Math.min(6, Math.max(TD.wantP || 0, Object.keys(chars).length + 1));   /* their path opens at the next round */
+        c.send({t:'start', seed:NET.seed, players:lobbyList(), score:G.score, mode:NET.mode, cd:NET.cdOn ? 1 : 0, np:TD.P ? TD.P.length : 0, eg:E ? {def:E.def, defs:E.defs, round:E.round, total:E.total, pts:E.pts, ph:E.ph, left:Math.max(1, E.endT - G.t)} : undefined});
+        netBroadcast({t:'join', p}, c); if (!chars[p.id]) addPlayer(E ? Object.assign({}, p, {team:'red'}) : p, false); killFeedText(`${p.name} joined ${p.team === 'blue' ? 'Blue' : 'Red'}`);
+        if (siegeOn() && G.fortLog && G.fortLog.length) c.send({t:'fortlog', id:NET.myId, log:G.fortLog}); }
       break; }
     case 'team': if (NET.players[c.peer] && !NET.started) { NET.players[c.peer].team = m.team === 'red' ? 'red' : 'blue'; broadcastLobby(); } break;
     case 'st': if (m.id !== c.peer) break; applyState(m); netBroadcast(m, c); break;
@@ -16038,11 +16115,13 @@ function hostHandle(c, m){
 function clientHandle(m){
   switch (m.t) {
     case 'lobby': NET.players = {}; m.players.forEach(p => NET.players[p.id] = p); NET.mode = normMode(m.mode); NET.cdOn = !!m.cd; renderLobby(); break;
-    case 'start': NET.started = true; NET.seed = m.seed; NET.mode = normMode(m.mode); NET.cdOn = !!m.cd; startMatch(m.seed, m.players, m.score, NET.mode, NET.cdOn, NET.mode === 'egg' && m.eg && typeof m.eg.def === 'string' ? m.eg : null); break;
+    case 'start': if (NET.rejoin) { NET.rejoin = null; rejoinBox(0); setTimeout(() => toast('📡 Reconnected!'), 300); } NET.started = true; NET.seed = m.seed; G.siegeNP = m.np | 0; NET.mode = normMode(m.mode); NET.cdOn = !!m.cd; startMatch(m.seed, m.players, m.score, NET.mode, NET.cdOn, NET.mode === 'egg' && m.eg && typeof m.eg.def === 'string' ? m.eg : null); break;
     case 'eph': if (eggOn() && m.ph === 'attack' && G.phase === 'build') eggAttack(+m.left || EGG_ATK); break;
     case 'eg': if (Array.isArray(m.p) && Array.isArray(m.q)) eggNetState(m); break;
     case 'eover': if (eggOn()) eggShowOver(m); break;
     case 'td': if (tdOn()) tdApply(m); break;
+    case 'sgp': if (siegeOn()) siegeSetPaths(m.n | 0); break;
+    case 'fortlog': if (siegeOn()) siegeReplay(m); break;
     case 'tn': if (tnOn()) tnApply(m); break;
     case 'egu': if (eggOn() && typeof m.id === 'string') { G.egg.gaveUp[m.id] = true; eggGaveUpNote(m); } break;
     case 'erole': if (eggOn() && typeof m.id === 'string' && (m.r === 'def' || m.r === 'atk')) eggRole(m.id, m.r, false); break;
@@ -16071,7 +16150,7 @@ function hostStart(){
   if (!NET.host) return;
   NET.started = true; NET.seed = Math.floor(Math.random()*90000) + 10000; G.score = {blue:0, red:0};
   if (NET.mode === 'egg') { NET.eggOrder = lobbyList().map(p => p.id); NET.eggRound = 0; G.egg = null; G.matchOver = false; hostEggRound(); return; }
-  netBroadcast({t:'start', seed:NET.seed, players:lobbyList(), score:G.score, mode:NET.mode, cd:NET.cdOn ? 1 : 0});
+  netBroadcast({t:'start', seed:NET.seed, players:lobbyList(), score:G.score, mode:NET.mode, cd:NET.cdOn ? 1 : 0, np:Math.min(6, lobbyList().length)});
   startMatch(NET.seed, lobbyList(), G.score, NET.mode, NET.cdOn);
 }
 function netTick(dt){
@@ -16162,7 +16241,7 @@ function renderLobby(){
 function showMatchEnd(w, text){
   G.matchOver = true; releaseLock();
   const e = $('matchEnd');
-  e.innerHTML = `<div class="panel sticker"><div class="title ${w || ''}">${w ? (w === 'blue' ? 'Blue' : 'Red') + ' wins!' : 'Match over'}</div><p>${text || `Final score: Blue ${G.score.blue} – ${G.score.red} Red`}</p>${NET.host ? '<div class="actions"><button class="btn primary" id="againB">Play again</button></div>' : (NET.peer ? '<p class="muted">Waiting for the host to start another match…</p>' : '')}</div>`;
+  e.innerHTML = `<div class="panel sticker"><div class="title ${w || ''}">${w ? (w === 'blue' ? 'Blue' : 'Red') + ' wins!' : 'Match over'}</div><p>${text || `Final score: Blue ${G.score.blue} – ${G.score.red} Red`}</p>${NET.host ? '<div class="actions"><button class="btn primary" id="againB">Play again</button></div>' : (NET.peer ? '<p class="muted">Waiting for the host to start another match…</p><div class="actions"><button class="btn" onclick="location.reload()">Back to menu</button></div>' : '')}</div>`;
   e.style.display = 'flex';
   const b = $('againB'); if (b) b.onclick = () => { e.style.display = 'none'; hostStart(); };
 }
@@ -16313,6 +16392,7 @@ function addClassButton(t){
   bar.appendChild(tabs);
 }
 function toast(msg){
+  if (G.replaying) return;
   const box = $('toast'); const d = document.createElement('div'); d.textContent = msg; box.appendChild(d);
   while (box.children.length > 2) box.removeChild(box.firstChild);
   setTimeout(() => { if (d.parentNode) d.parentNode.removeChild(d); }, 2600);

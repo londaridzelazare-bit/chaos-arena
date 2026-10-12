@@ -696,3 +696,23 @@ Turret looks: ttRelabel -> ttDecorate(t): head grows 7%/level; 1 band, 2 buttres
 Forest (roots lash balloons in it; trees can't grow on a path), Rain of Swords, Sword Trap (holds balloons), mines (trigger 3.4 m up),
 guided missile radius, Splitter (cutReach crashed on CANNON vectors when animals were near: the whole power silently failed), Pull
 Everything (drags balloons back), Zero Gravity (balloons float/stop). Tests t84 (solo, 3 players), t85 (audit), t86 (online host+guest).
+
+## Performance, paths, ground, reconnect (2026-10-12.2)
+Performance (prof.mjs: CPU profile + renderer.info of a busy siege game): THREE.Object3D.prototype.updateMatrixWorld is replaced (top of
+the script): an object whose position/quaternion/scale equal last frame's (cache _mc) skips updateMatrix and, unless its parent changed,
+the world multiply. applyMatrix4/lookAt clear the cache. Nothing in the game writes .matrix by hand; keep it that way.
+HashBroadphase rebuilds only when a non-dynamic body is added/removed (world.addBody/removeBody wrappers bump HB_STATIC.n) or every
+60 steps; cells skip non-static bodies; kinematic movers skip the static cells. Ring wall segments are one merged mesh (mergeToon in
+barMesh when segL); Fortress Siege segments are 4.4 m (others 2.8). Siege map trees: forests x1.4, singles x1.
+Fortress Siege kit: SIEGE_LIM (shared by the team, NOT refilled: left2 persists, only a broken roof can be re-cast); runGuard also
+refuses past the cap. Busy game went 44 ms -> 11 ms a frame (3200 meshes, ~330 draw calls).
+Paths: the host's 'start' carries np (path count); startMatch uses G.siegeNP. A player joining mid-game sets TD.wantP; at the next
+round the host sends 'sgp' and every screen runs siegeSetPaths(n) (rebuild paths, repaint sand, remove props on paths, new gates).
+Joiners get 'fortlog' (G.fortLog: the host's log of kit casts and this round's g_breaks; FORTLOG_SKIP excludes per-cast powers/ults;
+breaks pruned at round reset) replayed silently (siegeReplay, G.replaying mutes toast/sfx).
+Ground: groundSafe() (G.mode 'td': Balloon Defense and Fortress Siege) -> scorchAt does nothing, severWorld returns early (no split),
+the World Tree / burning-world ultimates don't swap islandTop.material. The quake ripple still runs (it restores the ground).
+Reconnect: a guest whose host link closes mid-game runs netRejoin(code, n): destroys the old peer, NET.started = false, rejoinBox
+banner (Leave = reload), joinGame again (fail() retries up to 8 times, then the end screen). The host remembers dropped players by
+name (NET.gone) and netRegain moves their wallet and turrets to the new id. End screens always have "Back to menu" for guests.
+Tests: t84 (solo), t86 (online: late joiner paths + fortlog, path growth, drop + rejoin), prof.mjs (perf).
