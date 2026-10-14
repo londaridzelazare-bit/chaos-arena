@@ -760,3 +760,9 @@ has a colour (WIZ_SK[id].col). Aimed spells: the key shows a preview of your own
 marker is hidden), Click opens it (wzCastAt); self spells cast at once. Falling powers (spark, boulder, bolt, meteor, seal) also
 open a circle in the air above the target (wzGlyphFX o.sky). The paper shows a big feather quill (WZ_QUILL_SVG, wzQuillAttach)
 instead of the cursor.
+Wizards 2026-10-14.6: THE BONE KING (WZB_KINDS 7, neutral 'wild', mesh 'king' = wzKingMesh with a sit/stand pose, scale 2.7). His
+throne is in the map (wzaThrone at (-30, 60) facing the plaza, WZA.throne {seat, front}; wzThroneDecor: green braziers, bones). The
+host spawns him seated (wzNeutralFrame); wzKingFrame: asleep until hurt -> chases the nearest player, attacks 'k_slam' (telegraphed
+circle, then a blast), 'k_wave' (expanding ring, jump it), 'k_souls' (5 homing orbs); calm after 15 s with nobody within 70 m -> walks
+back (front -> seat), sits, heals. wzKingFell (wzBotDie): everyone full health + WZW.surgeT 60 s; back after 180 s (WZN.kingT).
+Boss bar #wzBoss while he fights within 90 m. Test t91.

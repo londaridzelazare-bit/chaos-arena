@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-14.5';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-14.6';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -15059,7 +15059,8 @@ function wzFrame(dt){
     const c = V3(C.body.position.x, C.body.position.y + .4, C.body.position.z); W.m.position.copy(c); W.m.scale.setScalar(W.R*Math.min(1, W.t*4)); W.mat.uniforms.t.value += dt; W.mat.uniforms.hit.value = Math.max(0, W.mat.uniforms.hit.value - dt*2);
     for (const b of BX.bombs) if (!b.dead && b.team !== W.team && b.owner !== W.key && b.p.distanceTo(c) < W.R + .3) { b.dead = true; roundGroup.remove(b.m); sparkle(b.p, 0xC9B8FF); W.mat.uniforms.hit.value = 1; sfx('zapHit'); } }
   for (const k in chars) { const P = chars[k]; if (P && !P.wzHat) wzDress(P); }
-  wzBotsFrame(dt); wzWorldFrame(dt); wzPreviewFrame();
+  wzBotsFrame(dt); wzWorldFrame(dt); wzPreviewFrame(); wzKingBar();
+  if (WZA.thronefx) WZA.thronefx.forEach((f, i) => { const k = (i % 2 ? 1.6 : 3.2)*(.85 + .2*Math.sin(G.t*9 + i*2) + .1*Math.random()); f.scale.set(k, k*1.3, 1); });
 }
 // every wizard gets a pointed hat and a staff
 function wzDress(P){
@@ -15080,7 +15081,8 @@ const WZB_KINDS = [
   {n:'Stormcaller', hp:100, sp:4.8, cd:[4.5, 6], spell:'z_bolt', col:0x223A7A, s:1.1, want:24},
   {n:'Archmage', hp:1100, sp:3.2, cd:[2.6, 3.4], spell:'z_meteor', col:0x14081F, s:1.9, want:20, boss:true},
   {n:'Goblin', hp:60, sp:6.2, cd:[1, 1.4], spell:'g_club', col:0x5A7A2A, s:.95, want:1.8, neutral:true, mesh:'goblin'},
-  {n:'Ghost', hp:80, sp:4.2, cd:[2.6, 3.4], spell:'z_ice', col:0xC8D8FF, s:1.2, want:13, neutral:true, mesh:'ghost'}
+  {n:'Ghost', hp:80, sp:4.2, cd:[2.6, 3.4], spell:'z_ice', col:0xC8D8FF, s:1.2, want:13, neutral:true, mesh:'ghost'},
+  {n:'The Bone King', hp:2600, sp:3.6, cd:[2.4, 3], spell:'k_slam', col:0x5AFF8A, s:2.7, want:4, neutral:true, mesh:'king'}
 ];
 const WZ_WAVES = 12;
 function wzStart(){
@@ -15107,7 +15109,7 @@ function wzBotMesh(K){
 }
 // a goblin (green, big ears, a club) or a ghost (a translucent sheet with hollow eyes)
 function wzNeutralMesh(K){
-  { const g = K.mesh === 'goblin' ? wzGoblinMesh() : wzWraithMesh(); g.scale.setScalar(K.s);
+  { const g = K.mesh === 'goblin' ? wzGoblinMesh() : K.mesh === 'king' ? wzKingMesh() : wzWraithMesh(); g.scale.setScalar(K.s);
     const mk = c => { const s0 = new THREE.Sprite(new THREE.SpriteMaterial({color:c, depthTest:false, depthWrite:false})); s0.center.set(0, .5); s0.renderOrder = 41; s0.userData.noRay = true; s0.visible = false; roundGroup.add(s0); return s0; };
     return {g, bar:{bg:mk(0x1A1A1A), fill:mk(0xFF4B3E)}}; }
   const g = new THREE.Group(), add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = K.mesh !== 'ghost'; g.add(m); return m; };
@@ -15131,9 +15133,12 @@ function wzNeutralMesh(K){
 const WZN = {count:{5:8, 6:5}, t:2};
 function wzNeutralFrame(dt){
   if (!wzHost() || G.matchOver) return;
-  WZN.t -= dt; if (WZN.t <= 0) { WZN.t = 4; for (const kind of [5, 6]) { const have = WZ.bots.filter(z => !z.dead && z.kind === kind).length; if (have < WZN.count[kind]) { const rng = Math.random, near = kind === 6 && rng() < .5 ? [0, -90, 24] : null, [x, z] = wzaSpot(rng, 2, near), b = wzBotMake(kind, x, z, WZB_KINDS[kind].hp); b.home = V3(x, 0, z); b.angry = false; b.wander = V3(x, 0, z); b.cd = 0; break; } } }
+  WZN.t -= dt; if (WZN.t <= 0) { WZN.t = 4;
+    if (WZA.throne && G.t > (WZN.kingT || 0) && !WZ.bots.some(z => !z.dead && z.kind === 7)) { const T = WZA.throne, K7 = WZB_KINDS[7], b = wzBotMake(7, T.seat.x, T.seat.z, K7.hp*(1 + .5*(Object.keys(chars).length - 1))); b.pos.set(T.seat.x, T.seat.y - K7.s*.98, T.seat.z); b.angry = false; b.sit = 1; b.cd = 1.5; b.face = T.ry; } for (const kind of [5, 6]) { const have = WZ.bots.filter(z => !z.dead && z.kind === kind).length; if (have < WZN.count[kind]) { const rng = Math.random, near = kind === 6 && rng() < .5 ? [0, -90, 24] : null, [x, z] = wzaSpot(rng, 2, near), b = wzBotMake(kind, x, z, WZB_KINDS[kind].hp); b.home = V3(x, 0, z); b.angry = false; b.wander = V3(x, 0, z); b.cd = 0; break; } } }
   const players = Object.values(chars).filter(P => P.alive !== false);
-  for (const z of WZ.bots) { if (z.dead || !WZB_KINDS[z.kind].neutral) continue; const K = WZB_KINDS[z.kind]; z.t += dt; z.slowT = Math.max(0, z.slowT - dt); z.liftT = Math.max(0, z.liftT - dt); if (!z.home) z.home = z.pos.clone();
+  for (const z of WZ.bots) { if (z.dead || !WZB_KINDS[z.kind].neutral) continue; const K = WZB_KINDS[z.kind];
+    if (K.mesh === 'king') { z.slowT = Math.max(0, (z.slowT || 0) - dt); wzKingFrame(z, dt, players); continue; }
+    z.t += dt; z.slowT = Math.max(0, z.slowT - dt); z.liftT = Math.max(0, z.liftT - dt); if (!z.home) z.home = z.pos.clone();
     let best = null, bd = 1e9; for (const P of players) { const d = hdist(P.body.position, z.pos); if (d < bd) { bd = d; best = P; } }
     const sp = K.sp*(z.slowT > 0 ? .45 : 1);
     if (z.angry && best && bd < 60) { z.calmT = 0; const tp = best.body.position, dx = tp.x - z.pos.x, dz = tp.z - z.pos.z, L = Math.hypot(dx, dz) || 1, fwd = L > K.want + .5 ? 1 : L < K.want - 3 ? -.6 : 0;
@@ -15190,7 +15195,8 @@ function wzBotsFrame(dt){
     WZ.sendT -= dt; if (WZ.sendT <= 0 && NET.peer) { WZ.sendT = .1; const b = []; for (const z of WZ.bots) if (!z.dead) b.push(z.id, z.kind + (z.angry ? 10 : 0), Math.round(z.pos.x*10), Math.round(z.pos.y*10), Math.round(z.pos.z*10), Math.round(z.hp), Math.round(z.face*100), Math.round(z.max)); netBroadcast({t:'zbs', w:WZ.wave, k:WZ.kills, b}); }
   } else for (const z of WZ.bots) { if (z.dead || !z.to) continue; z.pos.lerp(z.to, Math.min(1, dt*10)); }
   for (const z of WZ.bots) { if (z.dead) continue; const K = WZB_KINDS[z.kind]; z.flash = Math.max(0, z.flash - dt);
-    z.g.position.copy(z.pos); z.g.position.y += Math.sin(G.t*3 + z.id)*.08; z.g.rotation.y = z.face;
+    z.g.position.copy(z.pos); if (K.mesh !== 'king') z.g.position.y += Math.sin(G.t*3 + z.id)*.08; z.g.rotation.y = z.face;
+    if (z.g.userData.pose) { if (!wzHost() && WZA.throne) z.sit = !z.angry && Math.hypot(z.pos.x - WZA.throne.seat.x, z.pos.z - WZA.throne.seat.z) < .8; z.g.userData.pose(dt, z); }
     if (z.g.userData.anim) z.g.userData.anim(dt, z);
     if (K.neutral) { const on = !!z.angry || z.hp < z.max; z.bar.bg.visible = z.bar.fill.visible = on; if (z.angryShown !== !!z.angry) { z.angryShown = !!z.angry; z.g.traverse(o => { if (o.userData.eye) o.material.color.setHex(z.angry ? 0xFF2A2A : K.mesh === 'ghost' ? 0x4AF0E0 : 0xE07A10); }); }
       if (z.g.userData.club) { z.swing = Math.max(0, (z.swing || 0) - dt*3); z.g.userData.club.rotation.x = .5 - z.swing*2; } } z.g.scale.setScalar(K.s*(z.flash > 0 ? 1.08 : 1));
@@ -15202,10 +15208,11 @@ function wzBotsFrame(dt){
 function wzBotCast(m){
   const z = WZ.bots.find(q => q.id === m.b), from = V3(m.f[0], m.f[1], m.f[2]), p = V3(m.p[0], m.p[1], m.p[2]);
   if (z) z.face = Math.atan2(p.x - from.x, p.z - from.z);
+  if (/^k_(slam|wave|souls)$/.test(m.s)) { wzKingCast(m); return; }   /* the Bone King */
   if (m.s === 'g_club') { const z2 = WZ.bots.find(q => q.id === m.b); if (z2) z2.swing = 1; bBoom(V3(p.x, p.y, p.z), 1.8, 10, 9, 'Z' + m.b, 'wild', {pal:{ball:0x6A8A2E, core:0xD9C7A3, ring:0x3A2A1A}, size:.2, snd:'thud'}); return; }   /* a goblin's club */
   wzEffect(m.s, {key:'Z' + m.b, team:m.tm === 'wild' ? 'wild' : 'red', C:null, from, p, k:clamp(+m.k || .7, .3, 1.5), yaw:Math.atan2(p.x - from.x, p.z - from.z), rng:mulberry32((+m.sd || 3) >>> 0)});
 }
-function wzBotDie(z){ z.dead = true; if (z.g.parent) z.g.parent.remove(z.g); roundGroup.remove(z.bar.bg); roundGroup.remove(z.bar.fill); const at = V3(z.pos.x, z.pos.y + 1.2, z.pos.z); boomVisual(at, false, WZB_KINDS[z.kind].boss ? 1.2 : .35, WZ_ARC); puff(at, 0x3A2A4A, 1); sfx('pop'); }
+function wzBotDie(z){ if (WZB_KINDS[z.kind].mesh === 'king') wzKingFell(z); z.dead = true; if (z.g.parent) z.g.parent.remove(z.g); roundGroup.remove(z.bar.bg); roundGroup.remove(z.bar.fill); const at = V3(z.pos.x, z.pos.y + 1.2, z.pos.z); boomVisual(at, false, WZB_KINDS[z.kind].boss ? 1.2 : .35, WZ_ARC); puff(at, 0x3A2A4A, 1); sfx('pop'); }
 // players' attacks hurt them (the host counts it)
 function wzTakeArea(at, R, dmg, team){
   if (!wzOn() || !WZ.bots.length || !wzHost() || !(dmg > 0) || !at) return;
@@ -15581,6 +15588,8 @@ function wzaBuildMap(){
   // the church and its graveyard
   wzaChurch(0, -96, 0); keep.push([0, -96, 16]); for (let i = 0; i < 22; i++) { const gx = (i % 2 ? 1 : -1)*(10 + (i % 4)*2.2) + r(), gz = -84 - Math.floor(i/4)*2.6; wzaGrave(gx, gz, r); } keep.push([0, -88, 14]);
   for (let i = 0; i < 4; i++) wzaLamp(i < 2 ? -3 : 3, -60 + (i % 2)*-12);
+  // the Bone King's throne, facing the plaza
+  wzaThrone(-30, 60, Math.atan2(30, -60)); keep.push([-30, 60, 13]);
   // the forest
   let trees = 0, dead = 0, rocks = 0;
   for (let k = 0; k < 2600 && trees < 190; k++) { const x = (r()*2 - 1)*(ISL - 10), z = (r()*2 - 1)*(ISL - 10), cl = Math.sin(x*.035 + 1.3)*Math.cos(z*.03 - .7); if (cl < -.1 || near(x, z, 2.5)) continue; const s = .85 + r()*.6;
@@ -15591,6 +15600,7 @@ function wzaBuildMap(){
   const M = wzaMats(); WZA.meshes = [];
   for (const key in WZA.batch) { const list = WZA.batch[key]; if (!list.length || !M[key]) continue; const mesh = new THREE.Mesh(wzaMerge(list), M[key]); mesh.castShadow = key !== 'window' && key !== 'cobble' && key !== 'plaza' && key !== 'clock'; mesh.receiveShadow = true; mesh.userData.noRay = key === 'window' || key === 'clock'; roundGroup.add(mesh); WZA.meshes.push(mesh); }
   WZA.batch = null;
+  wzThroneDecor();
 }
 
 /* ---------- wizards, sculpted: lathe-turned robes and hats, painted faces and beards ---------- */
@@ -15906,6 +15916,115 @@ function wzBats(on){
   if (on) { for (let i = 0; i < B.list.length; i++) { B.body.setColorAt(i, dark); B.wing.setColorAt(i*2, dark); B.wing.setColorAt(i*2 + 1, dark); } }
   else { const cDark = new THREE.Color(0x2B2F36), cGull = new THREE.Color(0xF2F4F7), cWingG = new THREE.Color(0xC9CED6); B.list.forEach((b, i) => { const g0 = B.flocks[b.f].gull; B.body.setColorAt(i, g0 ? cGull : cDark); B.wing.setColorAt(i*2, g0 ? cWingG : cDark); B.wing.setColorAt(i*2 + 1, g0 ? cWingG : cDark); }); }
   if (B.body.instanceColor) B.body.instanceColor.needsUpdate = true; if (B.wing.instanceColor) B.wing.instanceColor.needsUpdate = true;
+}
+
+/* ---------- THE BONE KING: an armoured skeleton asleep on his throne. Hurt him and he rises (WZB_KINDS 7, neutral, team
+   'wild', host-run in wzKingFrame): a greatsword slam (telegraphed), a green shockwave you can jump, homing soul bolts. If everyone
+   leaves he walks back, sits and heals. Killed: a burst of souls, and every player gets the King's blessing (full health, spells
+   recharge twice as fast for 60 s); he returns 3 minutes later. The throne is part of the map (WZA.throne). ---------- */
+function wzaThrone(x, z, ry){
+  const gy = groundH(x, z) - .2, m = new THREE.Matrix4().compose(new THREE.Vector3(x, gy, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new THREE.Vector3(1, 1, 1)), P = (geo, key, a, b, c, e, f, g2) => wzaPutIn(geo, key, m, a, b, c, e, f, g2);
+  P(cylUV(7, 7.6, .7, 10, 3), 'brickS', 0, .35, 0); P(cylUV(5.2, 5.6, .7, 10, 3), 'brickS', 0, 1.05, -.6);
+  P(boxUV(4.2, 1.7, 3.2, 2), 'rock', 0, 2.25, -1.2); P(boxUV(4.4, 7.5, 1, 2), 'rock', 0, 5.2, -2.6);
+  for (const s of [-1, 1]) { P(boxUV(.8, 2.6, 3.2, 2), 'rock', s*2.2, 3.0, -1.2); P(coneUV(.45, 2.8, 6, 1), 'rock', s*1.9, 10.1, -2.6); P(coneUV(.35, 2, 6, 1), 'rock', s*.9, 9.7, -2.6); }
+  P(coneUV(.5, 3.6, 6, 1), 'rock', 0, 10.7, -2.6);
+  for (const s of [-1, 1]) { P(cylUV(.5, .7, 2.4, 8, 2), 'iron', s*4.6, 2.6, .8); P(cylUV(.8, .5, .5, 8, 2), 'iron', s*4.6, 4, .8); }
+  wzaBody(x, gy + 3, z, [3.6, 3, 2.6], ry); WZA.throne = {x, z, ry, gy, seat:{x:x + Math.sin(ry)*-1.2, z:z + Math.cos(ry)*-1.2, y:gy + 3.1}, front:{x:x + Math.sin(ry)*5, z:z + Math.cos(ry)*5}};
+}
+// the green fire of the braziers and the bones round the dais (after the merge: they move / glow)
+function wzThroneDecor(){
+  const T = WZA.throne; if (!T) return; const c = Math.cos(T.ry), s = Math.sin(T.ry), wp = (lx, lz) => ({x:T.x + lx*c + lz*s, z:T.z - lx*s + lz*c});
+  WZA.thronefx = [];
+  for (const sx of [-1, 1]) { const q = wp(sx*4.6, .8), f = wzGlowSprite(0x5AFF8A, 3.2); f.position.set(q.x, T.gy + 4.6, q.z); roundGroup.add(f); const f2 = wzGlowSprite(0xC8FF6A, 1.6); f2.position.set(q.x, T.gy + 4.4, q.z); roundGroup.add(f2); WZA.thronefx.push(f, f2); }
+  const bone = new THREE.MeshLambertMaterial({color:0xD8CCAA}), rng = mulberry32(((G.seed || 1) ^ 0xB0E5) >>> 0);
+  for (let i = 0; i < 26; i++) { const a = rng()*Math.PI*2, r = 5 + rng()*4, q = wp(Math.cos(a)*r, Math.sin(a)*r), gy = groundH(q.x, q.z);
+    if (i % 4 === 0) { const sk = new THREE.Group(); wzAdd(sk, new THREE.SphereGeometry(.22, 10, 8), bone).scale.set(1, .95, 1.1); wzAdd(sk, new THREE.BoxGeometry(.22, .1, .2), bone, 0, -.17, .05); for (const e of [-1, 1]) wzAdd(sk, new THREE.SphereGeometry(.06, 6, 4), new THREE.MeshBasicMaterial({color:0x0A0806}), e*.08, .02, .19);
+      sk.position.set(q.x, gy + .18, q.z); sk.rotation.set(rng()*.6, rng()*6, rng()*.6); noRayAll(sk); roundGroup.add(sk); }
+    else { const b = wzAdd(roundGroup, new THREE.CylinderGeometry(.05, .05, .6 + rng()*.5, 6), bone, q.x, gy + .06, q.z, Math.PI/2, rng()*6, 0); b.userData.noRay = true; } }
+}
+function wzKingMesh(){
+  const g = new THREE.Group(), bone = wzLam({color:0xD8CCAA}), iron = wzLam({map:WZT_TEX.iron(), color:0x7A7A88}), gold = wzLam({color:0xC9A24A, emissive:0x3A2400}), cape = wzLam({map:WZT_TEX.cloth(0x2A0E14, 0x5A1A22), side:THREE.DoubleSide}), dark = new THREE.MeshBasicMaterial({color:0x050404}), rune = new THREE.MeshBasicMaterial({color:0x5AFF8A});
+  const pelvis = new THREE.Group(); pelvis.position.y = 1.0; g.add(pelvis); wzAdd(pelvis, new THREE.TorusGeometry(.2, .06, 6, 12), bone, 0, 0, 0, Math.PI/2);
+  wzAdd(pelvis, wzaLathe([[.36, -.25], [.38, -.05], [.34, .1]], 12), iron);   // the armoured skirt
+  const legs = [-1, 1].map(s => { const hip = new THREE.Group(); hip.position.set(s*.16, 0, 0); pelvis.add(hip); wzAdd(hip, new THREE.CylinderGeometry(.05, .045, .45, 6), bone, 0, -.25, 0); wzAdd(hip, new THREE.CylinderGeometry(.11, .09, .3, 8), iron, 0, -.2, 0);
+    const knee = new THREE.Group(); knee.position.y = -.5; hip.add(knee); wzAdd(knee, new THREE.SphereGeometry(.08, 8, 6), iron); wzAdd(knee, new THREE.CylinderGeometry(.045, .04, .45, 6), bone, 0, -.24, 0); wzAdd(knee, new THREE.CylinderGeometry(.1, .08, .36, 8), iron, 0, -.24, 0); wzAdd(knee, new THREE.BoxGeometry(.16, .08, .3), iron, 0, -.48, .06);
+    return {hip, knee}; });
+  const torso = new THREE.Group(); torso.position.y = .05; pelvis.add(torso);
+  for (let i = 0; i < 4; i++) wzAdd(torso, new THREE.CylinderGeometry(.045, .05, .1, 6), bone, 0, .08 + i*.1, -.06);
+  for (let i = 0; i < 4; i++) wzAdd(torso, new THREE.TorusGeometry(.2 - i*.012, .022, 4, 12, Math.PI*1.4), bone, 0, .35 + i*.1, 0, Math.PI/2, 0, Math.PI*1.3);
+  const plate = wzAdd(torso, new THREE.LatheGeometry(wzaV([[.28, .3], [.33, .55], [.32, .78], [.22, .9]]), 14, -1.1, 2.2), iron); wzAdd(torso, new THREE.OctahedronGeometry(.07, 0), rune, 0, .66, .32);
+  wzAdd(torso, new THREE.TorusGeometry(.3, .02, 4, 16, Math.PI*.8), gold, 0, .32, .02, Math.PI/2, 0, Math.PI*.6);
+  const arms = [-1, 1].map(s => { const sh = new THREE.Group(); sh.position.set(s*.38, .82, 0); torso.add(sh); const pd = wzAdd(sh, new THREE.SphereGeometry(.2, 12, 8, 0, Math.PI*2, 0, Math.PI/2), iron, 0, .05, 0); pd.scale.set(1.2, .9, 1.1);
+    for (let k = 0; k < 3; k++) wzAdd(sh, new THREE.ConeGeometry(.04, .2, 5), gold, s*.08, .18, -.08 + k*.08);
+    wzAdd(sh, new THREE.CylinderGeometry(.04, .035, .42, 6), bone, 0, -.24, 0); const el = new THREE.Group(); el.position.y = -.46; sh.add(el); wzAdd(el, new THREE.CylinderGeometry(.09, .07, .3, 8), iron, 0, -.15, 0); wzAdd(el, new THREE.CylinderGeometry(.035, .03, .38, 6), bone, 0, -.2, 0);
+    const hand = new THREE.Group(); hand.position.y = -.42; el.add(hand); for (let f = 0; f < 4; f++) wzAdd(hand, new THREE.CylinderGeometry(.012, .016, .14, 4), bone, (f - 1.5)*.025, -.07, .03, .3);
+    return {sh, el, hand}; });
+  // the greatsword in the right hand
+  const sword = new THREE.Group(); arms[1].hand.add(sword); sword.position.set(0, -.08, .05); sword.rotation.x = Math.PI/2;
+  wzAdd(sword, new THREE.BoxGeometry(.13, 1.9, .03), iron, 0, 1.05, 0); wzAdd(sword, new THREE.BoxGeometry(.03, 1.6, .035), rune, 0, 1.0, 0); wzAdd(sword, new THREE.BoxGeometry(.5, .06, .08), gold, 0, .08, 0); wzAdd(sword, new THREE.CylinderGeometry(.03, .03, .32, 6), wzLam({color:0x2A1A12}), 0, -.1, 0); wzAdd(sword, new THREE.SphereGeometry(.05, 8, 6), gold, 0, -.28, 0);
+  // the skull, its burning eyes, the horned crown
+  const head = new THREE.Group(); head.position.y = 1.05; torso.add(head); wzAdd(head, new THREE.SphereGeometry(.17, 14, 12), bone).scale.set(.95, 1, 1.05); wzAdd(head, new THREE.BoxGeometry(.18, .07, .14), bone, 0, -.16, .05);
+  for (const e of [-1, 1]) { wzAdd(head, new THREE.SphereGeometry(.045, 8, 6), dark, e*.06, .01, .14); const gl = wzGlowSprite(0x5AFF8A, .32); gl.position.set(e*.06, .01, .17); gl.userData.eye = true; head.add(gl); }
+  wzAdd(head, wzaLathe([[.19, 0], [.2, .06], [.17, .1]], 12), gold, 0, .1, 0); for (let i = 0; i < 6; i++) { const a = i/6*Math.PI*2; wzAdd(head, new THREE.ConeGeometry(.035, .16, 5), gold, Math.cos(a)*.18, .25, Math.sin(a)*.18); }
+  for (const s of [-1, 1]) { const h = wzAdd(head, wzaLathe([[0, .5], [.04, .35], [.06, .15], [.06, 0]], 8), bone, s*.17, .12, -.02, -.3, 0, -s*.9); }
+  // the tattered cape
+  const strips = []; for (let i = 0; i < 9; i++) { const a = Math.PI*.7 + i/8*Math.PI*.6, L = 1.1 + Math.random()*.4, geo = new THREE.PlaneGeometry(.18, L); geo.translate(0, -L/2, 0); const st = wzAdd(torso, geo, cape, Math.sin(a)*.3, .9, Math.cos(a)*.26, 0, a, 0); st.userData.ph = Math.random()*6; strips.push(st); }
+  noRayAll(g);
+  let sitK = 1, swing = 0;
+  g.userData.pose = (dt, z) => {
+    const want = z.sit ? 1 : 0; sitK += (want - sitK)*Math.min(1, dt*2.5); swing = Math.max(0, swing - dt*2); if (z.swingT > G.t - .05) swing = 1;
+    legs.forEach(L => { L.hip.rotation.x = -sitK*1.45; L.knee.rotation.x = sitK*1.5; }); pelvis.position.y = 1.0 - sitK*.05; torso.rotation.x = sitK*.08 - (1 - sitK)*.1;
+    arms.forEach((A, i) => { A.sh.rotation.x = sitK ? -sitK*.9 : -swing*2.4 + .2; A.sh.rotation.z = (i ? -1 : 1)*(.15 + sitK*.1); A.el.rotation.x = -sitK*.6 - (i ? swing*.6 : 0); });
+    sword.rotation.x = sitK ? Math.PI/2 - sitK*.2 : Math.PI/2 + .3; strips.forEach(st => st.rotation.x = Math.sin(G.t*1.6 + st.userData.ph)*.15 + (1 - sitK)*.1);
+    head.rotation.y = sitK ? Math.sin(G.t*.3)*.15 : 0; };
+  return g;
+}
+// the host: the king's mind
+function wzKingFrame(z, dt, players){
+  const K = WZB_KINDS[z.kind], T = WZA.throne; if (!T) return;
+  let best = null, bd = 1e9; for (const P of players) { const d = hdist(P.body.position, z.pos); if (d < bd) { bd = d; best = P; } }
+  if (!z.angry) {   // asleep on the throne, or walking back to it
+    const d = Math.hypot(T.front.x - z.pos.x, T.front.z - z.pos.z), atSeat = Math.hypot(T.seat.x - z.pos.x, T.seat.z - z.pos.z) < .5;
+    if (atSeat) { z.sit = 1; z.pos.set(T.seat.x, T.seat.y - 1.0*K.s*.98, T.seat.z); z.face = T.ry; z.hp = Math.min(z.max, z.hp + z.max*.04*dt); }
+    else { z.sit = 0; const tx = d > 1.2 && !z.climb ? T.front.x : T.seat.x, tz = d > 1.2 && !z.climb ? T.front.z : T.seat.z; if (d <= 1.2) z.climb = true; const dx = tx - z.pos.x, dz = tz - z.pos.z, L = Math.hypot(dx, dz) || 1; z.pos.x += dx/L*K.sp*.7*dt; z.pos.z += dz/L*K.sp*.7*dt; z.face = Math.atan2(dx, dz); z.pos.y = Math.max(groundH(z.pos.x, z.pos.z), z.climb ? T.gy + 1.2 : 0); if (L < .4) { z.pos.set(T.seat.x, T.seat.y, T.seat.z); } }
+    return; }
+  z.sit = 0; z.climb = false;
+  if (!best || bd > 70) { z.calmT = (z.calmT || 0) + dt; if (z.calmT > 15) { z.angry = false; z.calmT = 0; } return; }
+  z.calmT = 0; const tp = best.body.position, dx = tp.x - z.pos.x, dz = tp.z - z.pos.z, L = Math.hypot(dx, dz) || 1; z.face = Math.atan2(dx, dz);
+  if (z.busy > 0) { z.busy -= dt; } else if (L > 4) { z.pos.x += dx/L*K.sp*(z.slowT > 0 ? .45 : 1)*dt; z.pos.z += dz/L*K.sp*(z.slowT > 0 ? .45 : 1)*dt; }
+  z.pos.x = clamp(z.pos.x, -WZB_EDGE + 5, WZB_EDGE - 5); z.pos.z = clamp(z.pos.z, -WZB_EDGE + 5, WZB_EDGE - 5); z.pos.y = groundH(z.pos.x, z.pos.z);
+  z.cd -= dt; if (z.cd > 0) return;
+  const s = L < 6 ? 'k_slam' : L < 18 && Math.random() < .55 ? 'k_wave' : 'k_souls'; z.cd = s === 'k_slam' ? 2.4 : s === 'k_wave' ? 3.6 : 3; z.busy = .9;
+  const aim = s === 'k_slam' ? V3(z.pos.x + dx/L*Math.min(4, L), 0, z.pos.z + dz/L*Math.min(4, L)) : V3(tp.x, tp.y + .6, tp.z);
+  const m = {t:'zb', b:z.id, s, tm:'wild', f:[+z.pos.x.toFixed(2), +(z.pos.y + 3).toFixed(2), +z.pos.z.toFixed(2)], p:[+aim.x.toFixed(2), +aim.y.toFixed(2), +aim.z.toFixed(2)], k:1, sd:Math.floor(Math.random()*1e9)}; netBroadcast(m); wzKingCast(m);
+}
+// every screen: the king's attacks
+function wzKingCast(m){
+  const z = WZ.bots.find(q => q.id === m.b), from = V3(m.f[0], m.f[1], m.f[2]), p = V3(m.p[0], m.p[1], m.p[2]), key = 'Z' + m.b; if (z) z.swingT = G.t;
+  if (m.s === 'k_slam') { const at = V3(p.x, groundH(p.x, p.z), p.z); wzGlyphFX('z_seal', V3(at.x, at.y, at.z), 9, 0x5AFF8A, {life:1.2, rayH:2.5, open:.25}); sfx('drone');
+    wzAfter(.75, () => { bBoom(V3(at.x, at.y + .5, at.z), 4.5, 28, 18, key, 'wild', {pal:{ball:0x5AFF8A, core:0xFFFFFF, ring:0x2A8A4A}, size:.7}); shockRing(at, 6, .5, 0x5AFF8A); shakeAt(at, 1.2, 60); for (let i = 0; i < 10; i++) puff(V3(at.x + rr(-2, 2), at.y + rr(0, 2), at.z + rr(-2, 2)), pick([0x5AFF8A, 0x2A5A3A]), .6); }); return; }
+  if (m.s === 'k_wave') { const c = V3(from.x, groundH(from.x, from.z) + .2, from.z), ring = new THREE.Mesh(new THREE.TorusGeometry(1, .18, 6, 64), new THREE.MeshBasicMaterial({color:0x5AFF8A, transparent:true, opacity:.9})); ring.rotation.x = Math.PI/2; ring.position.copy(c); ring.userData.noRay = true; roundGroup.add(ring); sfx('rumble');
+    let t = 0, hit = false; fxAdd({update(dt){ t += dt; const r = 1 + t*16; ring.scale.set(r, r, 1); ring.material.opacity = Math.max(0, .9 - t*.5);
+      const P = victimFor(key, 'wild'); if (P && !hit) { const d = hdist(P.body.position, c); if (d < r && d > r - 1.6 && P.body.position.y < groundH(P.body.position.x, P.body.position.z) + 1.4) { hit = true; painHurt(P, 22, key); const a = V3(P.body.position.x - c.x, 0, P.body.position.z - c.z).normalize(); knock(P, a.x*14, 7, a.z*14, .5); } }
+      if (t > 1.3) { roundGroup.remove(ring); return false; } return true; }}); return; }
+  if (m.s === 'k_souls') { sfx('shriek'); const rng = mulberry32((+m.sd || 1) >>> 0);
+    for (let i = 0; i < 5; i++) { const st = V3(from.x + (rng() - .5)*2, from.y + rng()*1.5, from.z + (rng() - .5)*2), dir = p.clone().sub(st).normalize().add(V3((rng() - .5)*.6, .3 + rng()*.4, (rng() - .5)*.6)).normalize();
+      wzAfter(i*.14, () => addBomb({p:st.clone(), v:dir.multiplyScalar(17), g:.05, r:.35, R:1.8, dmg:11, kb:5, m:wzOrb(.22, 0xC8FFD8, 0x5AFF8A), owner:key, team:'wild', trail:0x5AFF8A, trailS:.3, home:() => p, turn:2.2, fx:{size:.2, pal:{ball:0x5AFF8A, core:0xFFFFFF, ring:0x2A8A4A}}})); } }
+}
+// the boss bar at the top of the screen while he fights near you
+function wzKingBar(){
+  let el = document.getElementById('wzBoss'); const z = WZ.bots.find(q => !q.dead && WZB_KINDS[q.kind].mesh === 'king'), me = localP();
+  const show = z && z.angry && me && hdist(z.pos, me.body.position) < 90;
+  if (!show) { if (el) el.style.display = 'none'; return; }
+  if (!el) { el = document.createElement('div'); el.id = 'wzBoss'; el.style.cssText = 'position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 74px);transform:translateX(-50%);z-index:8;width:min(560px,80vw);text-align:center;font:900 16px Georgia,serif;color:#D8FFE4;text-shadow:0 2px 6px #000;pointer-events:none';
+    el.innerHTML = '<div>💀 THE BONE KING</div><div style="margin-top:4px;height:14px;border:2px solid #2A5A3A;background:#0A140E;border-radius:4px;overflow:hidden"><i style="display:block;height:100%;background:linear-gradient(90deg,#2A8A4A,#7CFFA8)"></i></div>'; document.body.appendChild(el); }
+  el.style.display = 'block'; el.querySelector('i').style.width = Math.max(0, z.hp/z.max*100) + '%';
+}
+function wzKingFell(z){
+  const at = V3(z.pos.x, z.pos.y + 2.5, z.pos.z); boomVisual(at, true, 1.4, {ball:0x5AFF8A, core:0xFFFFFF, ring:0x2A8A4A}); for (let i = 0; i < 30; i++) sparkle(V3(at.x + rr(-3, 3), at.y + rr(-2, 3), at.z + rr(-3, 3)), 0x7CFFA8); sfx('choir'); flash(.4, .4);
+  const me = localP(); if (me && me.alive !== false) { me.hp = 100; updateHud(); } WZW.surgeT = G.t + 60;
+  toast('👑💀 The Bone King has fallen! His blessing: full health, and your spells recharge twice as fast for 60 s.');
+  if (wzHost()) WZN.kingT = G.t + 180;
 }
 
 /* ===================================== WORLD: rain, nature, an unbreakable ground =====================================
@@ -17401,7 +17520,7 @@ function clientHandle(m){
     case 'eover': if (eggOn()) eggShowOver(m); break;
     case 'td': if (tdOn()) tdApply(m); break;
     case 'zbs': wzApply(m); break;
-    case 'zb': if (wzOn() && Array.isArray(m.f) && Array.isArray(m.p) && (WIZ_SK[m.s] || m.s === 'g_club')) wzBotCast(m); break;
+    case 'zb': if (wzOn() && Array.isArray(m.f) && Array.isArray(m.p) && (WIZ_SK[m.s] || m.s === 'g_club' || /^k_(slam|wave|souls)$/.test(m.s))) wzBotCast(m); break;
     case 'zend': wzWin(); break;
     case 'zmsg': if (wzOn() && typeof m.m === 'string') toast(m.m.slice(0, 120)); break;
     case 'zls': if (wzOn()) wzStrike(m); break;
