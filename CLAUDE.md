@@ -772,3 +772,12 @@ and the heightfield all follow, syncTerrain), the water is a flat flowing ribbon
 plank a static body). Shooting stars (WZS2, wzStarsFrame). SECRET SPELLS: z_raven (Q), z_chains (R), z_drain (F), z_void (V) are
 hidden (WIZ_SK secret) until you walk onto their glowing scroll (WZD, wzDiagramsBuild/Frame: behind the throne, graveyard, forest,
 near (84,-72)); WZ.known per player, the tray shows found ones; effects in wzSecretEffect. Test t92.
+Wizards 2026-10-14.8: EXPLORABLE BUILDINGS (wiz_interiors module, WZI). Houses, the church and the castle keeps are hollow: every wall
+is its own static box (wzaWallBox / wzaSolid; wzaRoom = 4 walls with a doorway in +z; wzaSlabHole = a roof with a hatch), with
+furnished rooms (wzaHearth, wzaBed, wzaTableSet, wzaShelf, wzaBarrel, wzaChandelier, wzaPew; extra materials wzaMatsIn). The ground
+under every building is levelled first (wzaLevel/wzaFlat, before the river's syncTerrain). Camera: WZI.walls (cam=true) are ray-
+tested in cameraBoom (wzaBoom). Indoors (camera inside a WZI.rooms zone) a warm AmbientLight WZI.amb eases in. Rune lifts
+(wzaLift, WZI.lifts, wzInteriorFrame): castle halls + the watchtower; stand on the cyan rune to float up through the hatch, the violet
+rune floats you down. New places (wzaPOIs): witch's hut (100,22), crypt (-22,-116), ruined watchtower (-108,26), crystal cave
+(112,-34); the Soul Chains / Soul Drain / Void Rift diagrams hide in the crypt / on the tower top / in the cave (spots may carry a y).
+Mist edge WZB_EDGE 116 -> 128. Test t93.

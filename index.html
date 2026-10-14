@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-14.7';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-14.8';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -15344,7 +15344,7 @@ function wzTheme(on){
   } else if (WZT.saved) {
     const S = WZT.saved; hemi.color.setHex(S.hs); hemi.groundColor.setHex(S.hg); hemi.intensity = S.hi; sun.color.setHex(S.sc); sun.intensity = S.si; scene.fog.near = S.fn; scene.fog.far = S.ff; seaMat.color.setHex(S.sea); NAT_MAT.color.setHex(S.nat);
     if ($('vignette') && S.vig) $('vignette').style.background = S.vig; sky.visible = false; w.pts.visible = false;
-    wzBats(false); OUTLINE_MAT.visible = true; islandTop.material = terrainMat; for (const c of clouds) c.visible = true; sea.visible = true; foam.visible = true;
+    wzBats(false); if (WZI.amb) WZI.amb.intensity = 0; OUTLINE_MAT.visible = true; islandTop.material = terrainMat; for (const c of clouds) c.visible = true; sea.visible = true; foam.visible = true;
   }
 }
 // per round (roundGroup is rebuilt with every map): castles at the corners, runes on the ground
@@ -15522,41 +15522,12 @@ function wzaRock(x, z, s, r, tall){
 }
 function wzaBody(x, y, z, half, ry){ const b = new CANNON.Body({mass:0, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(half[0], half[1], half[2]))); b.position.set(x, y, z); if (ry) b.quaternion.setFromEuler(0, ry, 0); world.addBody(b); return b; }
 function wzaWindowAt(m, x, y, z, ry, s){ wzaPutIn(new THREE.PlaneGeometry(.9*(s || 1), 1.7*(s || 1)), 'window', m, x, y, z, ry); }
-function wzaCastle(cx, cz, style, s){
-  const brick = ['brickP', 'brickS', 'brickB'][style], roof = ['roofP', 'roofS', 'roofG'][style], gy = groundH(cx, cz) - .5, ry = Math.atan2(-cx, -cz);
-  const m = new THREE.Matrix4().compose(new THREE.Vector3(cx, gy, cz), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new THREE.Vector3(s, s, s)), P = (geo, key, x, y, z, a, b, c) => wzaPutIn(geo, key, m, x, y, z, a, b, c);
-  P(boxUV(14, 11, 10, 3), brick, 0, 5.5, 0); for (let i = -6.2; i <= 6.3; i += 1.55) { P(boxUV(.9, 1, .9, 3), brick, i, 11.5, 4.6); P(boxUV(.9, 1, .9, 3), brick, i, 11.5, -4.6); }
-  for (const [x, z] of [[-7, 5], [7, 5], [-7, -5], [7, -5]]) { P(cylUV(2.3, 2.6, 16, 12, 3), brick, x, 8, z); P(cylUV(2.85, 2.85, .9, 12, 3), brick, x, 16.4, z); P(coneUV(3.2, 7.5, 12, 2), roof, x, 20.6, z); for (let k = 0; k < 3; k++) { const a = Math.atan2(x, z) + (k - 1)*.6; wzaWindowAt(m, x + Math.sin(a)*2.42, 6 + k*3.5, z + Math.cos(a)*2.42, a); } }
-  P(cylUV(2, 2.2, 26, 12, 3), brick, 0, 13, -3); P(cylUV(2.5, 2.5, .8, 12, 3), brick, 0, 26.3, -3); P(coneUV(2.8, 11, 12, 2), roof, 0, 32.2, -3); for (let k = 0; k < 4; k++) wzaWindowAt(m, 0, 15 + k*2.6, -3 + 2.12, 0, .8);
-  for (const x of [-3.6, 3.6]) { P(cylUV(1.1, 1.2, 5, 10, 3), brick, x, 13.5, 2); P(coneUV(1.5, 4, 10, 2), roof, x, 17.9, 2); }
-  for (let i = 0; i < 5; i++) for (let j = 0; j < 2; j++) wzaWindowAt(m, -5 + i*2.5, 3.8 + j*3.6, 5.05, 0);
-  P(boxUV(3.6, 5.2, .6, 2), 'wood', 0, 2.6, 5.05); P(cylUV(1.8, 1.8, .7, 12, 2), brick, 0, 5.2, 5.1, 0, Math.PI/2);
-  wzaBody(cx, gy + 10*s, cz, [9*s, 12*s, 7*s], ry);
-}
-function wzaHouse(x, z, ry, r){
-  const gy = groundH(x, z) - .3, w = 6 + r()*1.5, d = 5 + r(), m = new THREE.Matrix4().compose(new THREE.Vector3(x, gy, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new THREE.Vector3(1, 1, 1)), P = (geo, key, a, b, c, e, f, g2) => wzaPutIn(geo, key, m, a, b, c, e, f, g2);
-  P(boxUV(w, 3.2, d, 2.5), 'brickS', 0, 1.6, 0); P(boxUV(w + .5, 3, d + .5, 3), 'timber', 0, 4.6, 0);
-  P(boxUV(.9, 3, .9, 2), 'brickS', w*.3, 8, -d*.2); P(boxUV(1.3, 2.4, .2, 2), 'wood', 0, 1.2, d/2 + .05);
-  for (const sx of [-1, 1]) { wzaWindowAt(m, sx*w*.3, 1.9, d/2 + .06, 0, .8); wzaWindowAt(m, sx*w*.28, 4.7, d/2 + .3, 0, .9); } wzaWindowAt(m, 0, 4.7, d/2 + .3, 0, .9);
-  wzaBody(x, gy + 4, z, [w/2 + .3, 4, d/2 + .3], ry);
-  return {w, d};
-}
 function wzaRoofOf(x, z, ry, w, d, key){ const gy = groundH(x, z) - .3, g = new THREE.ConeGeometry(1, 1, 4); uvScale(g, 4, 2.5); const m = new THREE.Matrix4().compose(new THREE.Vector3(x, gy + 7.3, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry + Math.PI/4, 0)), new THREE.Vector3((w + 1.4)*.72, 2.8, (d + 1.4)*.72)); (WZA.batch[key] = WZA.batch[key] || []).push(g.toNonIndexed().applyMatrix4(m)); }
 function wzaLamp(x, z){
   const gy = groundH(x, z); wzaPut(cylUV(.07, .1, 3.2, 6, 1), 'iron', x, gy + 1.6, z); wzaPut(boxUV(.4, .5, .4, 1), 'iron', x, gy + 3.35, z); wzaPut(new THREE.PlaneGeometry(.3, .38), 'window', x, gy + 3.35, z + .21); wzaPut(new THREE.PlaneGeometry(.3, .38), 'window', x, gy + 3.35, z - .21);
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:WZT_TEX.glow(), color:0xFFC870, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending})); sp.position.set(x, gy + 3.35, z); sp.scale.set(3.2, 3.2, 1); sp.userData.noRay = true; roundGroup.add(sp);
 }
 WZT_TEX.glow = () => wzaTex('glow', 64, 64, (g, S) => { const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.25, 'rgba(255,255,255,.5)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, S, S); });
-function wzaChurch(x, z, ry){
-  const gy = groundH(x, z) - .4, m = new THREE.Matrix4().compose(new THREE.Vector3(x, gy, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new THREE.Vector3(1, 1, 1)), P = (geo, key, a, b, c, e, f, g2) => wzaPutIn(geo, key, m, a, b, c, e, f, g2);
-  P(boxUV(9, 8, 17, 3), 'brickS', 0, 4, -2);
-  P(boxUV(4.4, 19, 4.4, 3), 'brickS', 0, 9.5, 7.6); P(coneUV(3.4, 9, 4, 2), 'roofS', 0, 23.5, 7.6, Math.PI/4);
-  for (const [a, px, pz] of [[0, 0, 9.82], [Math.PI, 0, 5.38], [Math.PI/2, 2.22, 7.6], [-Math.PI/2, -2.22, 7.6]]) P(new THREE.CircleGeometry(1.4, 20), 'clock', px, 15.5, pz, a);
-  P(boxUV(2, 3.4, .3, 2), 'wood', 0, 1.7, 9.85); for (const sx of [-1, 1]) for (let k = 0; k < 3; k++) wzaWindowAt(m, sx*4.55, 4.5, -7 + k*4.5, sx*Math.PI/2, 1.3);
-  wzaBody(x, gy + 6, z, [5, 6, 9.5], ry);
-  // the nave roof: a long ridge (a squashed pyramid stretched along the nave)
-  const g = new THREE.ConeGeometry(1, 1, 4); uvScale(g, 6, 3); (WZA.batch.roofS = WZA.batch.roofS || []).push(g.toNonIndexed().applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(0, 0, 0), new THREE.Quaternion(), new THREE.Vector3(1, 1, 1))).applyMatrix4(m.clone().multiply(new THREE.Matrix4().compose(new THREE.Vector3(0, 10.2, -2), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI/4, 0)), new THREE.Vector3(6.6, 4.4, 12.4)))));
-}
 function wzaGrave(x, z, r){ const gy = groundH(x, z), ry = (r() - .5)*.4, tilt = (r() - .5)*.2;
   if (r() < .3) { wzaPut(boxUV(.25, 1.6, .2, 1), 'rock', x, gy + .7, z, ry, tilt); wzaPut(boxUV(.9, .25, .2, 1), 'rock', x, gy + 1.1, z, ry, tilt); }
   else { wzaPut(boxUV(.9, 1, .22, 1), 'rock', x, gy + .45, z, ry, tilt); wzaPut(uvScale(new THREE.CylinderGeometry(.45, .45, .22, 10, 1, false, 0, Math.PI), 1, 1), 'rock', x, gy + .95, z, ry + Math.PI/2, tilt, Math.PI/2); } }
@@ -15574,6 +15545,8 @@ function wzaRoad(pts, w, key){
 /* ---------- the map ---------- */
 function wzaBuildMap(){
   WZA.batch = {}; const r = mulberry32(((G.seed || 1) ^ 0xA77E) >>> 0), keep = [], near = (x, z, R) => keep.some(k => Math.hypot(k[0] - x, k[1] - z) < k[2] + R);
+  WZI.rooms = []; WZI.k = 0; WZI.walls = []; WZI.fires = []; WZI.runes = []; WZI.lifts = []; WZI.crypt = WZI.towerTop = WZI.cave = null;
+  wzaLevel();   /* level the ground under every building first */
   // the plaza and its standing stones
   const pg = new THREE.CircleGeometry(15, 40); pg.rotateX(-Math.PI/2); uvScale(pg, 12, 12); wzaPut(pg, 'plaza', 0, groundH(0, 0) + .06, 0);
   for (let i = 0; i < 9; i++) { const a = i/9*Math.PI*2; wzaRock(Math.cos(a)*16.5, Math.sin(a)*16.5, 1.1, r, true); } keep.push([0, 0, 20]);
@@ -15594,6 +15567,8 @@ function wzaBuildMap(){
   for (let i = 0; i < 4; i++) wzaLamp(i < 2 ? -3 : 3, -60 + (i % 2)*-12);
   // the Bone King's throne, facing the plaza
   wzaThrone(-30, 60, Math.atan2(30, -60)); keep.push([-30, 60, 13]);
+  // a witch's hut, a crypt, a ruined watchtower, a crystal cave
+  wzaPOIs(keep, r);
   // the forest
   let trees = 0, dead = 0, rocks = 0;
   for (let k = 0; k < 2600 && trees < 190; k++) { const x = (r()*2 - 1)*(ISL - 10), z = (r()*2 - 1)*(ISL - 10), cl = Math.sin(x*.035 + 1.3)*Math.cos(z*.03 - .7); if (cl < -.1 || near(x, z, 2.5)) continue; const s = .85 + r()*.6;
@@ -15601,7 +15576,7 @@ function wzaBuildMap(){
   for (let k = 0; k < 600 && rocks < 55; k++) { const x = (r()*2 - 1)*(ISL - 8), z = (r()*2 - 1)*(ISL - 8); if (near(x, z, 2)) continue; wzaRock(x, z, .6 + r()*1.3, r, false); keep.push([x, z, 2]); rocks++; }
   WZA.keep = keep;   /* (the secrets look for free spots) */
   // merge and show
-  const M = wzaMats(); WZA.meshes = [];
+  const M = Object.assign(wzaMats(), wzaMatsIn()); WZA.meshes = [];
   for (const key in WZA.batch) { const list = WZA.batch[key]; if (!list.length || !M[key]) continue; const mesh = new THREE.Mesh(wzaMerge(list), M[key]); mesh.castShadow = key !== 'window' && key !== 'cobble' && key !== 'plaza' && key !== 'clock'; mesh.receiveShadow = true; mesh.userData.noRay = key === 'window' || key === 'clock'; roundGroup.add(mesh); WZA.meshes.push(mesh); }
   WZA.batch = null;
   wzThroneDecor();
@@ -15665,7 +15640,7 @@ function wizBody(team, cdef, rig){
    (host: 'zfrog', they come back elsewhere), fairy rings of glowing mushrooms that heal you, a black cat that vanishes when
    you get close, a ghost wandering the graveyard, ravens that take off, and two ancient chests that grant an Arcane Surge
    (cooldowns halved for 30 s). */
-const WZB_EDGE = 116;
+const WZB_EDGE = 128;
 const WZW = {fog:[], clouds:[], frogs:[], rings:[], cats:null, ghost:null, ravens:[], chests:[], strikeT:6, pushT:0, seen:{}};
 // a free spot (not on a road, a building or a tree)
 const wzaFree = (x, z, r) => Math.abs(x) < WZB_EDGE - 6 && Math.abs(z) < WZB_EDGE - 6 && !(WZA.keep || []).some(k => Math.hypot(k[0] - x, k[1] - z) < k[2] + r);
@@ -15822,7 +15797,7 @@ function wzSecretsFrame(dt){
   if (WZW.surgeT > G.t) for (const k in G.cd) if (WIZ_SK[k] && G.cd[k] > 0) G.cd[k] = Math.max(0, G.cd[k] - dt);   // twice as fast
 }
 function wzWorldBuild(){ wzMistBuild(); wzCloudsBuild(); wzFrogsBuild(); wzSecretsBuild(); wzDiagramsBuild(); WZW.strikeT = 8; WZW.surgeT = 0; WZW.seen = {}; }
-function wzWorldFrame(dt){ if (!WZW.fog.length) return; wzMistFrame(dt); wzRiverFrame(dt); wzDiagramsFrame(dt); wzCloudsFrame(dt); wzFrogsFrame(dt); wzSecretsFrame(dt); }
+function wzWorldFrame(dt){ if (!WZW.fog.length) return; wzMistFrame(dt); wzInteriorFrame(dt); wzRiverFrame(dt); wzDiagramsFrame(dt); wzCloudsFrame(dt); wzFrogsFrame(dt); wzSecretsFrame(dt); }
 
 /* ---------- Wizards creatures, sculpted (no boxes): the wraith, the goblin shaman, the crowned frog, the night animals, bats ---------- */
 const wzSkinTex = (key, base, spot, dots) => wzaTex(key, 128, 128, (g, W, H, r) => { g.fillStyle = base; g.fillRect(0, 0, W, H);
@@ -16143,15 +16118,307 @@ WZT_TEX.scroll = id => wzaTex('scroll' + id, 128, 160, (g, W, H) => { const gr =
 const WZD = {list:[]};
 function wzDiagramsBuild(){
   WZD.list = []; const rng = mulberry32(((G.seed || 1) ^ 0xD1A6) >>> 0), T = WZA.throne;
-  const spots = [T ? [T.x - Math.sin(T.ry)*6.5, T.z - Math.cos(T.ry)*6.5] : wzaSpot(rng, 1), [0, -84], wzaSpot(rng, 1.5, [60, 20, 30]), wzaSpot(rng, 1.5, [84, -72, 10])];
-  ['z_raven', 'z_chains', 'z_drain', 'z_void'].forEach((id, i) => { const [x, z] = spots[i], g = new THREE.Group(), page = new THREE.Mesh(new THREE.PlaneGeometry(.8, 1), new THREE.MeshBasicMaterial({map:WZT_TEX.scroll(id), side:THREE.DoubleSide, transparent:true}));
+  const spots = [T ? [T.x - Math.sin(T.ry)*6.5, T.z - Math.cos(T.ry)*6.5] : wzaSpot(rng, 1), WZI.crypt || [0, -84], WZI.towerTop || wzaSpot(rng, 1.5, [60, 20, 30]), WZI.cave || wzaSpot(rng, 1.5, [84, -72, 10])];
+  ['z_raven', 'z_chains', 'z_drain', 'z_void'].forEach((id, i) => { const [x, z, y] = spots[i], g = new THREE.Group(), page = new THREE.Mesh(new THREE.PlaneGeometry(.8, 1), new THREE.MeshBasicMaterial({map:WZT_TEX.scroll(id), side:THREE.DoubleSide, transparent:true}));
     g.add(page); const gl = wzGlowSprite(WIZ_SK[id].col, 2.4); g.add(gl); const beam = new THREE.Mesh(new THREE.CylinderGeometry(.25, .5, 14, 10, 1, true), new THREE.MeshBasicMaterial({color:WIZ_SK[id].col, transparent:true, opacity:.12, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide})); beam.position.y = 6.5; g.add(beam);
-    noRayAll(g); g.position.set(x, groundH(x, z) + 1.3, z); roundGroup.add(g); WZD.list.push({id, g, page, x, z, y0:g.position.y, taken:false}); });
+    noRayAll(g); g.position.set(x, (y != null ? y : groundH(x, z)) + 1.3, z); roundGroup.add(g); WZD.list.push({id, g, page, x, z, y0:g.position.y, taken:false}); });
 }
 function wzDiagramsFrame(dt){
   const me = localP(); for (const D of WZD.list) { if (D.taken) continue; D.g.rotation.y += dt*.8; D.g.position.y = D.y0 + Math.sin(G.t*1.8 + D.x)*.15;
-    if (me && me.alive !== false && Math.hypot(me.body.position.x - D.x, me.body.position.z - D.z) < 1.9) { D.taken = true; D.g.visible = false; WZ.known[D.id] = true; const d = WIZ_SK[D.id]; sfx('holy'); sparkle(D.g.position, d.col);
+    if (me && me.alive !== false && Math.hypot(me.body.position.x - D.x, me.body.position.z - D.z) < 1.9 && Math.abs(me.body.position.y + 1.3 - D.y0) < 2.5) { D.taken = true; D.g.visible = false; WZ.known[D.id] = true; const d = WIZ_SK[D.id]; sfx('holy'); sparkle(D.g.position, d.col);
       toast(`📜 A secret diagram: ${d.e} ${d.name}! Press ${d.key} to draw it.`); renderTray(); } }
+}
+
+/* ---------- Wizards: buildings you can walk into. Houses, the church and the castle keeps are hollow shells (every wall its
+   own static box, a doorway in front) with furnished rooms inside; the castle halls have a rune lift up to battlements you can
+   walk on. More places off the roads: a witch's hut, a crypt behind the church, a ruined watchtower, a crystal cave (three of
+   the secret diagrams hide in them). The camera keeps inside the walls (wzaBoom, from cameraBoom). ---------- */
+const WZI = {walls:[], fires:[], runes:[], lifts:[], rooms:[], k:0, amb:null, crypt:null, towerTop:null, cave:null};
+const wzaM4 = (x, y, z, ry, s) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry || 0, 0)), new THREE.Vector3(s || 1, s || 1, s || 1));
+const wzaSub = (m, x, z, ry) => m.clone().multiply(wzaM4(x, 0, z, ry));
+WZT_TEX.rose = () => wzaTex('rose', 128, 128, (g, S) => {
+  g.fillStyle = '#120C08'; g.fillRect(0, 0, S, S); const c = S/2, cols = ['#C8283A', '#2A5AD8', '#E8B830', '#8A3AD0', '#2AA868', '#D85A20'];
+  for (let i = 0; i < 12; i++) { const a0 = i/12*Math.PI*2, a1 = (i + 1)/12*Math.PI*2; g.beginPath(); g.moveTo(c, c); g.arc(c, c, c - 4, a0 + .03, a1 - .03); g.closePath(); g.fillStyle = cols[i % cols.length]; g.fill();
+    g.beginPath(); g.arc(c + Math.cos((a0 + a1)/2)*c*.62, c + Math.sin((a0 + a1)/2)*c*.62, c*.13, 0, 7); g.fillStyle = cols[(i + 2) % cols.length]; g.fill(); }
+  g.beginPath(); g.arc(c, c, c*.24, 0, 7); g.fillStyle = '#F0D060'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#120C08'; for (let k = 1; k <= 3; k++) { g.beginPath(); g.arc(c, c, c*k/3.3, 0, 7); g.stroke(); }
+});
+function wzaMatsIn(){
+  const T = WZT_TEX, B = c => new THREE.MeshBasicMaterial({color:c});
+  return {
+    floor: wzaMat('floor', () => wzaLam(T.wood(), {color:0xC8A880})), stone: wzaMat('stone', () => wzaLam(T.cobble(), {color:0xA8A2C0})),
+    rug: wzaMat('rug', () => wzaLam(T.cloth(0x7A1A2A, 0xC9A24A))), banner: wzaMat('banner', () => wzaLam(T.cloth(0x3A1A6A, 0xC9A24A), {side:THREE.DoubleSide})),
+    cloth: wzaMat('cloth', () => wzaLam(T.cloth(0x2A3A6A, 0xB8A070))), linen: wzaMat('linen', () => new THREE.MeshLambertMaterial({color:0xD8D0C0})),
+    fire: wzaMat('fire', () => B(0xFF8A2A)), candle: wzaMat('candle', () => B(0xFFF2D0)), potG: wzaMat('potG', () => B(0x5AFF7A)), potP: wzaMat('potP', () => B(0xC070FF)), potB: wzaMat('potB', () => B(0x60B0FF)),
+    glass: wzaMat('glass', () => new THREE.MeshBasicMaterial({map:T.rose()})), crystal: wzaMat('crystal', () => new THREE.MeshLambertMaterial({color:0x8AE8FF, emissive:0x2A9AD0})),
+    rock2: wzaMat('rock2', () => wzaLam(T.rock(), {side:THREE.DoubleSide}))
+  };
+}
+// a static box in a building's frame (m may be scaled); cam: the camera stays out of it too
+function wzaSolid(m, lx, ly, lz, sx, sy, sz, cam){
+  const e = m.elements, sc = Math.hypot(e[0], e[1], e[2]), ry = Math.atan2(-e[2], e[0]), p = new THREE.Vector3(lx, ly, lz).applyMatrix4(m), hx = sx*sc/2, hy = sy*sc/2, hz = sz*sc/2;
+  wzaBody(p.x, p.y, p.z, [hx, hy, hz], ry);
+  if (cam) WZI.walls.push({x:p.x, y:p.y, z:p.z, hx, hy, hz, c:Math.cos(ry), s:Math.sin(ry), R:Math.hypot(hx, hz)});
+}
+function wzaZone(m, lx, ly, lz, sx, sy, sz){ const e = m.elements, sc = Math.hypot(e[0], e[1], e[2]), ry = Math.atan2(-e[2], e[0]), p = new THREE.Vector3(lx, ly, lz).applyMatrix4(m); WZI.rooms.push({x:p.x, y:p.y, z:p.z, hx:sx*sc/2, hy:sy*sc/2, hz:sz*sc/2, c:Math.cos(ry), s:Math.sin(ry)}); }
+const wzaWallBox = (m, key, tile, lx, y0, y1, lz, sx, sz, cam) => { const sy = y1 - y0; wzaPutIn(boxUV(sx, sy, sz, tile), key, m, lx, y0 + sy/2, lz); wzaSolid(m, lx, y0 + sy/2, lz, sx, sy, sz, cam !== false); };
+// a wall along x at lz (width w) with a doorway dw x dh centred at dx
+function wzaDoorWall(m, key, tile, lz, w, y0, y1, t, dw, dh, dx){
+  const L = w/2 + dx - dw/2, R = w/2 - dx - dw/2;
+  if (L > .05) wzaWallBox(m, key, tile, -w/2 + L/2, y0, y1, lz, L, t);
+  if (R > .05) wzaWallBox(m, key, tile, w/2 - R/2, y0, y1, lz, R, t);
+  wzaWallBox(m, key, tile, dx, dh, y1, lz, dw, t);
+}
+// four walls, the door in the front (+z)
+function wzaRoom(m, key, tile, w, d, y0, H, t, dw, dh, dx){
+  wzaDoorWall(m, key, tile, d/2 - t/2, w, y0, H, t, dw, dh, dx || 0);
+  wzaWallBox(m, key, tile, 0, y0, H, -d/2 + t/2, w - 2*t, t);
+  for (const s of [-1, 1]) wzaWallBox(m, key, tile, s*(w/2 - t/2), y0, H, 0, t, d);
+}
+// a slab with a square hatch (x a0..a1, z b0..b1)
+function wzaSlabHole(m, key, tile, w, d, y0, y1, a0, a1, b0, b1){
+  const box = (x0, x1, z0, z1) => { if (x1 - x0 > .05 && z1 - z0 > .05) wzaWallBox(m, key, tile, (x0 + x1)/2, y0, y1, (z0 + z1)/2, x1 - x0, z1 - z0); };
+  box(-w/2, w/2, b1, d/2); box(-w/2, w/2, -d/2, b0); box(-w/2, a0, b0, b1); box(a1, w/2, b0, b1);
+}
+function wzaGlowIn(m, lx, ly, lz, col, size, flicker){ const p = new THREE.Vector3(lx, ly, lz).applyMatrix4(m), sp = wzGlowSprite(col, size); sp.position.copy(p); roundGroup.add(sp); if (flicker) { sp.userData.k = size; WZI.fires.push(sp); } return sp; }
+// furniture (metres, in an unscaled frame)
+function wzaHearth(m, x, z, ry, W, top){
+  const mm = wzaSub(m, x, z, ry), P = (g, k, a, b, c, e, f, h) => wzaPutIn(g, k, mm, a, b, c, e, f, h);
+  for (const s of [-1, 1]) P(boxUV(.36, 1.3, .8, 1), 'rock', s*(W/2 - .18), .65, 0); P(boxUV(W + .2, .25, .9, 1), 'rock', 0, 1.42, 0); P(boxUV(W - .36, 1.2, .1, 1), 'iron', 0, .6, -.35);
+  if (top > 1.6) P(boxUV(W*.7, top - 1.55, .6, 1), 'rock', 0, 1.55 + (top - 1.55)/2, -.1);
+  for (const s of [-1, 1]) P(cylUV(.08, .08, W*.5, 6, 1), 'wood', s*.06, .12, -.05 + s*.08, .3*s, 0, Math.PI/2);
+  for (let i = 0; i < 3; i++) P(coneUV(.14 + (i % 2)*.05, .45 + (i % 2)*.15, 6, 1), 'fire', (i - 1)*.18, .38, 0);
+  wzaGlowIn(mm, 0, .55, .1, 0xFF8A3A, 2.6, true); wzaSolid(mm, 0, .7, -.05, W + .2, 1.4, .9, false);
+}
+function wzaBed(m, x, z, ry){
+  const mm = wzaSub(m, x, z, ry), P = (g, k, a, b, c) => wzaPutIn(g, k, mm, a, b, c);
+  P(boxUV(1.1, .4, 2.1, 1), 'wood', 0, .2, 0); P(boxUV(1.05, .14, 1.55, 1), 'cloth', 0, .47, .25); P(boxUV(.8, .12, .38, 1), 'linen', 0, .46, -.75); P(boxUV(1.1, .9, .1, 1), 'wood', 0, .45, -1.05);
+  wzaSolid(mm, 0, .3, 0, 1.1, .6, 2.1, false);
+}
+function wzaTableSet(m, x, z, ry, L, glow){
+  const mm = wzaSub(m, x, z, ry), P = (g, k, a, b, c) => wzaPutIn(g, k, mm, a, b, c);
+  P(boxUV(L, .1, .85, 1), 'wood', 0, .8, 0); for (const sx of [-1, 1]) for (const sz of [-1, 1]) P(boxUV(.09, .76, .09, 1), 'wood', sx*(L/2 - .1), .38, sz*.32);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) P(cylUV(.22, .19, .46, 8, 1), 'wood', sx*L*.28, .23, sz*.75);
+  P(cylUV(.04, .045, .2, 6, 1), 'candle', 0, .95, 0); if (glow) wzaGlowIn(mm, 0, 1.12, 0, 0xFFC870, 1.5, true);
+  wzaSolid(mm, 0, .42, 0, L, .85, .85, false);
+}
+function wzaShelf(m, x, z, ry, r){
+  const mm = wzaSub(m, x, z, ry), P = (g, k, a, b, c) => wzaPutIn(g, k, mm, a, b, c), pots = ['potG', 'potP', 'potB'], books = ['rug', 'cloth', 'banner'];
+  for (const y of [1.1, 1.6]) { P(boxUV(1.4, .05, .3, 1), 'wood', 0, y, 0);
+    for (let i = 0; i < 5; i++) { const px = -.55 + i*.27 + (r() - .5)*.06; if (r() < .55) P(cylUV(.06, .075, .2 + r()*.08, 6, 1), pots[Math.floor(r()*3)], px, y + .13, 0); else P(boxUV(.08, .26, .2, 1), books[Math.floor(r()*3)], px, y + .155, 0); } }
+  for (const s of [-1, 1]) P(boxUV(.05, .7, .3, 1), 'wood', s*.68, 1.3, 0);
+}
+function wzaBarrel(m, x, z){
+  const mm = wzaSub(m, x, z, 0), P = (g, k, a, b, c) => wzaPutIn(g, k, mm, a, b, c);
+  P(cylUV(.34, .3, .85, 10, 1), 'wood', 0, .43, 0); for (const y of [.2, .66]) P(cylUV(.355, .345, .05, 10, 1, true), 'iron', 0, y, 0);
+  wzaSolid(mm, 0, .43, 0, .62, .86, .62, false);
+}
+function wzaChandelier(m, x, y, z, top, R){
+  const mm = wzaSub(m, x, z, 0), P = (g, k, a, b, c, e, f) => wzaPutIn(g, k, mm, a, b, c, e, f);
+  P(new THREE.TorusGeometry(R, .05, 4, 16), 'iron', 0, y, 0, 0, Math.PI/2); P(cylUV(.025, .025, top - y, 4, 1), 'iron', 0, y + (top - y)/2, 0);
+  for (let i = 0; i < 8; i++) { const a = i/8*Math.PI*2; P(cylUV(.035, .04, .16, 5, 1), 'candle', Math.cos(a)*R, y + .1, Math.sin(a)*R); }
+  wzaGlowIn(mm, 0, y + .2, 0, 0xFFC870, 2.5 + R*3, true);
+}
+function wzaPew(m, x, z){
+  const mm = wzaSub(m, x, z, 0), P = (g, k, a, b, c) => wzaPutIn(g, k, mm, a, b, c);
+  P(boxUV(3, .08, .48, 1), 'wood', 0, .46, 0); P(boxUV(3, .55, .07, 1), 'wood', 0, .8, .24); for (const s of [-1, 1]) P(boxUV(.07, .46, .45, 1), 'wood', s*1.45, .23, 0);
+  wzaSolid(mm, 0, .45, .02, 3, .9, .55, false);
+}
+// a glowing rune on the floor (it turns slowly)
+function wzaRuneAt(p, id, col, size){
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshBasicMaterial({map:wzTex(id, col), transparent:true, opacity:.9, depthWrite:false, blending:THREE.AdditiveBlending}));
+  m.rotation.x = -Math.PI/2; m.position.copy(p); m.userData.noRay = true; roundGroup.add(m);
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(size*.3, size*.36, 3, 16, 1, true), new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:.1, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide}));
+  beam.position.set(p.x, p.y + 1.5, p.z); beam.userData.noRay = true; roundGroup.add(beam); WZI.runes.push(m); return m;
+}
+// a rune lift: stand on the rune to float up through the hatch; the violet rune up there floats you back down
+function wzaLift(m, ux, uz, ax, az, dx, dz, top, r){
+  const W = (lx, ly, lz) => new THREE.Vector3(lx, ly, lz).applyMatrix4(m), u = W(ux, 0, uz), t = W(ux, top, uz), a = W(ax, top, az), d = W(dx, top, dz);
+  wzaRuneAt(V3(u.x, u.y + .07, u.z), 'z_wind', 0x7FDFFF, 2.4); wzaRuneAt(V3(d.x, d.y + .07, d.z), 'z_ward', 0xB48CFF, (r || .9)*2.2);
+  WZI.lifts.push({ux:u.x, uz:u.z, uy:u.y, top:t.y, ax:a.x, az:a.z, dx:d.x, dz:d.z, r:r || .9, armed:true, st:null});
+}
+/* ---------- the buildings ---------- */
+function wzaHouse(x, z, ry, r){
+  const gy = groundH(x, z), w = 6.4 + r()*1.2, d = 5.4 + r()*.8, H = 3, t = .3, m = wzaM4(x, gy, z, ry), P = (g, k, a, b, c, e, f, h) => wzaPutIn(g, k, m, a, b, c, e, f, h), mx = r() < .5 ? 1 : -1, IW = w/2 - t, ID = d/2 - t;
+  wzaRoom(m, 'brickS', 2.5, w, d, -.4, H, t, 1.4, 2.3, 0); wzaZone(m, 0, H/2, 0, w, H, d);
+  P(boxUV(w + .5, 3, d + .5, 3), 'timber', 0, H + 1.4, 0); wzaSolid(m, 0, H + 1.4, 0, w + .5, 3, d + .5, true);
+  P(boxUV(.9, 3, .9, 2), 'brickS', mx*w*.3, 7.7, -d*.2);
+  P(boxUV(1.7, .2, .42, 1), 'wood', 0, 2.4, d/2 - .15); P(boxUV(1.3, 2.25, .08, 1), 'wood', -.74, 1.12, ID - .65, Math.PI/2);   // the lintel, the door left open
+  for (const sx of [-1, 1]) { wzaWindowAt(m, sx*w*.3, 1.7, d/2 + .02, 0, .8); wzaWindowAt(m, sx*w*.3, 1.7, ID - .02, Math.PI, .8); wzaWindowAt(m, sx*w*.28, 4.6, d/2 + .27, 0, .9);
+    wzaWindowAt(m, sx*(w/2 + .02), 1.7, .3, sx*Math.PI/2, .8); wzaWindowAt(m, sx*(IW - .02), 1.7, .3, -sx*Math.PI/2, .8); }
+  wzaWindowAt(m, 0, 4.6, d/2 + .27, 0, .9);
+  // inside: a plank floor, a hearth under the chimney, a bed, a table by the window, a shelf of potions, a barrel
+  P(boxUV(2*IW, .06, 2*ID, 1.2), 'floor', 0, .03, 0); P(boxUV(2, .02, 1.4, 2), 'rug', -mx*.4, .07, .3);
+  wzaHearth(m, mx*w*.3, -ID + .45, 0, 1.5, H);
+  wzaBed(m, -mx*(IW - .58), -ID + 1.08, 0);
+  wzaTableSet(m, mx*(IW - 1.05), ID - 1.15, 0, 1.3, true);
+  wzaShelf(m, mx*(IW - .17), -.35, -mx*Math.PI/2, r);
+  wzaBarrel(m, -mx*(IW - .42), ID - .42);
+  return {w, d};
+}
+function wzaChurch(x, z, ry){
+  const gy = groundH(x, z), m = wzaM4(x, gy, z, ry), P = (g, k, a, b, c, e, f, h) => wzaPutIn(g, k, m, a, b, c, e, f, h), t = .45, nz0 = -10.5, nz1 = 5.4, nc = (nz0 + nz1)/2, nd = nz1 - nz0, H = 8;
+  // the nave: back, sides, the front beside the tower, a ceiling
+  wzaWallBox(m, 'brickS', 3, 0, -.4, H, nz0 + t/2, 9 - 2*t, t); for (const s of [-1, 1]) { wzaWallBox(m, 'brickS', 3, s*(4.5 - t/2), -.4, H, nc, t, nd); wzaWallBox(m, 'brickS', 3, s*3.35, -.4, H, nz1 - t/2, 2.3, t); }
+  wzaWallBox(m, 'wood', 2, 0, H, H + .3, nc, 9, nd); wzaZone(m, 0, H/2, nc, 9, H, nd); wzaZone(m, 0, 2.3, 7.6, 4.4, 4.6, 4.4);
+  // the bell tower: an arch into the nave, the door out front, a floor above the entrance
+  wzaDoorWall(m, 'brickS', 3, 5.4 + t/2, 4.4, -.4, 19, t, 2, 3.4, 0); wzaDoorWall(m, 'brickS', 3, 9.8 - t/2, 4.4, -.4, 19, t, 2, 3.4, 0);
+  for (const s of [-1, 1]) wzaWallBox(m, 'brickS', 3, s*(2.2 - t/2), -.4, 19, 7.6, t, 4.4 - 2*t);
+  wzaWallBox(m, 'wood', 1.5, 0, 4.4, 4.7, 7.6, 4.4 - 2*t, 4.4 - 2*t); P(coneUV(3.4, 9, 4, 2), 'roofS', 0, 23.5, 7.6, Math.PI/4); P(boxUV(4.4, .4, 4.4, 3), 'brickS', 0, 18.8, 7.6);
+  for (const [a, px, pz] of [[0, 0, 9.82], [Math.PI, 0, 5.38], [Math.PI/2, 2.22, 7.6], [-Math.PI/2, -2.22, 7.6]]) P(new THREE.CircleGeometry(1.4, 20), 'clock', px, 15.5, pz, a);
+  for (const s of [-1, 1]) P(boxUV(1, 3.4, .1, 1), 'wood', s*1.06, 1.7, 9.8 - t - .52, Math.PI/2);
+  for (const sx of [-1, 1]) for (let k = 0; k < 3; k++) { wzaWindowAt(m, sx*4.52, 4.5, -7.5 + k*4.5, sx*Math.PI/2, 1.3); wzaWindowAt(m, sx*(4.5 - t - .02), 4.5, -7.5 + k*4.5, -sx*Math.PI/2, 1.3); }
+  // the nave roof: a long ridge
+  const g = new THREE.ConeGeometry(1, 1, 4); uvScale(g, 6, 3); (WZA.batch.roofS = WZA.batch.roofS || []).push(g.toNonIndexed().applyMatrix4(m.clone().multiply(new THREE.Matrix4().compose(new THREE.Vector3(0, H + 2.2, nc), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI/4, 0)), new THREE.Vector3(6.6, 4.4, nd*.73)))));
+  // inside: stone floor, the aisle, pews, the altar under a rose window, two chandeliers
+  P(boxUV(9 - 2*t, .06, nd + 4.4 - 2*t, 2), 'stone', 0, .03, nc + 2.2); P(boxUV(1.3, .02, 13.4, 1.3), 'rug', 0, .07, -1.9);
+  for (let k = 0; k < 6; k++) for (const s of [-1, 1]) wzaPew(m, s*2.25, 3 - k*1.55);
+  const az = nz0 + t + 1.5; P(boxUV(2.6, 1.05, 1, 1.5), 'rock', 0, .52, az); P(boxUV(2.7, .04, 1.1, 1.3), 'rug', 0, 1.07, az); wzaSolid(m, 0, .52, az, 2.6, 1.05, 1, false);
+  for (let i = 0; i < 5; i++) P(cylUV(.04, .045, .14 + (i % 2)*.1, 6, 1), 'candle', -.9 + i*.45, 1.17, az - .2); wzaGlowIn(m, 0, 1.5, az, 0xFFC870, 3.6, true);
+  for (const s of [-1, 1]) { P(cylUV(.05, .12, 1.5, 6, 1), 'iron', s*1.9, .75, az); P(cylUV(.05, .05, .25, 6, 1), 'candle', s*1.9, 1.62, az); }
+  P(new THREE.CircleGeometry(1.7, 24), 'glass', 0, 5.2, nz0 + t + .02); P(new THREE.CircleGeometry(1.7, 24), 'glass', 0, 5.2, nz0 - .02, Math.PI); wzaGlowIn(m, 0, 5.2, nz0 + t + .4, 0xC8A0FF, 4.5, false);
+  wzaChandelier(m, 0, 6, -1, H, .8); wzaChandelier(m, 0, 6, -6, H, .8);
+}
+function wzaCastle(cx, cz, style, s){
+  const brick = ['brickP', 'brickS', 'brickB'][style], roof = ['roofP', 'roofS', 'roofG'][style], gy = groundH(cx, cz), ry = Math.atan2(-cx, -cz), t = .6, H = 10.4;
+  const m = wzaM4(cx, gy, cz, ry, s), mU = wzaM4(cx, gy, cz, ry), P = (g, k, x, y, z, a, b, c) => wzaPutIn(g, k, m, x, y, z, a, b, c), U = (g, k, x, y, z, a, b, c) => wzaPutIn(g, k, mU, x, y, z, a, b, c);
+  // the great hall: hollow, a tall gate in front; the roof is a walkway with a hatch above the lift and battlements all round
+  wzaRoom(m, brick, 3, 14, 10, -.3, H, t, 3.6, 5.2, 0); wzaZone(m, 0, H/2, 0, 14, H, 10);
+  wzaSlabHole(m, brick, 3, 14, 10, H, 11, -5.7, -3.3, -3.7, -1.3);
+  for (let i = -6.2; i <= 6.3; i += 1.55) for (const zz of [4.6, -4.6]) P(boxUV(.9, 1, .9, 3), brick, i, 11.5, zz);
+  for (let k = -2.6; k <= 2.7; k += 1.3) for (const xx of [-6.6, 6.6]) P(boxUV(.9, 1, .9, 3), brick, xx, 11.5, k);
+  for (const zz of [4.6, -4.6]) wzaSolid(m, 0, 11.5, zz, 13.2, 1, .9, false); for (const xx of [-6.6, 6.6]) wzaSolid(m, xx, 11.5, 0, .9, 1, 9.2, false);
+  // towers: four at the corners, a tall one rising from the roof, two turrets
+  for (const [x, z] of [[-7, 5], [7, 5], [-7, -5], [7, -5]]) { P(cylUV(2.3, 2.6, 16, 12, 3), brick, x, 8, z); P(cylUV(2.85, 2.85, .9, 12, 3), brick, x, 16.4, z); P(coneUV(3.2, 7.5, 12, 2), roof, x, 20.6, z);
+    for (let k = 0; k < 3; k++) { const a = Math.atan2(x, z) + (k - 1)*.6; wzaWindowAt(m, x + Math.sin(a)*2.42, 6 + k*3.5, z + Math.cos(a)*2.42, a); }
+    wzaSolid(m, x, 8.2, z, 4.6, 16.4, 3.4, true); wzaSolid(m, x, 8.2, z, 3.4, 16.4, 4.6, false); }
+  P(cylUV(2, 2.2, 15, 12, 3), brick, 0, 18.5, -3); P(cylUV(2.5, 2.5, .8, 12, 3), brick, 0, 26.3, -3); P(coneUV(2.8, 11, 12, 2), roof, 0, 32.2, -3); for (let k = 0; k < 4; k++) wzaWindowAt(m, 0, 15 + k*2.6, -3 + 2.12, 0, .8);
+  wzaSolid(m, 0, 18.5, -3, 4.2, 15, 3, true); wzaSolid(m, 0, 18.5, -3, 3, 15, 4.2, false);
+  for (const x of [-3.6, 3.6]) { P(cylUV(1.1, 1.2, 5, 10, 3), brick, x, 13.5, 2); P(coneUV(1.5, 4, 10, 2), roof, x, 17.9, 2); wzaSolid(m, x, 13.5, 2, 2.2, 5, 2.2, false); }
+  for (let i = 0; i < 5; i++) for (let j = 0; j < 2; j++) if (i !== 2 || j) { wzaWindowAt(m, -5 + i*2.5, 3.8 + j*3.6, 5.05, 0); wzaWindowAt(m, -5 + i*2.5, 3.8 + j*3.6, 5 - t - .02, Math.PI); }
+  for (const sx of [-1, 1]) for (const zz of [-1.6, 1.6]) { wzaWindowAt(m, sx*7.02, 7, zz, sx*Math.PI/2); wzaWindowAt(m, sx*(7 - t - .02), 7, zz, -sx*Math.PI/2); }
+  for (const sx of [-1, 1]) P(boxUV(1.8, 5.2, .2, 1.5), 'wood', sx*1.75, 2.6, 5 - t - .95, Math.PI/2);   // the gate, thrown open
+  // inside (metres): stone floor, a carpet up to the throne, pillars, a banquet table, fireplaces, banners, chandeliers
+  const HW = (7 - t)*s, HD = (5 - t)*s, HH = H*s;
+  U(boxUV(2*HW, .06, 2*HD, 2), 'stone', 0, .03, 0); U(boxUV(2.4, .03, 2*HD - 2.6, 2.4), 'rug', 0, .08, 1.3);
+  U(boxUV(4, .4, 2.6, 1.5), 'stone', 0, .2, -HD + 1.3); wzaSolid(mU, 0, .2, -HD + 1.3, 4, .4, 2.6, false);
+  U(boxUV(1.3, .7, 1.1, 1), 'wood', 0, .75, -HD + 1.25); U(boxUV(1.3, 2.6, .25, 1), 'wood', 0, 1.7, -HD + .72); U(boxUV(1.1, .12, .9, 1), 'rug', 0, 1.16, -HD + 1.3); wzaSolid(mU, 0, 1, -HD + 1.1, 1.3, 1.2, 1.2, false);
+  for (const sx of [-1, 1]) { U(new THREE.PlaneGeometry(1.8, 5), 'banner', sx*3.2, HH*.62, -HD + .04); U(new THREE.PlaneGeometry(1.6, 4.4), 'banner', sx*(HW - .04), HH*.6, -HD*.45, -sx*Math.PI/2); }
+  for (const sx of [-1, 1]) for (const zz of [-1, 2.5]) { U(cylUV(.5, .55, HH, 10, 2), brick, sx*5*s, HH/2, zz*s); wzaSolid(mU, sx*5*s, HH/2, zz*s, 1, HH, 1, true); }
+  wzaTableSet(mU, 4, 0, Math.PI/2, Math.min(7, 2*HD - 5), true);
+  for (const sx of [-1, 1]) wzaHearth(mU, sx*(HW - .45), HD*.25, -sx*Math.PI/2, 2.6, 3.4);
+  for (const zz of [-2, 1.5]) wzaChandelier(mU, 0, HH - 4.5, zz*s, HH, 1.3);
+  wzaLift(m, -4.5, -2.5, -1.2, 1.2, -5.4, .6, 11, .9);
+}
+/* ---------- more places to find ---------- */
+function wzaWitchHut(x, z, r){
+  const gy = groundH(x, z), ry = Math.atan2(-x, -z), m = wzaM4(x, gy, z, ry), P = (g, k, a, b, c, e, f, h) => wzaPutIn(g, k, m, a, b, c, e, f, h), N = 10, R = 3.2, H = 2.8, sw = 2*R*Math.sin(Math.PI/N) + .14;
+  for (let i = 0; i < N; i++) { const a = i/N*Math.PI*2, mm = wzaSub(m, Math.sin(a)*R, Math.cos(a)*R, a); if (i) wzaWallBox(mm, 'wood', 1.2, 0, -.4, H, 0, sw, .35); else wzaWallBox(mm, 'wood', 1.2, 0, 2.2, H, 0, sw, .35); }
+  wzaZone(m, 0, H/2, 0, 2*R, H, 2*R);
+  P(coneUV(4.4, 3.8, 10, 2), 'roofG', 0, H + 1.8, 0, 0, .06, .05); P(new THREE.CircleGeometry(R, 10), 'wood', 0, H - .02, 0, 0, Math.PI/2); wzaSolid(m, 0, H + .3, 0, 2*R, .6, 2*R, true);
+  for (const a of [1.885, -1.885]) wzaWindowAt(m, Math.sin(a)*(R + .19), 1.6, Math.cos(a)*(R + .19), a, .6);
+  // the cauldron, bubbling green over a fire
+  P(cylUV(.72, .5, .8, 12, 1), 'iron', 0, .52, 0); P(new THREE.TorusGeometry(.72, .06, 5, 14), 'iron', 0, .92, 0, 0, Math.PI/2); P(new THREE.CircleGeometry(.66, 14), 'potG', 0, .86, 0, 0, -Math.PI/2);
+  for (let i = 0; i < 3; i++) { const a = i/3*Math.PI*2; P(coneUV(.12, .35, 5, 1), 'fire', Math.cos(a)*.3, .18, Math.sin(a)*.3); }
+  wzaGlowIn(m, 0, 1.1, 0, 0x5AFF7A, 3, true); wzaSolid(m, 0, .45, 0, 1.4, .9, 1.4, false);
+  wzaShelf(m, 0, -R + .45, 0, r); wzaShelf(wzaSub(m, 0, 0, 1.25), 0, -R + .45, 0, r);
+  for (let i = 0; i < 9; i++) { const a = r()*Math.PI*2, d = 1 + r()*1.6; P(coneUV(.1, .45, 5, 1), r() < .5 ? 'pineA' : 'pineB', Math.cos(a)*d, H - .35, Math.sin(a)*d, 0, Math.PI); }
+  P(cylUV(.03, .03, 1.4, 5, 1), 'wood', -2.2, .7, .9, 0, 0, .25); P(coneUV(.2, .45, 6, 1), 'pineB', -2.37, .18, .9, 0, 0, .25);
+  wzaBed(m, 2.1, -.2, .35);
+}
+function wzaCrypt(x, z, r){
+  const gy = groundH(x, z), m = wzaM4(x, gy, z, 0), P = (g, k, a, b, c, e, f, h, sx, sy, sz) => wzaPutIn(g, k, m, a, b, c, e, f, h, sx, sy, sz), w = 6, d = 8, H = 4, t = .5;
+  wzaRoom(m, 'rock', 2, w, d, -.4, H, t, 1.6, 2.6, 0); wzaZone(m, 0, H/2, 0, w, H, d);
+  P(boxUV(w + .6, .5, d + .6, 2), 'rock', 0, H + .25, 0); wzaSolid(m, 0, H + .25, 0, w + .6, .5, d + .6, true);
+  const gable = cylUV(3.81, 3.81, d + .6, 3, 2); gable.rotateX(-Math.PI/2); P(gable, 'rock', 0, H + .5 + 3.81*.5*.3, 0, 0, 0, 0, 1, .3, 1);
+  P(boxUV(.2, 1.1, .2, 1), 'rock', 0, H + 2.4, d/2 + .1); P(boxUV(.7, .2, .2, 1), 'rock', 0, H + 2.6, d/2 + .1);
+  for (const s of [-1, 1]) { P(cylUV(.28, .32, H, 8, 2), 'rock', s*1.5, H/2, d/2 + .45); wzaSolid(m, s*1.5, H/2, d/2 + .45, .6, H, .6, false); }
+  // inside: a stone coffin, candles, bones
+  P(boxUV(w - 2*t, .06, d - 2*t, 2), 'stone', 0, .03, 0);
+  P(boxUV(1.2, .85, 2.4, 1.5), 'rock', 0, .42, -1.4); P(boxUV(1.35, .16, 2.55, 1.5), 'rock', 0, .93, -1.4); wzaSolid(m, 0, .5, -1.4, 1.35, 1, 2.55, false);
+  for (const s of [-1, 1]) { P(cylUV(.06, .07, .35, 6, 1), 'candle', s*1.9, .18, -3); P(cylUV(.05, .06, .22, 6, 1), 'candle', s*2.1, .11, -2.6); wzaGlowIn(m, s*1.95, .55, -2.85, 0xFFB050, 1.8, true); }
+  for (let i = 0; i < 7; i++) P(cylUV(.035, .035, .35 + r()*.2, 5, 1), 'linen', (r() - .5)*3.6, .05, (r() - .5)*5, r()*3, 0, Math.PI/2);
+  WZI.crypt = [x, z + 1.6];
+}
+function wzaWatchtower(x, z, r){
+  const gy = groundH(x, z), ry = Math.atan2(-x, -z), m = wzaM4(x, gy, z, ry), P = (g, k, a, b, c, e, f, h) => wzaPutIn(g, k, m, a, b, c, e, f, h), w = 6, H = 13, t = .5;
+  wzaRoom(m, 'brickS', 3, w, w, -.4, H, t, 1.4, 2.5, 0); wzaZone(m, 0, H/2, 0, w, H, w);
+  wzaSlabHole(m, 'brickS', 3, w, w, H, H + .4, -1, 1, -2.5, -.5);
+  for (let i = -2.75; i <= 2.8; i += 1.1) for (const [px, pz] of [[i, 2.75], [i, -2.75], [2.75, i], [-2.75, i]]) if (r() < .72) P(boxUV(.55, .9 + r()*.2, .55, 3), 'brickS', px, H + .85, pz);
+  for (const [px, pz, sx, sz] of [[0, 2.75, 6, .5], [0, -2.75, 6, .5], [2.75, 0, .5, 6], [-2.75, 0, .5, 6]]) wzaSolid(m, px, H + .85, pz, sx, .9, sz, false);
+  for (const y of [4, 8, 11]) for (const [px, pz, a] of [[3.02, 0, Math.PI/2], [-3.02, 0, -Math.PI/2], [0, -3.02, Math.PI]]) wzaWindowAt(m, px, y, pz, a, .5);
+  // a green brazier on top; crates and a torch below
+  P(cylUV(.5, .25, .8, 8, 1), 'iron', 1.6, H + .8, 1.6); P(coneUV(.3, .6, 6, 1), 'fire', 1.6, H + 1.4, 1.6); wzaGlowIn(m, 1.6, H + 1.6, 1.6, 0x5AFF8A, 4, true); wzaSolid(m, 1.6, H + .8, 1.6, .9, .8, .9, false);
+  P(boxUV(w - 2*t, .06, w - 2*t, 2), 'stone', 0, .03, 0); wzaBarrel(m, 1.8, 1.7); wzaBarrel(m, -1.9, 1.6);
+  P(boxUV(.8, .8, .8, 1), 'wood', 1.8, .4, -1.9); P(boxUV(.6, .6, .6, 1), 'wood', 1.75, 1.1, -1.85, .4); wzaSolid(m, 1.8, .6, -1.9, .8, 1.2, .8, false);
+  wzaGlowIn(m, -2.4, 2.4, 0, 0xFF9A40, 1.8, true); P(cylUV(.05, .03, .5, 5, 1), 'wood', -2.42, 2.1, 0, 0, 0, -.4);
+  for (let i = 0; i < 6; i++) { const a = r()*Math.PI*2, d = 4.2 + r()*2.5; wzaRock(x + Math.cos(a)*d, z + Math.sin(a)*d, .35 + r()*.4, r, false); }
+  wzaLift(m, 0, -1.5, 0, 1.4, -1.75, -1.6, H + .4, .7);
+  const top = new THREE.Vector3(-1.5, H + .4, 1.4).applyMatrix4(m); WZI.towerTop = [top.x, top.z, top.y];
+}
+function wzaCave(x, z, r){
+  const gy = groundH(x, z), ry = Math.atan2(-x, -z), m = wzaM4(x, gy, z, ry), P = (g, k, a, b, c, e, f, h, sx, sy, sz) => wzaPutIn(g, k, m, a, b, c, e, f, h, sx, sy, sz), N = 9, R = 4.6, H = 3.6, sw = 2*R*Math.sin(Math.PI/N) + .5;
+  for (let i = 1; i < N; i++) { const a = i/N*Math.PI*2 + (r() - .5)*.08, mm = wzaSub(m, Math.sin(a)*R, Math.cos(a)*R, a); wzaWallBox(mm, 'rock', 2, 0, -.6, H + .4 + r()*.6, 0, sw, 1.3); }
+  P(new THREE.SphereGeometry(1, 12, 6, 0, Math.PI*2, 0, Math.PI/2), 'rock2', 0, H - .7, 0, r(), 0, 0, R + 1.2, 2.6, R + 1.2); wzaSolid(m, 0, H + .3, 0, 2*R, .8, 2*R, true);
+  P(new THREE.CircleGeometry(R + .3, 12), 'rock', 0, .05, 0, 0, -Math.PI/2); wzaZone(m, 0, H/2, 0, 2*R, H, 2*R);
+  // crystals: clusters at the walls, glowing cold blue
+  for (let k = 0; k < 7; k++) { const a = Math.PI*.35 + k/7*Math.PI*1.3 + (r() - .5)*.2, d = R - .9 - r()*.5, cx = Math.sin(a)*d, cz = Math.cos(a)*d;
+    for (let j = 0; j < 4; j++) { const h = .5 + r()*1.1; P(new THREE.OctahedronGeometry(1, 0), 'crystal', cx + (r() - .5)*.6, h*.45, cz + (r() - .5)*.6, r()*3, (r() - .5)*.7, (r() - .5)*.7, .16 + r()*.1, h, .16 + r()*.1); }
+    if (k % 2 === 0) wzaGlowIn(m, cx, 1, cz, 0x6AE0FF, 3.2, false); }
+  for (let i = 0; i < 7; i++) { const a = r()*Math.PI*2, d = R + 1.6 + r()*2; wzaRock(x + Math.cos(a)*d, z + Math.sin(a)*d, .7 + r()*.9, r, false); }
+  WZI.cave = [x, z];
+}
+function wzaPOIs(keep, r){
+  wzaWitchHut(100, 22, r); keep.push([100, 22, 6]);
+  wzaCrypt(-22, -116, r); keep.push([-22, -116, 7]);
+  wzaWatchtower(-108, 26, r); keep.push([-108, 26, 7]);
+  wzaCave(112, -34, r); keep.push([112, -34, 9]);
+}
+// level the ground under every building before anything is placed (the floors are the ground itself)
+function wzaFlat(x, z, hx, hz, ry, mg){
+  const lv = groundH(x, z), c = Math.cos(ry), s = Math.sin(ry), R = Math.hypot(hx, hz) + mg + 7;
+  for (let j = 0; j < TN; j++) { const pz = -ISL + j*TES; if (Math.abs(pz - z) > R) continue;
+    for (let i = 0; i < TN; i++) { const px = -ISL + i*TES; if (Math.abs(px - x) > R) continue;
+      const dx = px - x, dz = pz - z, lx = dx*c - dz*s, lz = dx*s + dz*c, e = Math.hypot(Math.max(0, Math.abs(lx) - hx - mg), Math.max(0, Math.abs(lz) - hz - mg)), k = 1 - smooth(0, 6, e);
+      if (k > 0) { const v = i + j*TN; terrH[v] += (lv - terrH[v])*k; } } }
+}
+function wzaLevel(){
+  for (const [x, z, s] of [[-104, -104, 1.9], [104, -100, 1.6], [-100, 106, 1.7], [102, 104, 1.5]]) wzaFlat(x, z, 9.8*s, 7.8*s, Math.atan2(-x, -z), 2);
+  for (let i = 0; i < 5; i++) for (const side of [-1, 1]) wzaFlat(-40 + i*20, 92 + side*9, 4.2, 3.6, 0, 1.2);
+  wzaFlat(0, -96.35, 4.8, 10.4, 0, 1.5); wzaFlat(-22, -116, 3.3, 4.6, 0, 1.2);
+  for (const [x, z, h] of [[100, 22, 3.6], [-108, 26, 3.2], [112, -34, 5]]) wzaFlat(x, z, h, h, Math.atan2(-x, -z), 1.2);
+  /* (the river, built next, syncs the terrain) */
+}
+// the camera boom against the building walls (boxes turned about y)
+function wzaBoom(piv, dx, dy, dz, best){
+  for (const w of WZI.walls) {
+    if (Math.abs(w.x - piv.x) > best + w.R || Math.abs(w.z - piv.z) > best + w.R || Math.abs(w.y - piv.y) > best + w.hy) continue;
+    const ox = piv.x - w.x, oz = piv.z - w.z, lx = ox*w.c - oz*w.s, lz = ox*w.s + oz*w.c, ly = piv.y - w.y, ux = dx*w.c - dz*w.s, uz = dx*w.s + dz*w.c;
+    let t0 = 0, t1 = best, ok = true;
+    const slab = (o, d, h) => { if (Math.abs(d) < 1e-6) { if (o < -h || o > h) ok = false; return; } let a = (-h - o)/d, b = (h - o)/d; if (a > b) { const q = a; a = b; b = q; } if (a > t0) t0 = a; if (b < t1) t1 = b; if (t0 > t1) ok = false; };
+    slab(lx, ux, w.hx); if (ok) slab(ly, dy, w.hy); if (ok) slab(lz, uz, w.hz);
+    if (ok && t0 > .3 && t0 < best) best = t0;
+  }
+  return best;
+}
+function wzInteriorFrame(dt){
+  for (let i = 0; i < WZI.fires.length; i++) { const f = WZI.fires[i], k = f.userData.k*(.86 + .16*Math.sin(G.t*9 + i*2.3) + .08*Math.random()); f.scale.set(k, k*1.15, 1); }
+  for (const q of WZI.runes) q.rotation.z += dt*.3;
+  { const c = camera.position, inside = WZI.rooms.some(q => { const ox = c.x - q.x, oz = c.z - q.z, lx = ox*q.c - oz*q.s, lz = ox*q.s + oz*q.c; return Math.abs(lx) < q.hx && Math.abs(lz) < q.hz && Math.abs(c.y - q.y) < q.hy; });
+    WZI.k += ((inside ? 1 : 0) - WZI.k)*Math.min(1, dt*3); if (!WZI.amb) { WZI.amb = new THREE.AmbientLight(0xF2C898, 0); scene.add(WZI.amb); } WZI.amb.intensity = WZI.k < .002 ? 0 : WZI.k*.85; }
+  const me = localP(); if (!me || me.alive === false) { for (const L of WZI.lifts) L.st = null; return; }
+  const B = me.body, P = B.position, step = (tx, tz, sp) => { const ex = tx - P.x, ez = tz - P.z, e = Math.hypot(ex, ez); if (e > 1e-4) { const k = Math.min(e, sp*dt)/e; P.x += ex*k; P.z += ez*k; } return e; };
+  for (const L of WZI.lifts) {
+    const du = Math.hypot(P.x - L.ux, P.z - L.uz);
+    if (L.st) { if (du > 16) { L.st = null; continue; }
+      if (L.st === 'up') { step(L.ux, L.uz, 6); B.velocity.set(0, 8, 0); if (P.y > L.top + 1.4) L.st = 'over'; }
+      else if (L.st === 'over') { B.velocity.set(0, P.y < L.top + 1.2 ? 1.2 : Math.min(0, B.velocity.y), 0); if (step(L.ax, L.az, 5) < .3) L.st = null; }
+      else if (L.st === 'd1') { B.velocity.set(0, P.y < L.top + 1 ? 2 : 0, 0); if (step(L.ux, L.uz, 4) < .12) L.st = 'd2'; }
+      else if (L.st === 'd2') { P.x = L.ux; P.z = L.uz; B.velocity.set(0, -4.5, 0); if (P.y < L.uy + .5) { L.st = null; L.armed = false; B.velocity.y = 0; } }
+      return; }
+    if (!L.armed && du > L.r + .7) L.armed = true;
+    if (L.armed && du < L.r && Math.abs(P.y - L.uy) < 1.2) { L.st = 'up'; L.armed = false; sfx('holy'); return; }
+    if (Math.hypot(P.x - L.dx, P.z - L.dz) < L.r && Math.abs(P.y - L.top) < 1.2) { L.st = 'd1'; sfx('holy'); return; }
+  }
 }
 
 /* ===================================== WORLD: rain, nature, an unbreakable ground =====================================
@@ -18155,6 +18422,7 @@ function cameraBoom(piv, want){
     box(A); };
   for (const o of objs) if (!o.dead && (o.kind === 'item' || o.kind === 'debris') && !isCarried(o) && o.body.mass > 30) solid(o.body);
   for (const g of golems) if (!g.done) solid(g.body);
+  if (WZI.walls.length && G.pvp && G.mode === 'wiz') best = wzaBoom(piv, dx, dy, dz, best);   /* Wizards: building walls */
   return best < L ? Math.max(.7, best - .35) : L;
 }
 function resize(){ if (PIXEL.on) { const pr = 1/pixelScale(); if (pr !== MAX_PR) { MAX_PR = MIN_PR = pr; renderer.setPixelRatio(pr); } } const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w/h; G.baseFov = w < h ? 68 : 55; camera.fov = G.baseFov; camera.updateProjectionMatrix(); }
