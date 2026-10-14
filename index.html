@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-14.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-14.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -395,6 +395,7 @@ const SFX = {
 };
 function sfx(n){
   if (muted || !actx || G.replaying) return;
+  if (G.pvp && G.mode === 'wiz') { const now0 = performance.now(); if (lastSfx[n] && now0 - lastSfx[n] < 90) return; lastSfx[n] = now0; wzSfx(n); return; }   /* Wizards: the dark palette */
   const now = performance.now(); if (lastSfx[n] && now - lastSfx[n] < 70) return; lastSfx[n] = now;
   try { SFX[n](); } catch(e) {}
 }
@@ -8744,6 +8745,7 @@ function bEnemies(key, team){
   if (typeof SUM !== 'undefined') for (const e of SUM.list) if (!e.done && !e.under && e.owner !== key && !(team && e.team === team)) out.push({id:e.id, pos:e.p, sum:e});
   if (tdOn()) for (const b of TD.list) if (!b.dead && b.pos) out.push({id:'L' + b.id, pos:b.pos, bl:b});   // balloons are everybody's enemy
   if (typeof WZ !== 'undefined' && WZ.bots.length && team !== 'red') for (const z of WZ.bots) if (!z.dead) out.push({id:'Z' + z.id, pos:z.pos, wz:z});   // the dark wizards (Wizards co-op)
+  if (typeof WZW !== 'undefined' && WZW.frogs.length && wzOn()) for (const f of WZW.frogs) if (!f.dead) out.push({id:'F' + f.i, pos:f.pos});   // crowned frogs: anything flying hits them
   return out;
 }
 function bNearest(key, team, at, R){ let best = null, bd = R; for (const e of bEnemies(key, team)) { const d = hdist(e.pos, at); if (d < bd) { bd = d; best = e; } } return best; }
@@ -12584,7 +12586,7 @@ function summonHurt(e, dmg){
 }
 // damage to every enemy summon in a ball / a cone (key/team = whoever did it; unknown = everyone's summons)
 function summonsTakeArea(at, R, dmg, key, team){
-  tdTakeArea(at, R, dmg); woodTakeArea(at, R, dmg, key, team); wzTakeArea(at, R, dmg, team);
+  tdTakeArea(at, R, dmg); woodTakeArea(at, R, dmg, key, team); wzTakeArea(at, R, dmg, team); wzSecretsTakeArea(at, R);
   barriersTakeArea(at, R, dmg, key, team); swarmTakeArea(at, R, dmg); animalsTakeArea(at, R, dmg); devicesTakeArea(at, R, dmg, key); golemsTakeArea(at, R, dmg, key); minionsTakeArea(at, R, dmg, key, team); fortUnitsTakeArea(at, R, dmg, key);
   if (!SUM.list.length || !(dmg > 0)) return;
   for (const e of SUM.list) { if (e.done || (key && e.owner === key) || (team && e.team === team)) continue;
@@ -14948,7 +14950,7 @@ function wzFrame(dt){
     const c = V3(C.body.position.x, C.body.position.y + .4, C.body.position.z); W.m.position.copy(c); W.m.scale.setScalar(W.R*Math.min(1, W.t*4)); W.mat.uniforms.t.value += dt; W.mat.uniforms.hit.value = Math.max(0, W.mat.uniforms.hit.value - dt*2);
     for (const b of BX.bombs) if (!b.dead && b.team !== W.team && b.owner !== W.key && b.p.distanceTo(c) < W.R + .3) { b.dead = true; roundGroup.remove(b.m); sparkle(b.p, 0xC9B8FF); W.mat.uniforms.hit.value = 1; sfx('zapHit'); } }
   for (const k in chars) { const P = chars[k]; if (P && !P.wzHat) wzDress(P); }
-  wzBotsFrame(dt);
+  wzBotsFrame(dt); wzWorldFrame(dt);
 }
 // every wizard gets a pointed hat and a staff
 function wzDress(P){
@@ -14971,15 +14973,15 @@ const WZB_KINDS = [
 ];
 const WZ_WAVES = 12;
 function wzStart(){
-  wzBotsClear(); for (const k in WZ.tex) if (k.includes('|')) { WZ.tex[k].dispose(); delete WZ.tex[k]; } Object.assign(WZ, {ink:{}, drawn:{}, hostInk:{}, wards:{}, wave:0, kills:0, seq:0, waveT:G.wzCoop ? 3 : 0});
+  wzBotsClear(); WZ.spots = null; for (const k in WZ.tex) if (k.includes('|')) { WZ.tex[k].dispose(); delete WZ.tex[k]; } Object.assign(WZ, {ink:{}, drawn:{}, hostInk:{}, wards:{}, wave:0, kills:0, seq:0, waveT:G.wzCoop ? 3 : 0});
   for (const k in WZ.drawFx) roundGroup.remove(WZ.drawFx[k].g); WZ.drawFx = {};
   document.querySelector('#top .score').style.display = G.wzCoop ? 'none' : '';
   renderTray(); wzHud(true);
   toast('🧙 Wizards! Press 1–0 to draw a spell circle on the paper: trace it, then Enter. Each circle is drawn once and kept all match: neater = stronger.');
-  setTimeout(() => toast(G.wzCoop ? '🌑 The dark coven is coming: 12 waves of dark wizards. Click = wand bolt.' : '⚔️ Team battle! Knock out the other team. Click = wand bolt.'), 2800);
+  setTimeout(() => toast(wzPractice() ? '🎯 Practice: the dark wizards in front of you stand still and never attack. Knocked out, they come back. Click = wand bolt.' : G.wzCoop ? '🌑 The dark coven is coming: 12 waves of dark wizards. Click = wand bolt.' : '⚔️ Team battle! Knock out the other team. Click = wand bolt.'), 2800);
 }
 function wzHud(force){
-  const ph = $('phase'); if (!ph) return; const t = G.wzCoop ? `🧙 Wizards<small>Wave ${Math.max(1, WZ.wave)}/${WZ_WAVES} · 💀 ${WZ.kills}</small>` : '🧙 Wizards<small>Team battle</small>';
+  const ph = $('phase'); if (!ph) return; const t = wzPractice() ? `🧙 Wizards<small>Practice · 💀 ${WZ.kills}</small>` : G.wzCoop ? `🧙 Wizards<small>Wave ${Math.max(1, WZ.wave)}/${WZ_WAVES} · 💀 ${WZ.kills}</small>` : '🧙 Wizards<small>Team battle</small>';
   if (force || ph.innerHTML !== t) ph.innerHTML = t;
 }
 function wzBotsClear(){ for (const z of WZ.bots) if (z.g && z.g.parent) z.g.parent.remove(z.g); WZ.bots = []; }
@@ -14999,14 +15001,24 @@ function wzSpawnWave(){
   WZ.wave++; const w = WZ.wave, n = Math.min(10, 2 + w), players = Object.values(chars).filter(P => P.alive !== false), c = players.length ? players.reduce((a, P) => a.add(V3(P.body.position.x, 0, P.body.position.z)), V3(0, 0, 0)).multiplyScalar(1/players.length) : V3(0, 0, 0);
   const pool = [0]; if (w >= 3) pool.push(1); if (w >= 5) pool.push(2); if (w >= 7) pool.push(3);
   const hpK = 1 + .12*(w - 1);
-  for (let i = 0; i < n; i++) { const a = Math.random()*Math.PI*2, r = rr(45, 70); const x = clamp(c.x + Math.cos(a)*r, -ISL + 8, ISL - 8), z = clamp(c.z + Math.sin(a)*r, -ISL + 8, ISL - 8), kind = pool[Math.floor(Math.random()*pool.length)]; wzBotMake(kind, x, z, WZB_KINDS[kind].hp*hpK); }
-  if (w === WZ_WAVES) { const a = Math.random()*Math.PI*2; wzBotMake(4, clamp(c.x + Math.cos(a)*55, -ISL + 8, ISL - 8), clamp(c.z + Math.sin(a)*55, -ISL + 8, ISL - 8), WZB_KINDS[4].hp*(1 + .25*(players.length - 1))); }
+  for (let i = 0; i < n; i++) { const a = Math.random()*Math.PI*2, r = rr(45, 70); const x = clamp(c.x + Math.cos(a)*r, -WZB_EDGE + 8, WZB_EDGE - 8), z = clamp(c.z + Math.sin(a)*r, -WZB_EDGE + 8, WZB_EDGE - 8), kind = pool[Math.floor(Math.random()*pool.length)]; wzBotMake(kind, x, z, WZB_KINDS[kind].hp*hpK); }
+  if (w === WZ_WAVES) { const a = Math.random()*Math.PI*2; wzBotMake(4, clamp(c.x + Math.cos(a)*55, -WZB_EDGE + 8, WZB_EDGE - 8), clamp(c.z + Math.sin(a)*55, -WZB_EDGE + 8, WZB_EDGE - 8), WZB_KINDS[4].hp*(1 + .25*(players.length - 1))); }
   const msg = w === WZ_WAVES ? `👑 Final wave: the ARCHMAGE comes with ${n} dark wizards!` : `🌑 Wave ${w}/${WZ_WAVES}: ${n} dark wizards!`;
   toast(msg); netBroadcast({t:'zmsg', m:msg}); sfx('trumpet'); wzHud();
 }
+// practising alone: no waves, nobody attacks. Six dark wizards stand in front of you as targets; one knocked out comes back after 3 s
+const wzPractice = () => wzOn() && G.wzCoop && !NET.peer;
+function wzPracticeFrame(dt){
+  const me = localP();
+  if (!WZ.spots) { const b = me ? me.body.position : V3(0, 0, 0), dir = Math.atan2(-b.x, -b.z); WZ.spots = []; for (let i = 0; i < 6; i++) { const a = dir + (i - 2.5)*.32, r = 16 + (i % 3)*6; WZ.spots.push({x:b.x + Math.sin(a)*r, z:b.z + Math.cos(a)*r, kind:[0, 1, 0, 2, 3, 1][i], t:0, z0:null}); } }
+  for (const s0 of WZ.spots) { if (s0.z0 && !s0.z0.dead) continue; s0.t -= dt; if (s0.t > 0) continue; s0.z0 = wzBotMake(s0.kind, s0.x, s0.z, WZB_KINDS[s0.kind].hp); s0.z0.cd = 1e9; s0.t = 3; }
+  for (const z of WZ.bots) { if (z.dead) continue; if (me) z.face = Math.atan2(me.body.position.x - z.pos.x, me.body.position.z - z.pos.z); z.slowT = Math.max(0, z.slowT - dt); z.liftT = Math.max(0, z.liftT - dt); z.pos.y = groundH(z.pos.x, z.pos.z) + (z.liftT > 0 ? 3*Math.sin(z.liftT*5) + 2 : 0); }
+  for (const s0 of WZ.spots) if (s0.z0 && s0.z0.dead && s0.t <= 0) s0.t = 3;
+}
 function wzBotsFrame(dt){
   const host = wzHost();
-  if (G.wzCoop && host && !G.matchOver) {
+  if (wzPractice() && !G.matchOver) wzPracticeFrame(dt);
+  else if (G.wzCoop && host && !G.matchOver) {
     if (!WZ.bots.some(z => !z.dead)) { WZ.waveT -= dt; if (WZ.waveT <= 0) { if (WZ.wave >= WZ_WAVES) { wzWin(); netBroadcast({t:'zend'}); return; } wzSpawnWave(); WZ.waveT = 5; } }
     const players = Object.entries(chars).filter(([, P]) => P.alive !== false);
     for (const z of WZ.bots) { if (z.dead) continue; const K = WZB_KINDS[z.kind]; z.t += dt; z.slowT = Math.max(0, z.slowT - dt);
@@ -15018,7 +15030,7 @@ function wzBotsFrame(dt){
         z.cd -= dt; if (z.cd <= 0 && L < 55 && z.liftT <= 0) { z.cd = rr(K.cd[0], K.cd[1]); const lead = .25, aim = V3(tp.x + best[1].body.velocity.x*lead, tp.y + .6, tp.z + best[1].body.velocity.z*lead);
           const m = {t:'zb', b:z.id, s:K.spell, f:[+z.pos.x.toFixed(2), +(z.pos.y + 1.6*K.s).toFixed(2), +z.pos.z.toFixed(2)], p:[+aim.x.toFixed(2), +aim.y.toFixed(2), +aim.z.toFixed(2)], k:+(.7 + .03*WZ.wave).toFixed(2), sd:Math.floor(Math.random()*1e9)};
           netBroadcast(m); wzBotCast(m); } }
-      z.pos.x = clamp(z.pos.x, -ISL + 5, ISL - 5); z.pos.z = clamp(z.pos.z, -ISL + 5, ISL - 5); z.liftT = Math.max(0, z.liftT - dt); z.pos.y = groundH(z.pos.x, z.pos.z) + (z.liftT > 0 ? 3*Math.sin(z.liftT*5) + 2 : 0); }
+      z.pos.x = clamp(z.pos.x, -WZB_EDGE + 5, WZB_EDGE - 5); z.pos.z = clamp(z.pos.z, -WZB_EDGE + 5, WZB_EDGE - 5); z.liftT = Math.max(0, z.liftT - dt); z.pos.y = groundH(z.pos.x, z.pos.z) + (z.liftT > 0 ? 3*Math.sin(z.liftT*5) + 2 : 0); }
     WZ.sendT -= dt; if (WZ.sendT <= 0 && NET.peer) { WZ.sendT = .1; const b = []; for (const z of WZ.bots) if (!z.dead) b.push(z.id, z.kind, Math.round(z.pos.x*10), Math.round(z.pos.y*10), Math.round(z.pos.z*10), Math.round(z.hp), Math.round(z.face*100), Math.round(z.max)); netBroadcast({t:'zbs', w:WZ.wave, k:WZ.kills, b}); }
   } else if (!host) for (const z of WZ.bots) { if (z.dead || !z.to) continue; z.pos.lerp(z.to, Math.min(1, dt*10)); }
   for (const z of WZ.bots) { if (z.dead) continue; const K = WZB_KINDS[z.kind]; z.flash = Math.max(0, z.flash - dt);
@@ -15159,18 +15171,19 @@ function wzTheme(on){
     hemi.color.setHex(0x7A70D8); hemi.groundColor.setHex(0x163A2E); hemi.intensity = .78; sun.color.setHex(0xB0BAFF); sun.intensity = .72;
     scene.fog.near = 30; scene.fog.far = 330; seaMat.color.setHex(0x16203F); NAT_MAT.color.setHex(0x8A9AC0);
     if ($('vignette')) $('vignette').style.background = 'radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(8,4,24,.62) 100%)';
-    OUTLINE_MAT.visible = false; islandTop.material = wzaMats().ground; for (const c of clouds) c.visible = false;
+    OUTLINE_MAT.visible = false; islandTop.material = wzaMats().ground; for (const c of clouds) c.visible = false; sea.visible = false; foam.visible = false;
     sky.visible = true; w.pts.visible = true; w.d.forEach(q => q.set = false); wzThemeRound();
   } else if (WZT.saved) {
     const S = WZT.saved; hemi.color.setHex(S.hs); hemi.groundColor.setHex(S.hg); hemi.intensity = S.hi; sun.color.setHex(S.sc); sun.intensity = S.si; scene.fog.near = S.fn; scene.fog.far = S.ff; seaMat.color.setHex(S.sea); NAT_MAT.color.setHex(S.nat);
     if ($('vignette') && S.vig) $('vignette').style.background = S.vig; sky.visible = false; w.pts.visible = false;
-    OUTLINE_MAT.visible = true; islandTop.material = terrainMat; for (const c of clouds) c.visible = true;
+    OUTLINE_MAT.visible = true; islandTop.material = terrainMat; for (const c of clouds) c.visible = true; sea.visible = true; foam.visible = true;
   }
 }
 // per round (roundGroup is rebuilt with every map): castles at the corners, runes on the ground
 function wzThemeRound(){
   const rng = mulberry32(((G.seed || 1) ^ 0xCA57) >>> 0), spots = [[-104, -104, 0, 2.1], [104, -100, 1, 1.7], [-100, 106, 2, 1.8], [102, 104, 0, 1.5]];
   wzaBuildMap();   /* the Wizards map (castles, village, church, roads, forest) */
+  wzWorldBuild();   /* the mist at the edge, storm clouds, secrets */
   WZT.runes = []; for (let i = 0; i < 7; i++) { const a = rng()*Math.PI*2, r = 25 + rng()*70, x = Math.cos(a)*r, z = Math.sin(a)*r, id = WZ_IDS[Math.floor(rng()*WZ_IDS.length)];
     const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({map:wzTex(id, i % 2 ? 0xB060FF : 0x40FFB0), transparent:true, opacity:.5, depthWrite:false, blending:THREE.AdditiveBlending})); m.rotation.x = -Math.PI/2; const k = 7 + rng()*6; m.scale.set(k, k, 1); m.position.set(x, groundH(x, z) + .1, z); m.userData.noRay = true; m.renderOrder = 3; roundGroup.add(m); WZT.runes.push(m); }
 }
@@ -15413,6 +15426,7 @@ function wzaBuildMap(){
   for (let k = 0; k < 2600 && trees < 190; k++) { const x = (r()*2 - 1)*(ISL - 10), z = (r()*2 - 1)*(ISL - 10), cl = Math.sin(x*.035 + 1.3)*Math.cos(z*.03 - .7); if (cl < -.1 || near(x, z, 2.5)) continue; const s = .85 + r()*.6;
     if (r() < .1 && dead < 26) { wzaDeadTree(x, z, s, r); dead++; } else { wzaPine(x, z, s, r); trees++; } keep.push([x, z, 2.2*s]); }
   for (let k = 0; k < 600 && rocks < 55; k++) { const x = (r()*2 - 1)*(ISL - 8), z = (r()*2 - 1)*(ISL - 8); if (near(x, z, 2)) continue; wzaRock(x, z, .6 + r()*1.3, r, false); keep.push([x, z, 2]); rocks++; }
+  WZA.keep = keep;   /* (the secrets look for free spots) */
   // merge and show
   const M = wzaMats(); WZA.meshes = [];
   for (const key in WZA.batch) { const list = WZA.batch[key]; if (!list.length || !M[key]) continue; const mesh = new THREE.Mesh(wzaMerge(list), M[key]); mesh.castShadow = key !== 'window' && key !== 'cobble' && key !== 'plaza' && key !== 'clock'; mesh.receiveShadow = true; mesh.userData.noRay = key === 'window' || key === 'clock'; roundGroup.add(mesh); WZA.meshes.push(mesh); }
@@ -15468,6 +15482,180 @@ function wizBody(team, cdef, rig){
   const L = WZA_LOOKS[cdef.aka] || WZA_LOOKS.itachi, li = Math.max(0, ['itachi', 'pain', 'obito', 'konan'].indexOf(cdef.aka)), [robe, dark] = WIZ_ROBES[team === 'red' ? 'red' : 'blue'][li];
   rig.userData.wizard = true; return wzaWizard(rig, Object.assign({robe, dark, crystal:team === 'red' ? 0xFF6A8A : 0x7CF0FF}, L));
 }
+
+/* ---------- Wizards world: the mist at the edge of the map, dark sounds, storm clouds, and secrets ----------
+   The play area is a square of WZB_EDGE; past it a wall of drifting mist hides the island's edge and the sea, and pushes
+   anyone who walks in back out. Storm clouds drift overhead; now and then one strikes the ground (the host picks the spot:
+   'zls'). Secrets (placed from the map seed, the same on every screen): crowned frogs that explode when anything hits them
+   (host: 'zfrog', they come back elsewhere), fairy rings of glowing mushrooms that heal you, a black cat that vanishes when
+   you get close, a ghost wandering the graveyard, ravens that take off, and two ancient chests that grant an Arcane Surge
+   (cooldowns halved for 30 s). */
+const WZB_EDGE = 116;
+const WZW = {fog:[], clouds:[], frogs:[], rings:[], cats:null, ghost:null, ravens:[], chests:[], strikeT:6, pushT:0, seen:{}};
+// a free spot (not on a road, a building or a tree)
+const wzaFree = (x, z, r) => Math.abs(x) < WZB_EDGE - 6 && Math.abs(z) < WZB_EDGE - 6 && !(WZA.keep || []).some(k => Math.hypot(k[0] - x, k[1] - z) < k[2] + r);
+function wzaSpot(rng, r, near){ for (let k = 0; k < 400; k++) { const x = near ? near[0] + (rng() - .5)*near[2]*2 : (rng()*2 - 1)*(WZB_EDGE - 10), z = near ? near[1] + (rng() - .5)*near[2]*2 : (rng()*2 - 1)*(WZB_EDGE - 10); if (wzaFree(x, z, r)) return [x, z]; } return [rng()*20 - 10, rng()*20 - 10]; }
+/* ---------- the mist wall ---------- */
+WZT_TEX.mist = () => wzaTex('mist', 512, 256, (g, W, H, r) => { for (let i = 0; i < 90; i++) { const x = r()*W, y = H*.25 + r()*H*.75, R = 30 + r()*70; wrap9(W, ox => { const gr = g.createRadialGradient(x + ox, y, 0, x + ox, y, R); gr.addColorStop(0, `rgba(150,130,210,${.18 + r()*.2})`); gr.addColorStop(1, 'rgba(60,40,110,0)'); g.fillStyle = gr; g.fillRect(x + ox - R, y - R, R*2, R*2); }); }
+  const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(.35, 'rgba(0,0,0,0)'); g.globalCompositeOperation = 'destination-out'; g.fillStyle = gr; g.fillRect(0, 0, W, H); g.globalCompositeOperation = 'source-over';
+  const gb = g.createLinearGradient(0, H*.45, 0, H); gb.addColorStop(0, 'rgba(70,50,120,0)'); gb.addColorStop(1, 'rgba(70,50,120,.95)'); g.fillStyle = gb; g.fillRect(0, 0, W, H); });
+function wzMistBuild(){
+  WZW.fog = []; const L = WZB_EDGE*2 + 60;
+  for (let layer = 0; layer < 3; layer++) { const t = WZT_TEX.mist().clone(); t.needsUpdate = true; t.repeat.set(L/90, 1); const mat = new THREE.MeshBasicMaterial({map:t, transparent:true, depthWrite:false, side:THREE.DoubleSide, color:[0x6A58A8, 0x52448A, 0x3A2E6A][layer], opacity:[.75, .9, 1][layer], fog:false});
+    const off = WZB_EDGE + 2 + layer*5, H = 40 + layer*12;
+    for (let s = 0; s < 4; s++) { const m = new THREE.Mesh(new THREE.PlaneGeometry(L, H), mat), a = s*Math.PI/2; m.position.set(Math.sin(a)*off, H/2 - 6, Math.cos(a)*off); m.rotation.y = a + Math.PI; m.userData.noRay = true; m.renderOrder = 5; roundGroup.add(m); }
+    WZW.fog.push({mat, sp:(layer % 2 ? -1 : 1)*(.004 + layer*.003)}); }
+  // a dark floor beyond the edge, so nothing of the old island shows through
+  const floor = new THREE.Mesh(new THREE.RingGeometry(WZB_EDGE*1.42, 900, 4, 1, Math.PI/4), new THREE.MeshBasicMaterial({color:0x140E26})); floor.rotation.x = -Math.PI/2; floor.position.y = -2; floor.userData.noRay = true; roundGroup.add(floor);
+}
+// walking into the mist: it pushes you back
+function wzMistFrame(dt){
+  for (const f of WZW.fog) f.mat.map.offset.x += f.sp*dt;
+  const me = localP(); if (!me || me.alive === false) return; const b = me.body, lim = WZB_EDGE - 2;
+  let push = false; for (const ax of ['x', 'z']) { const v = b.position[ax]; if (Math.abs(v) > lim - 3) { const s = Math.sign(v), over = Math.abs(v) - (lim - 3); b.velocity[ax] = -s*Math.max(6, over*5); if (Math.abs(v) > lim) b.position[ax] = s*lim; push = true; } }
+  if (push && G.t - WZW.pushT > 3) { WZW.pushT = G.t; toast('🌫️ The mist pushes you back.'); sfx('wind'); }
+}
+/* ---------- dark sounds: everything through a low-pass and a long reverb, softer and deeper ---------- */
+const WZS = {bus:null};
+function wzBus(){
+  if (WZS.bus) return WZS.bus; const a = actx, inp = a.createGain(), lp = a.createBiquadFilter(), dry = a.createGain(), wet = a.createGain(), conv = a.createConvolver(), out = a.createGain();
+  lp.type = 'lowpass'; lp.frequency.value = 2600; dry.gain.value = .6; wet.gain.value = .55; out.gain.value = .5;
+  const len = a.sampleRate*2.8, ir = a.createBuffer(2, len, a.sampleRate); for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1)*Math.pow(1 - i/len, 2.6); } conv.buffer = ir;
+  inp.connect(lp); lp.connect(dry); lp.connect(conv); conv.connect(wet); dry.connect(out); wet.connect(out); out.connect(a.destination); return (WZS.bus = inp);
+}
+function dTone(type, f0, f1, dur, vol, delay, att){ const a = actx, t = a.currentTime + (delay || 0), o = a.createOscillator(), g = a.createGain(); o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + (att || .02)); g.gain.exponentialRampToValueAtTime(.0001, t + dur); o.connect(g); g.connect(wzBus()); o.start(t); o.stop(t + dur + .05); }
+function dNoise(dur, vol, f0, f1, type, delay, att){ const a = actx; if (!noiseBuf) { noiseBuf = a.createBuffer(1, a.sampleRate, a.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random()*2 - 1; }
+  const t = a.currentTime + (delay || 0), s = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain(); s.buffer = noiseBuf; s.loop = true; f.type = type || 'lowpass'; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(Math.max(30, f1 || f0), t + dur);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + (att || .03)); g.gain.exponentialRampToValueAtTime(.0001, t + dur); s.connect(f); f.connect(g); g.connect(wzBus()); s.start(t); s.stop(t + dur + .05); }
+const WZ_SFX = {
+  arcane(){ dNoise(.35, .12, 1800, 700, 'bandpass'); dTone('sine', 520, 260, .4, .05); },
+  flame(){ dNoise(.9, .3, 300, 1100, 'lowpass', 0, .12); dTone('sine', 90, 50, .8, .12); },
+  impact(){ dNoise(1.6, .45, 260, 80, 'lowpass'); dTone('sine', 62, 28, 1.4, .3); },
+  small(){ dNoise(.5, .2, 500, 150, 'lowpass'); dTone('sine', 110, 50, .4, .1); },
+  thunder(){ dNoise(.12, .3, 2400, 900, 'bandpass'); dNoise(3.2, .5, 320, 60, 'lowpass', .05, .15); dTone('sine', 55, 26, 2.6, .25, .05); },
+  choir(){ [220, 261.6, 329.6, 440].forEach((f, i) => { dTone('triangle', f, f*.995, 2.8, .035, i*.08, .6); dTone('sine', f*2, f*2, 2.4, .012, i*.08 + .1, .7); }); },
+  chime(){ dTone('sine', 392, 392, 1.6, .05); dTone('sine', 587, 587, 1.4, .03, .05); },
+  whoosh(){ dNoise(.7, .18, 400, 1400, 'bandpass', 0, .2); },
+  drone(){ dTone('sawtooth', 55, 45, 2.2, .06, 0, .4); dNoise(2, .2, 160, 90, 'lowpass', 0, .4); },
+  horn(){ [110, 164.8].forEach((f, i) => dTone('sawtooth', f, f*.98, 2.4, .045, i*.1, .5)); dNoise(2, .12, 200, 120, 'lowpass', 0, .5); },
+  breath(){ dNoise(.6, .14, 900, 300, 'bandpass', 0, .1); },
+  gasp(){ dNoise(.45, .16, 700, 250, 'bandpass'); dTone('sine', 180, 70, .5, .07); },
+  thud(){ dTone('sine', 80, 40, .35, .14); dNoise(.25, .08, 300, 100, 'lowpass'); },
+  croak(){ dTone('square', 95, 70, .22, .03); dTone('square', 90, 65, .25, .03, .26); },
+  meow(){ dTone('triangle', 520, 380, .5, .03, 0, .08); dTone('triangle', 700, 420, .4, .02, .05, .1); },
+  caw(){ dNoise(.25, .1, 1200, 700, 'bandpass'); dNoise(.25, .1, 1100, 650, 'bandpass', .3); },
+  shriek(){ dTone('sine', 900, 400, 1.2, .03, 0, .3); dTone('sine', 940, 380, 1.2, .02, .05, .3); dNoise(1.2, .06, 2000, 600, 'bandpass', 0, .3); },
+  rumble(){ dNoise(2.4, .35, 140, 60, 'lowpass', 0, .3); dTone('sine', 45, 28, 2.2, .2); }
+};
+// the game's sound names, as heard in Wizards
+const WZ_SFX_MAP = {zap:'arcane', zapHit:'arcane', fireball:'flame', fire:'flame', boom:'impact', bboom:'impact', thunder:'thunder', holy:'choir', grav:'chime', grab:'chime', place:'chime', click:'chime', pop:'gasp', splat:'gasp', crack:'small', splat2:'small',
+  whoosh:'whoosh', dash:'whoosh', wind:'whoosh', thud:'thud', thunk:'thud', bonk:'thud', rumble:'rumble', demon:'drone', hell:'drone', roar:'drone', trumpet:'horn', win:'choir', lose:'drone', croak:'croak', portal:'breath', hole:'drone', reverse:'breath', shinra:'impact', slashH:'whoosh', jump:null, jump2:null, boing:'thud'};
+function wzSfx(n){ if (!(n in WZ_SFX_MAP) && !WZ_SFX[n]) { WZ_SFX.breath(); return true; } const k = WZ_SFX[n] ? n : WZ_SFX_MAP[n]; if (k) WZ_SFX[k](); return true; }
+/* ---------- storm clouds and lightning ---------- */
+function wzCloudsBuild(){
+  WZW.clouds = []; const rng = mulberry32(((G.seed || 1) ^ 0x57A2) >>> 0);
+  for (let i = 0; i < 7; i++) { const g = new THREE.Group(), n = 6 + Math.floor(rng()*4);
+    for (let k = 0; k < n; k++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({map:WZT_TEX.cloud(), color:0x8A80B0, transparent:true, depthWrite:false, opacity:.95})); s.position.set((rng() - .5)*26, (rng() - .5)*4, (rng() - .5)*18); const k2 = 18 + rng()*16; s.scale.set(k2*1.6, k2*.8, 1); g.add(s); }
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({map:WZT_TEX.glow(), color:0xC8D0FF, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, opacity:0})); glow.scale.set(60, 30, 1); g.add(glow);
+    g.position.set((rng()*2 - 1)*90, 58 + rng()*14, (rng()*2 - 1)*90); g.userData = {glow, vx:(rng() - .5)*1.6, vz:(rng() - .5)*1.6, flash:0}; g.traverse(o => { o.userData.noRay = true; }); roundGroup.add(g); WZW.clouds.push(g); }
+}
+function wzCloudsFrame(dt){
+  for (const c of WZW.clouds) { const u = c.userData; c.position.x += u.vx*dt; c.position.z += u.vz*dt; if (Math.abs(c.position.x) > 100) u.vx = -u.vx; if (Math.abs(c.position.z) > 100) u.vz = -u.vz;
+    u.flash = Math.max(0, u.flash - dt*2.5); u.glow.material.opacity = u.flash > 0 ? u.flash*(.6 + Math.random()*.4) : (Math.random() < .002 ? .25 : 0); }
+  // the host: now and then a cloud strikes
+  if (wzHost() && !G.matchOver) { WZW.strikeT -= dt; if (WZW.strikeT <= 0) { WZW.strikeT = rr(8, 18); const c = pick(WZW.clouds); if (c) { const x = clamp(c.position.x + rr(-8, 8), -WZB_EDGE + 8, WZB_EDGE - 8), z = clamp(c.position.z + rr(-8, 8), -WZB_EDGE + 8, WZB_EDGE - 8), m = {t:'zls', x:+x.toFixed(1), z:+z.toFixed(1)}; netBroadcast(m); wzStrike(m); } } }
+}
+function wzStrike(m){
+  const x = +m.x, z = +m.z; if (!isFinite(x) || !isFinite(z)) return; const gy = groundH(x, z), at = V3(x, gy, z);
+  let c = WZW.clouds[0], bd = 1e9; for (const q of WZW.clouds) { const d = Math.hypot(q.position.x - x, q.position.z - z); if (d < bd) { bd = d; c = q; } } if (c) c.userData.flash = 1.2;
+  const ring = warnRing(at, 3.2, 0xBFD8FF); let t = 0, hit = false;
+  fxAdd({update(dt){ t += dt; ring.material.opacity = .25 + Math.sin(t*40)*.25;
+    if (!hit && t > .7) { hit = true; roundGroup.remove(ring); const top = V3(x + rr(-4, 4), (c ? c.position.y : 60) - 4, z + rr(-4, 4)); arcBeam(top, V3(x, gy + .2, z), 0xD8E4FF); arcBeam(top, V3(x, gy + .2, z), 0xFFFFFF); flash(.2, .12); sfx('thunder');
+      bBoom(V3(x, gy + .6, z), 3.4, 30, 10, 'storm', null, {pal:WZ_SKY, size:.45}); if (c) c.userData.flash = 1; }
+    return t < .8; }});
+}
+/* ---------- crowned frogs ---------- */
+function wzFrogMesh(){
+  const g = new THREE.Group(), skin = new THREE.MeshLambertMaterial({color:0x3E8A3A}), belly = new THREE.MeshLambertMaterial({color:0xB8C878}), gold = new THREE.MeshLambertMaterial({color:0xFFD24A, emissive:0x553300}), add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; g.add(m); return m; };
+  add(new THREE.SphereGeometry(.42, 12, 9), skin, 0, .34, 0).scale.set(1, .72, 1.15); add(new THREE.SphereGeometry(.34, 10, 8), belly, 0, .26, .12).scale.set(.95, .6, 1);
+  add(new THREE.SphereGeometry(.3, 12, 9), skin, 0, .55, .3).scale.set(1.1, .8, .9);
+  for (const s of [-1, 1]) { add(new THREE.SphereGeometry(.11, 10, 8), new THREE.MeshLambertMaterial({color:0xF2E6A0}), s*.15, .72, .38); add(new THREE.SphereGeometry(.055, 8, 6), new THREE.MeshBasicMaterial({color:0x0A0A0A}), s*.16, .74, .47);
+    add(new THREE.SphereGeometry(.13, 8, 6), skin, s*.36, .14, -.18).scale.set(1, .6, 1.8); add(new THREE.SphereGeometry(.08, 8, 6), skin, s*.26, .1, .32).scale.set(1, .5, 1.4); }
+  const crown = new THREE.Group(); crown.position.set(0, .83, .26); g.add(crown); const band = new THREE.Mesh(new THREE.CylinderGeometry(.16, .17, .1, 10, 1, true), gold); band.material.side = THREE.DoubleSide; crown.add(band);
+  for (let i = 0; i < 5; i++) { const a = i/5*Math.PI*2, sp0 = new THREE.Mesh(new THREE.ConeGeometry(.04, .13, 5), gold); sp0.position.set(Math.cos(a)*.16, .1, Math.sin(a)*.16); crown.add(sp0); const gem = new THREE.Mesh(new THREE.SphereGeometry(.025, 6, 4), new THREE.MeshBasicMaterial({color:[0xFF3B5A, 0x5AB4FF, 0x7CFF9A][i % 3]})); gem.position.set(Math.cos(a)*.17, 0, Math.sin(a)*.17); crown.add(gem); }
+  noRayAll(g); g.userData.crown = crown; return g;
+}
+function wzFrogPlace(f){ const rng = mulberry32((((G.seed || 1) ^ 0xF406) + f.i*7919 + f.gen*104729) >>> 0), [x, z] = wzaSpot(rng, 1.5); f.pos = V3(x, groundH(x, z), z); f.g.position.copy(f.pos); f.g.rotation.y = rng()*6; f.g.visible = true; f.dead = false; f.hop = 0; f.hopT = rr(1, 5); }
+function wzFrogsBuild(){ WZW.frogs = []; for (let i = 0; i < 6; i++) { const f = {i, gen:0, g:wzFrogMesh(), dead:false}; roundGroup.add(f.g); wzFrogPlace(f); WZW.frogs.push(f); } }
+function wzFrogsFrame(dt){
+  const me = localP();
+  for (const f of WZW.frogs) {
+    if (f.dead) { f.respT -= dt; if (f.respT <= 0) { f.gen++; wzFrogPlace(f); } continue; }
+    f.hopT -= dt; if (f.hopT <= 0 && f.hop <= 0) { f.hop = .55; f.hopT = rr(2, 6); f.g.rotation.y += rr(-1, 1); }
+    if (f.hop > 0) { f.hop -= dt; const k = 1 - f.hop/.55; f.g.position.y = f.pos.y + Math.sin(k*Math.PI)*.55; f.g.scale.set(1, .9 + Math.sin(k*Math.PI)*.25, 1); } else f.g.position.y = f.pos.y;
+    f.g.userData.crown.rotation.y += dt*.6;
+    if (me && hdist(me.body.position, f.pos) < 6 && G.t - (f.croakT || -9) > 4) { f.croakT = G.t; sfx('croak'); if (!WZW.seen.frog) { WZW.seen.frog = 1; toast('🐸👑 A frog… wearing a crown?'); } }
+  }
+}
+// hit by anything (the host decides): it explodes, and comes back somewhere else later
+function wzSecretsTakeArea(at, R){
+  if (!wzOn() || !wzHost() || !at) return;
+  for (const f of WZW.frogs) { if (f.dead) continue; if (Math.hypot(f.pos.x - at.x, f.pos.y + .4 - (at.y != null ? at.y : f.pos.y), f.pos.z - at.z) < R + .7) { const m = {t:'zfrog', i:f.i, g:f.gen}; netBroadcast(m); wzFrogPop(m); } }
+}
+function wzFrogPop(m){
+  const f = WZW.frogs[m.i | 0]; if (!f || f.dead || f.gen !== (m.g | 0)) return; f.dead = true; f.respT = 45; f.g.visible = false;
+  const at = V3(f.pos.x, f.pos.y + .5, f.pos.z); boomVisual(at, false, .7, {ball:0x6AD84A, core:0xFFE14D, ring:0x3E8A3A}); for (let i = 0; i < 14; i++) puff(V3(at.x + rr(-1, 1), at.y + rr(0, 1), at.z + rr(-1, 1)), pick([0x6AD84A, 0x3E8A3A, 0xB8C878]), .5);
+  // the crown flies
+  const cr = f.g.userData.crown.clone(); cr.position.copy(at); roundGroup.add(cr); fx.push({mesh:cr, v:V3(rr(-3, 3), 11, rr(-3, 3)), r:V3(6, 9, 0), life:2.2});
+  bBoom(at, 4.5, 34, 16, 'frog', null, {pal:{ball:0x6AD84A, core:0xFFE14D, ring:0x3E8A3A}, size:.6}); shakeAt(at, .7, 50);
+  if (!WZW.seen.frogBoom) { WZW.seen.frogBoom = 1; setTimeout(() => toast('👑💥 Long live the frog king.'), 600); }
+}
+/* ---------- fairy rings, the black cat, the ghost, ravens, chests ---------- */
+function wzSecretsBuild(){
+  const rng = mulberry32(((G.seed || 1) ^ 0x5EC2) >>> 0);
+  // fairy rings: glowing mushrooms in a circle; stand inside to heal
+  WZW.rings = []; for (let i = 0; i < 2; i++) { const [x, z] = wzaSpot(rng, 4), gy = groundH(x, z), sprites = [];
+    for (let k = 0; k < 11; k++) { const a = k/11*Math.PI*2, mx = x + Math.cos(a)*2.6, mz = z + Math.sin(a)*2.6, my = groundH(mx, mz), st = new THREE.Mesh(new THREE.CylinderGeometry(.05, .07, .3, 6), new THREE.MeshLambertMaterial({color:0xE8E0D0})); st.position.set(mx, my + .15, mz); roundGroup.add(st);
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(.17, 10, 6, 0, Math.PI*2, 0, Math.PI/2), new THREE.MeshBasicMaterial({color:i ? 0x7CF0FF : 0xB48CFF})); cap.position.set(mx, my + .28, mz); roundGroup.add(cap);
+      const gl = new THREE.Sprite(new THREE.SpriteMaterial({map:WZT_TEX.glow(), color:i ? 0x7CF0FF : 0xB48CFF, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending})); gl.position.set(mx, my + .35, mz); gl.scale.set(1.1, 1.1, 1); roundGroup.add(gl); sprites.push(gl); }
+    WZW.rings.push({x, z, gy, sprites, t:0}); }
+  // the black cat: sits somewhere, vanishes when you come close
+  const cat = new THREE.Group(), fur = new THREE.MeshLambertMaterial({color:0x0E0C12}), ad = (geo, x, y, z) => { const m = new THREE.Mesh(geo, fur); m.position.set(x, y, z); cat.add(m); return m; };
+  ad(new THREE.SphereGeometry(.22, 10, 8), 0, .25, 0).scale.set(.9, 1, 1.3); ad(new THREE.SphereGeometry(.15, 10, 8), 0, .5, .2); for (const s of [-1, 1]) { const e = ad(new THREE.ConeGeometry(.05, .12, 4), s*.07, .64, .2); e.rotation.z = -s*.2; const ey = new THREE.Mesh(new THREE.SphereGeometry(.025, 6, 4), new THREE.MeshBasicMaterial({color:0xFFE14D})); ey.position.set(s*.055, .53, .33); cat.add(ey); }
+  const tail = ad(new THREE.CylinderGeometry(.025, .035, .5, 5), 0, .35, -.32); tail.rotation.x = -.6; noRayAll(cat); roundGroup.add(cat);
+  WZW.cat = {g:cat, spots:[], k:0}; for (let i = 0; i < 6; i++) WZW.cat.spots.push(wzaSpot(rng, 1)); wzCatAt(0);
+  // the ghost of the graveyard
+  const gm = new THREE.MeshLambertMaterial({color:0xC8D8FF, transparent:true, opacity:.4, emissive:0x40507A, depthWrite:false}), gh = new THREE.Group(), body = new THREE.Mesh(wzaLathe([[.5, 0], [.45, .5], [.36, 1.1], [.3, 1.5], [.22, 1.75], [0, 1.85]], 14), gm); gh.add(body);
+  for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(.05, 6, 4), new THREE.MeshBasicMaterial({color:0x101018})); e.position.set(s*.09, 1.55, .26); gh.add(e); } noRayAll(gh); roundGroup.add(gh); WZW.ghost = {g:gh, t:0, mat:gm, gone:0};
+  // ravens on the dead trees
+  WZW.ravens = []; for (let i = 0; i < 7; i++) { const [x, z] = wzaSpot(rng, 1), rv = new THREE.Group(), m = new THREE.MeshLambertMaterial({color:0x111018}); const b = new THREE.Mesh(new THREE.SphereGeometry(.14, 8, 6), m); b.scale.set(.8, .8, 1.4); rv.add(b); const hd = new THREE.Mesh(new THREE.SphereGeometry(.08, 8, 6), m); hd.position.set(0, .1, .16); rv.add(hd);
+    const bk = new THREE.Mesh(new THREE.ConeGeometry(.03, .1, 4), new THREE.MeshLambertMaterial({color:0x3A3A20})); bk.rotation.x = Math.PI/2; bk.position.set(0, .09, .27); rv.add(bk); const wings = [-1, 1].map(s => { const w = new THREE.Mesh(new THREE.BoxGeometry(.4, .02, .18), m); w.position.set(s*.2, .03, 0); rv.add(w); return w; });
+    noRayAll(rv); const y = groundH(x, z) + .14; rv.position.set(x, y, z); rv.rotation.y = rng()*6; roundGroup.add(rv); WZW.ravens.push({g:rv, wings, home:V3(x, y, z), fly:0, back:0}); }
+  // ancient chests behind two castles
+  WZW.chests = []; for (const near of [[-80, -76, 12], [78, 80, 12]]) { const [x, z] = wzaSpot(rng, 1.5, near), gy = groundH(x, z), g = new THREE.Group(), wood = new THREE.MeshLambertMaterial({map:WZT_TEX.wood()}), gold = new THREE.MeshLambertMaterial({color:0xD9A520, emissive:0x3A2400});
+    const base = new THREE.Mesh(new THREE.BoxGeometry(1.2, .6, .8), wood); base.position.y = .3; g.add(base); for (const s of [-1, 1]) { const band = new THREE.Mesh(new THREE.BoxGeometry(.08, .62, .82), gold); band.position.set(s*.45, .3, 0); g.add(band); }
+    const lid = new THREE.Group(); lid.position.set(0, .6, -.4); const lt = new THREE.Mesh(new THREE.CylinderGeometry(.4, .4, 1.2, 10, 1, false, 0, Math.PI), wood); lt.rotation.z = Math.PI/2; lt.position.z = .4; lid.add(lt); g.add(lid);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({map:WZT_TEX.glow(), color:0xFFD84D, transparent:true, opacity:.5, depthWrite:false, blending:THREE.AdditiveBlending})); glow.position.y = .9; glow.scale.set(2, 2, 1); g.add(glow);
+    noRayAll(g); g.position.set(x, gy, z); g.rotation.y = Math.atan2(-x, -z); roundGroup.add(g); WZW.chests.push({g, lid, glow, x, z, open:false}); }
+}
+function wzCatAt(k){ const C = WZW.cat; C.k = k % C.spots.length; const [x, z] = C.spots[C.k]; C.g.position.set(x, groundH(x, z), z); C.g.rotation.y = Math.random()*6; C.g.visible = true; }
+function wzSecretsFrame(dt){
+  const me = localP(); if (!me) return; const p = me.body.position;
+  for (const R of WZW.rings) { R.t += dt; R.sprites.forEach((s, i) => { const k = 1 + .25*Math.sin(R.t*2 + i); s.scale.set(k, k, 1); });
+    if (me.alive !== false && Math.hypot(p.x - R.x, p.z - R.z) < 2.6) { if (me.hp < 100) { me.hp = Math.min(100, me.hp + 9*dt); updateHud(); if (Math.random() < .2) sparkle(V3(p.x, p.y + 1, p.z), 0x7CFF9A); } if (!R.felt) { R.felt = true; sfx('holy'); toast('🍄 A fairy ring. You feel restored.'); } } else R.felt = false; }
+  const C = WZW.cat; if (C && C.g.visible && hdist(p, C.g.position) < 5) { puff(V3(C.g.position.x, C.g.position.y + .4, C.g.position.z), 0x6A3FB8, .8); sfx('meow'); C.g.visible = false; setTimeout(() => wzCatAt(C.k + 1 + Math.floor(Math.random()*3)), 1500); if (!WZW.seen.cat) { WZW.seen.cat = 1; toast('🐈‍⬛ …it was there a moment ago.'); } }
+  const H = WZW.ghost; if (H) { H.t += dt; const gx = Math.sin(H.t*.12)*13, gz = -90 + Math.cos(H.t*.09)*8, gy = groundH(gx, gz) + .3 + Math.sin(H.t*1.4)*.2; H.g.position.set(gx, gy, gz); H.g.rotation.y = Math.atan2(Math.cos(H.t*.12), -Math.sin(H.t*.09)*.7);
+    if (H.gone > 0) { H.gone -= dt; H.mat.opacity = Math.max(0, H.mat.opacity - dt); } else { H.mat.opacity = .25 + Math.sin(H.t*2)*.12; if (hdist(p, H.g.position) < 3.5) { H.gone = 8; sfx('shriek'); if (!WZW.seen.ghost) { WZW.seen.ghost = 1; toast('👻 Something cold passed through you.'); } } } }
+  for (const rv of WZW.ravens) { if (rv.fly <= 0 && rv.back <= 0 && hdist(p, rv.home) < 8) { rv.fly = 4; sfx('caw'); rv.dir = Math.random()*6; }
+    if (rv.fly > 0) { rv.fly -= dt; rv.g.position.x += Math.sin(rv.dir)*7*dt; rv.g.position.z += Math.cos(rv.dir)*7*dt; rv.g.position.y += 5*dt; rv.wings.forEach((w, i) => w.rotation.z = (i ? -1 : 1)*Math.sin(G.t*22)*.8); if (rv.fly <= 0) { rv.g.visible = false; rv.back = 25; } }
+    else if (rv.back > 0) { rv.back -= dt; if (rv.back <= 0) { rv.g.position.copy(rv.home); rv.g.visible = true; rv.wings.forEach(w => w.rotation.z = 0); } } }
+  for (const ch of WZW.chests) { if (ch.open) { ch.lid.rotation.x = Math.max(-1.9, ch.lid.rotation.x - dt*3); ch.glow.material.opacity = Math.max(0, ch.glow.material.opacity - dt*.2); continue; } ch.glow.material.opacity = .35 + Math.sin(G.t*2)*.15;
+    if (me.alive !== false && Math.hypot(p.x - ch.x, p.z - ch.z) < 2.2) { ch.open = true; sfx('holy'); sparkle(V3(ch.x, groundH(ch.x, ch.z) + 1, ch.z), 0xFFD84D); WZW.surgeT = G.t + 30; toast('📜 An ancient tome! Arcane Surge: your spells recharge twice as fast for 30 s.'); } }
+  if (WZW.surgeT > G.t) for (const k in G.cd) if (WIZ_SK[k] && G.cd[k] > 0) G.cd[k] = Math.max(0, G.cd[k] - dt);   // twice as fast
+}
+function wzWorldBuild(){ wzMistBuild(); wzCloudsBuild(); wzFrogsBuild(); wzSecretsBuild(); WZW.strikeT = 8; WZW.surgeT = 0; WZW.seen = {}; }
+function wzWorldFrame(dt){ if (!WZW.fog.length) return; wzMistFrame(dt); wzCloudsFrame(dt); wzFrogsFrame(dt); wzSecretsFrame(dt); }
 
 /* ===================================== WORLD: rain, nature, an unbreakable ground =====================================
    The ground never changes shape any more: craterAt() only scorches it (colour), World Severance leaves a glowing
@@ -16963,6 +17151,8 @@ function clientHandle(m){
     case 'zb': if (wzOn() && Array.isArray(m.f) && Array.isArray(m.p) && WIZ_SK[m.s]) wzBotCast(m); break;
     case 'zend': wzWin(); break;
     case 'zmsg': if (wzOn() && typeof m.m === 'string') toast(m.m.slice(0, 120)); break;
+    case 'zls': if (wzOn()) wzStrike(m); break;
+    case 'zfrog': if (wzOn()) wzFrogPop(m); break;
     case 'sgp': if (siegeOn()) siegeSetPaths(m.n | 0); break;
     case 'fortlog': if (siegeOn()) siegeReplay(m); break;
     case 'tn': if (tnOn()) tnApply(m); break;

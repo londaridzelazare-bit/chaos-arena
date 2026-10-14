@@ -734,3 +734,11 @@ Teams: G.wzCoop = everyone on one colour (or solo) -> co-op vs 12 waves of dark 
 'zb' bot casts, 'zend' win); bots are in bEnemies (team 'red') and take damage via summonsTakeArea/Cone -> wzTakeArea/Cone (host).
 Two colours = team battle (normal knockouts). Music: music/wizards.mp3 (NOT committed yet: needs the user's OK on the rights),
 20% volume, loop, follows mute. Tests: t87 (solo, real mouse drawing), t88 (online co-op + team battle), wizlook.mjs, wizperf.mjs.
+Wizards 2026-10-14.2: practising alone (wzPractice: co-op without NET.peer) = no waves; six dark wizards stand still as targets
+(wzPracticeFrame, WZ.spots, back 3 s after a knockout). World module (WZW, before "WORLD: rain, nature"): WZB_EDGE 116 square,
+3 layers of drifting mist planes + a dark floor beyond, sea/foam hidden; walking into it pushes you back (wzMistFrame); bots are
+clamped inside. Dark sounds: in wiz, sfx(n) -> wzSfx via WZ_SFX_MAP into a low-pass + convolver reverb bus (WZS). Storm clouds
+(sprite clusters) drift; the host strikes every 8-18 s ('zls' -> wzStrike: warning ring, bolt, bBoom owner 'storm'). Secrets
+(from the seed, on free spots WZA.keep): 6 crowned frogs (bEnemies 'F' ids; host wzSecretsTakeArea -> 'zfrog' -> wzFrogPop
+explodes, back in 45 s at a new seeded spot by gen), 2 fairy rings (heal 9/s), a black cat (vanishes), a graveyard ghost, ravens,
+2 ancient chests (Arcane Surge: Wizards cooldowns twice as fast for 30 s, local). Tests: tpractice.mjs, t89.mjs (world).
