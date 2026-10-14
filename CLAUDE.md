@@ -742,3 +742,8 @@ clamped inside. Dark sounds: in wiz, sfx(n) -> wzSfx via WZ_SFX_MAP into a low-p
 (from the seed, on free spots WZA.keep): 6 crowned frogs (bEnemies 'F' ids; host wzSecretsTakeArea -> 'zfrog' -> wzFrogPop
 explodes, back in 45 s at a new seeded spot by gen), 2 fairy rings (heal 9/s), a black cat (vanishes), a graveyard ghost, ravens,
 2 ancient chests (Arcane Surge: Wizards cooldowns twice as fast for 30 s, local). Tests: tpractice.mjs, t89.mjs (world).
+Wizards 2026-10-14.3: neutral creatures (WZB_KINDS 5 Goblin, 6 Ghost, neutral:true, team 'wild'): host wzNeutralFrame spawns up to
+8 goblins / 5 ghosts on free spots, they wander near home; wzBotHurt makes one (and its kind within 12 m) angry -> chase the nearest
+player (goblin club 'g_club' = small bBoom; ghost z_ice); calm after 10 s with nobody near. Snapshot kind + 10 = angry. bEnemies /
+wzTakeArea skip bots of the caster's team ('red' dark wizards, 'wild' neutrals). The drawn circle now glows where the spell lands
+(the aim point); self spells under the caster. Test t90.

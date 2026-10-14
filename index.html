@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-14.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-14.3';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -8744,7 +8744,7 @@ function bEnemies(key, team){
   PAIN.dummies.forEach((o, i) => { if (!o.dead && !o.animal) out.push({id:'d' + i, pos:o.body.position}); });
   if (typeof SUM !== 'undefined') for (const e of SUM.list) if (!e.done && !e.under && e.owner !== key && !(team && e.team === team)) out.push({id:e.id, pos:e.p, sum:e});
   if (tdOn()) for (const b of TD.list) if (!b.dead && b.pos) out.push({id:'L' + b.id, pos:b.pos, bl:b});   // balloons are everybody's enemy
-  if (typeof WZ !== 'undefined' && WZ.bots.length && team !== 'red') for (const z of WZ.bots) if (!z.dead) out.push({id:'Z' + z.id, pos:z.pos, wz:z});   // the dark wizards (Wizards co-op)
+  if (typeof WZ !== 'undefined' && WZ.bots.length) for (const z of WZ.bots) if (!z.dead && team !== (WZB_KINDS[z.kind].neutral ? 'wild' : 'red')) out.push({id:'Z' + z.id, pos:z.pos, wz:z});   // the dark wizards (Wizards co-op)
   if (typeof WZW !== 'undefined' && WZW.frogs.length && wzOn()) for (const f of WZW.frogs) if (!f.dead) out.push({id:'F' + f.i, pos:f.pos});   // crowned frogs: anything flying hits them
   return out;
 }
@@ -14866,8 +14866,8 @@ function wzShoot(o, speed, extra){ const p = o.p || o.from.clone().add(V3(Math.s
 // what a spell does (players' casts and the dark wizards' alike)
 function wzEffect(id, o){
   const k = o.k, d = WIZ_SK[id], dir = o.p ? V3(o.p.x - o.from.x, 0, o.p.z - o.from.z).normalize() : V3(Math.sin(o.yaw), 0, Math.cos(o.yaw)), yaw = Math.atan2(dir.x, dir.z);
-  if (d && d.tier && id !== 'z_seal') { const area = d.kind === 'area' && o.p, q = area ? o.p : o.from, at = V3(q.x, groundH(q.x, q.z) + .12, q.z);
-    wzGlyphFX(id, at, area ? Math.max(4, d.r*2*(id === 'z_meteor' ? 1 : Math.sqrt(k))) : 2.4 + .4*d.tier, o.team === 'red' && !o.C ? 0xC08AFF : d.tier >= 4 ? 0xFFD84D : 0xFFE9A8, {flat:true, life:area ? (id === 'z_meteor' ? 3.6 : 1) : .9, spin:area ? .5 : 2, key:o.key}); }
+  if (d && d.tier && id !== 'z_seal') { const area = d.kind === 'area' && o.p, q = o.p && d.kind !== 'self' ? o.p : o.from, at = V3(q.x, groundH(q.x, q.z) + .12, q.z);
+    wzGlyphFX(id, at, area ? Math.max(4, d.r*2*(id === 'z_meteor' ? 1 : Math.sqrt(k))) : (d.kind === 'self' ? 2.4 : 3.2) + .45*d.tier, o.team === 'red' && !o.C ? 0xC08AFF : d.tier >= 4 ? 0xFFD84D : 0xFFE9A8, {flat:true, life:area ? (id === 'z_meteor' ? 3.6 : 1) : 1.3, spin:area ? .5 : 2, key:o.key}); }
   switch (id) {
     case 'z_wand': wzShoot(o, 62, {g:.02, r:.25, R:1.1, dmg:8, kb:2, m:wzOrb(.16, 0xE0C8FF, 0x9D6BFF), trail:0xC9B8FF, trailS:.12, fx:{size:.12, pal:WZ_ARC, snd:'zapHit'}}); sfx('zap'); return;
     case 'z_spark': wzShoot(o, 78, {g:0, r:.3, R:1.5, dmg:16*k, kb:4, m:wzOrb(.2, 0xFFF3A0, 0xFFE14D), trail:0xFFF3A0, trailS:.14, fx:{size:.18, pal:WZ_SKY, snd:'zapHit'}}); sfx('zap'); return;
@@ -14969,7 +14969,9 @@ const WZB_KINDS = [
   {n:'Pyromancer', hp:75, sp:4.6, cd:[3, 4.2], spell:'z_fire', col:0x8A2A1A, s:1.05, want:20},
   {n:'Stone Warden', hp:150, sp:3.4, cd:[4, 5.5], spell:'z_rock', col:0x55555E, s:1.3, want:14},
   {n:'Stormcaller', hp:100, sp:4.8, cd:[4.5, 6], spell:'z_bolt', col:0x223A7A, s:1.1, want:24},
-  {n:'Archmage', hp:1100, sp:3.2, cd:[2.6, 3.4], spell:'z_meteor', col:0x14081F, s:1.9, want:20, boss:true}
+  {n:'Archmage', hp:1100, sp:3.2, cd:[2.6, 3.4], spell:'z_meteor', col:0x14081F, s:1.9, want:20, boss:true},
+  {n:'Goblin', hp:60, sp:6.2, cd:[1, 1.4], spell:'g_club', col:0x5A7A2A, s:.8, want:1.8, neutral:true, mesh:'goblin'},
+  {n:'Ghost', hp:80, sp:4.2, cd:[2.6, 3.4], spell:'z_ice', col:0xC8D8FF, s:1.05, want:13, neutral:true, mesh:'ghost'}
 ];
 const WZ_WAVES = 12;
 function wzStart(){
@@ -14986,12 +14988,51 @@ function wzHud(force){
 }
 function wzBotsClear(){ for (const z of WZ.bots) if (z.g && z.g.parent) z.g.parent.remove(z.g); WZ.bots = []; }
 function wzBotMesh(K){
+  if (K.mesh) return wzNeutralMesh(K);
   // a dark wizard of the coven: a black robe, a hood, a shadowed face with burning eyes
   const g = new THREE.Group(), rig = new THREE.Group(); g.add(rig);
   wzaWizard(rig, {robe:K.col, dark:0x0E0A14, trim:K.boss ? 0xFFD84D : 0x6A2A8A, beard:K.boss ? 0x3A3A44 : null, face:0x0A080E, eyes:K.boss ? 0xFF5A1F : 0xFF2A2A, glow:true, hat:K.boss ? 'tall' : 'hood', crystal:K.boss ? 0xFF5A1F : 0xB48CFF});
   noRayAll(g); g.scale.setScalar(K.s);
   const mk = c => { const s0 = new THREE.Sprite(new THREE.SpriteMaterial({color:c, depthTest:false, depthWrite:false})); s0.center.set(0, .5); s0.renderOrder = 41; s0.userData.noRay = true; roundGroup.add(s0); return s0; };
   return {g, bar:{bg:mk(0x1A1A1A), fill:mk(0xFF4B3E)}};
+}
+// a goblin (green, big ears, a club) or a ghost (a translucent sheet with hollow eyes)
+function wzNeutralMesh(K){
+  const g = new THREE.Group(), add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = K.mesh !== 'ghost'; g.add(m); return m; };
+  if (K.mesh === 'goblin') { const skin = new THREE.MeshLambertMaterial({color:0x6A8A2E}), rag = new THREE.MeshLambertMaterial({map:WZT_TEX.cloth(0x5A3A22, 0x3A2414)}), dark = new THREE.MeshLambertMaterial({color:0x2A1E12});
+    for (const s0 of [-1, 1]) { add(new THREE.CylinderGeometry(.09, .1, .6, 7), skin, s0*.15, .3, 0); add(new THREE.BoxGeometry(.16, .08, .26), dark, s0*.15, .03, .06); }
+    add(wzaLathe([[.36, .45], [.33, .7], [.36, 1.0], [.3, 1.2], [.16, 1.32]], 12), skin, 0, 0, 0); add(wzaLathe([[.42, .38], [.4, .55], [.37, .72]], 12), rag, 0, 0, 0);
+    const hd = add(new THREE.SphereGeometry(.27, 12, 10), skin, 0, 1.5, .1); hd.scale.set(1.05, .95, 1.1); add(new THREE.ConeGeometry(.06, .22, 6), skin, 0, 1.47, .4).rotation.x = Math.PI/2;
+    for (const s0 of [-1, 1]) { const ear = add(new THREE.ConeGeometry(.08, .42, 5), skin, s0*.33, 1.6, .05); ear.rotation.z = -s0*1.25; const e = add(new THREE.SphereGeometry(.05, 8, 6), new THREE.MeshBasicMaterial({color:0xFFD84D}), s0*.1, 1.56, .34); e.userData.eye = true;
+      const arm = add(new THREE.CylinderGeometry(.06, .07, .62, 7), skin, s0*.42, 1.0, .05); arm.rotation.z = s0*.25; }
+    const club = new THREE.Group(); club.position.set(.5, .78, .2); g.add(club); const ch = new THREE.Mesh(new THREE.CylinderGeometry(.06, .13, .9, 7), new THREE.MeshLambertMaterial({map:WZT_TEX.bark()})); ch.position.y = .35; club.add(ch); club.rotation.x = .5; g.userData.club = club; }
+  else { const sheet = new THREE.MeshLambertMaterial({color:0xC8D8FF, emissive:0x3A4A7A, transparent:true, opacity:.55, depthWrite:false, side:THREE.DoubleSide});
+    const b = add(wzaLathe([[.62, .1], [.5, .5], [.42, 1.0], [.36, 1.4], [.28, 1.75], [.15, 1.95], [0, 2.0]], 16), sheet, 0, 0, 0); const p0 = b.geometry.attributes.position; for (let v = 0; v < p0.count; v++) if (p0.getY(v) < .2) p0.setY(v, p0.getY(v) + Math.sin(Math.atan2(p0.getZ(v), p0.getX(v))*6)*.12);
+    for (const s0 of [-1, 1]) { add(new THREE.SphereGeometry(.07, 8, 6), new THREE.MeshBasicMaterial({color:0x05060A}), s0*.11, 1.62, .28).scale.set(1, 1.4, .5); const gl = new THREE.Sprite(new THREE.SpriteMaterial({map:WZT_TEX.glow(), color:0x9FB8FF, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending})); gl.scale.set(.4, .4, 1); gl.position.set(s0*.11, 1.62, .3); gl.userData.eye = true; g.add(gl); }
+    for (const s0 of [-1, 1]) { const arm = add(new THREE.ConeGeometry(.12, .7, 8, 1, true), sheet, s0*.45, 1.25, .05); arm.rotation.z = s0*1.9; } }
+  noRayAll(g); g.scale.setScalar(K.s);
+  const mk = c => { const s0 = new THREE.Sprite(new THREE.SpriteMaterial({color:c, depthTest:false, depthWrite:false})); s0.center.set(0, .5); s0.renderOrder = 41; s0.userData.noRay = true; s0.visible = false; roundGroup.add(s0); return s0; };
+  return {g, bar:{bg:mk(0x1A1A1A), fill:mk(0xFF4B3E)}};
+}
+// neutral creatures (host): they wander near home and leave you alone, until somebody hurts one. Then it (and its kind
+// nearby) fights whoever is closest, until everyone has gone away for a while. A dead one is replaced by a new wanderer.
+const WZN = {count:{5:8, 6:5}, t:2};
+function wzNeutralFrame(dt){
+  if (!wzHost() || G.matchOver) return;
+  WZN.t -= dt; if (WZN.t <= 0) { WZN.t = 4; for (const kind of [5, 6]) { const have = WZ.bots.filter(z => !z.dead && z.kind === kind).length; if (have < WZN.count[kind]) { const rng = Math.random, near = kind === 6 && rng() < .5 ? [0, -90, 24] : null, [x, z] = wzaSpot(rng, 2, near), b = wzBotMake(kind, x, z, WZB_KINDS[kind].hp); b.home = V3(x, 0, z); b.angry = false; b.wander = V3(x, 0, z); b.cd = 0; break; } } }
+  const players = Object.values(chars).filter(P => P.alive !== false);
+  for (const z of WZ.bots) { if (z.dead || !WZB_KINDS[z.kind].neutral) continue; const K = WZB_KINDS[z.kind]; z.t += dt; z.slowT = Math.max(0, z.slowT - dt); z.liftT = Math.max(0, z.liftT - dt); if (!z.home) z.home = z.pos.clone();
+    let best = null, bd = 1e9; for (const P of players) { const d = hdist(P.body.position, z.pos); if (d < bd) { bd = d; best = P; } }
+    const sp = K.sp*(z.slowT > 0 ? .45 : 1);
+    if (z.angry && best && bd < 60) { z.calmT = 0; const tp = best.body.position, dx = tp.x - z.pos.x, dz = tp.z - z.pos.z, L = Math.hypot(dx, dz) || 1, fwd = L > K.want + .5 ? 1 : L < K.want - 3 ? -.6 : 0;
+      z.pos.x += dx/L*fwd*sp*dt; z.pos.z += dz/L*fwd*sp*dt; z.face = Math.atan2(dx, dz);
+      z.cd -= dt; if (z.cd <= 0 && L < (K.mesh === 'goblin' ? 2.6 : 20) && z.liftT <= 0) { z.cd = rr(K.cd[0], K.cd[1]); const aim = V3(tp.x, tp.y + .6, tp.z);
+        const m = {t:'zb', b:z.id, s:K.spell, tm:'wild', f:[+z.pos.x.toFixed(2), +(z.pos.y + 1.3*K.s).toFixed(2), +z.pos.z.toFixed(2)], p:[+aim.x.toFixed(2), +aim.y.toFixed(2), +aim.z.toFixed(2)], k:.8, sd:Math.floor(Math.random()*1e9)}; netBroadcast(m); wzBotCast(m); } }
+    else { if (z.angry) { z.calmT = (z.calmT || 0) + dt; if (z.calmT > 10 || !best || bd >= 60) { z.angry = false; z.calmT = 0; } }
+      if (!z.wander || hdist(z.pos, z.wander) < 1) { const a = Math.random()*Math.PI*2, r = Math.random()*9; z.wander = V3(z.home.x + Math.cos(a)*r, 0, z.home.z + Math.sin(a)*r); z.pause = 1 + Math.random()*3; }
+      if (z.pause > 0) z.pause -= dt; else { const dx = z.wander.x - z.pos.x, dz = z.wander.z - z.pos.z, L = Math.hypot(dx, dz) || 1; z.pos.x += dx/L*sp*.3*dt; z.pos.z += dz/L*sp*.3*dt; z.face = Math.atan2(dx, dz); } }
+    z.pos.x = clamp(z.pos.x, -WZB_EDGE + 5, WZB_EDGE - 5); z.pos.z = clamp(z.pos.z, -WZB_EDGE + 5, WZB_EDGE - 5);
+    z.pos.y = groundH(z.pos.x, z.pos.z) + (K.mesh === 'ghost' ? .4 + Math.sin(z.t*1.3)*.25 : 0) + (z.liftT > 0 ? 3*Math.sin(z.liftT*5) + 2 : 0); }
 }
 function wzBotMake(kind, x, z, hp){
   const K = WZB_KINDS[kind], M = wzBotMesh(K), b = {id:++WZ.seq, kind, pos:V3(x, groundH(x, z), z), hp, max:hp, face:0, cd:rr(1, 3), t:rr(0, 6), g:M.g, bar:M.bar, slowT:0, liftT:0, flash:0, dead:false};
@@ -15012,16 +15053,16 @@ function wzPracticeFrame(dt){
   const me = localP();
   if (!WZ.spots) { const b = me ? me.body.position : V3(0, 0, 0), dir = Math.atan2(-b.x, -b.z); WZ.spots = []; for (let i = 0; i < 6; i++) { const a = dir + (i - 2.5)*.32, r = 16 + (i % 3)*6; WZ.spots.push({x:b.x + Math.sin(a)*r, z:b.z + Math.cos(a)*r, kind:[0, 1, 0, 2, 3, 1][i], t:0, z0:null}); } }
   for (const s0 of WZ.spots) { if (s0.z0 && !s0.z0.dead) continue; s0.t -= dt; if (s0.t > 0) continue; s0.z0 = wzBotMake(s0.kind, s0.x, s0.z, WZB_KINDS[s0.kind].hp); s0.z0.cd = 1e9; s0.t = 3; }
-  for (const z of WZ.bots) { if (z.dead) continue; if (me) z.face = Math.atan2(me.body.position.x - z.pos.x, me.body.position.z - z.pos.z); z.slowT = Math.max(0, z.slowT - dt); z.liftT = Math.max(0, z.liftT - dt); z.pos.y = groundH(z.pos.x, z.pos.z) + (z.liftT > 0 ? 3*Math.sin(z.liftT*5) + 2 : 0); }
+  for (const z of WZ.bots) { if (z.dead || WZB_KINDS[z.kind].neutral) continue; if (me) z.face = Math.atan2(me.body.position.x - z.pos.x, me.body.position.z - z.pos.z); z.slowT = Math.max(0, z.slowT - dt); z.liftT = Math.max(0, z.liftT - dt); z.pos.y = groundH(z.pos.x, z.pos.z) + (z.liftT > 0 ? 3*Math.sin(z.liftT*5) + 2 : 0); }
   for (const s0 of WZ.spots) if (s0.z0 && s0.z0.dead && s0.t <= 0) s0.t = 3;
 }
 function wzBotsFrame(dt){
   const host = wzHost();
   if (wzPractice() && !G.matchOver) wzPracticeFrame(dt);
   else if (G.wzCoop && host && !G.matchOver) {
-    if (!WZ.bots.some(z => !z.dead)) { WZ.waveT -= dt; if (WZ.waveT <= 0) { if (WZ.wave >= WZ_WAVES) { wzWin(); netBroadcast({t:'zend'}); return; } wzSpawnWave(); WZ.waveT = 5; } }
+    if (!WZ.bots.some(z => !z.dead && !WZB_KINDS[z.kind].neutral)) { WZ.waveT -= dt; if (WZ.waveT <= 0) { if (WZ.wave >= WZ_WAVES) { wzWin(); netBroadcast({t:'zend'}); return; } wzSpawnWave(); WZ.waveT = 5; } }
     const players = Object.entries(chars).filter(([, P]) => P.alive !== false);
-    for (const z of WZ.bots) { if (z.dead) continue; const K = WZB_KINDS[z.kind]; z.t += dt; z.slowT = Math.max(0, z.slowT - dt);
+    for (const z of WZ.bots) { if (z.dead || WZB_KINDS[z.kind].neutral) continue; const K = WZB_KINDS[z.kind]; z.t += dt; z.slowT = Math.max(0, z.slowT - dt);
       let best = null, bd = 1e9; for (const [k, P] of players) { const d = hdist(P.body.position, z.pos); if (d < bd) { bd = d; best = [k, P]; } }
       const sp = K.sp*(z.slowT > 0 ? .45 : 1);
       if (best) { const tp = best[1].body.position, dx = tp.x - z.pos.x, dz = tp.z - z.pos.z, L = Math.hypot(dx, dz) || 1, fx = dx/L, fz = dz/L, sx = -fz, sz = fx;
@@ -15031,10 +15072,15 @@ function wzBotsFrame(dt){
           const m = {t:'zb', b:z.id, s:K.spell, f:[+z.pos.x.toFixed(2), +(z.pos.y + 1.6*K.s).toFixed(2), +z.pos.z.toFixed(2)], p:[+aim.x.toFixed(2), +aim.y.toFixed(2), +aim.z.toFixed(2)], k:+(.7 + .03*WZ.wave).toFixed(2), sd:Math.floor(Math.random()*1e9)};
           netBroadcast(m); wzBotCast(m); } }
       z.pos.x = clamp(z.pos.x, -WZB_EDGE + 5, WZB_EDGE - 5); z.pos.z = clamp(z.pos.z, -WZB_EDGE + 5, WZB_EDGE - 5); z.liftT = Math.max(0, z.liftT - dt); z.pos.y = groundH(z.pos.x, z.pos.z) + (z.liftT > 0 ? 3*Math.sin(z.liftT*5) + 2 : 0); }
-    WZ.sendT -= dt; if (WZ.sendT <= 0 && NET.peer) { WZ.sendT = .1; const b = []; for (const z of WZ.bots) if (!z.dead) b.push(z.id, z.kind, Math.round(z.pos.x*10), Math.round(z.pos.y*10), Math.round(z.pos.z*10), Math.round(z.hp), Math.round(z.face*100), Math.round(z.max)); netBroadcast({t:'zbs', w:WZ.wave, k:WZ.kills, b}); }
-  } else if (!host) for (const z of WZ.bots) { if (z.dead || !z.to) continue; z.pos.lerp(z.to, Math.min(1, dt*10)); }
+  }
+  if (host) wzNeutralFrame(dt);
+  if (host) {
+    WZ.sendT -= dt; if (WZ.sendT <= 0 && NET.peer) { WZ.sendT = .1; const b = []; for (const z of WZ.bots) if (!z.dead) b.push(z.id, z.kind + (z.angry ? 10 : 0), Math.round(z.pos.x*10), Math.round(z.pos.y*10), Math.round(z.pos.z*10), Math.round(z.hp), Math.round(z.face*100), Math.round(z.max)); netBroadcast({t:'zbs', w:WZ.wave, k:WZ.kills, b}); }
+  } else for (const z of WZ.bots) { if (z.dead || !z.to) continue; z.pos.lerp(z.to, Math.min(1, dt*10)); }
   for (const z of WZ.bots) { if (z.dead) continue; const K = WZB_KINDS[z.kind]; z.flash = Math.max(0, z.flash - dt);
-    z.g.position.copy(z.pos); z.g.position.y += Math.sin(G.t*3 + z.id)*.08; z.g.rotation.y = z.face; z.g.scale.setScalar(K.s*(z.flash > 0 ? 1.08 : 1));
+    z.g.position.copy(z.pos); z.g.position.y += Math.sin(G.t*3 + z.id)*.08; z.g.rotation.y = z.face;
+    if (K.neutral) { const on = !!z.angry || z.hp < z.max; z.bar.bg.visible = z.bar.fill.visible = on; if (z.angryShown !== !!z.angry) { z.angryShown = !!z.angry; z.g.traverse(o => { if (o.userData.eye) o.material.color.setHex(z.angry ? 0xFF2A2A : K.mesh === 'ghost' ? 0x9FB8FF : 0xFFD84D); }); }
+      if (z.g.userData.club) { z.swing = Math.max(0, (z.swing || 0) - dt*3); z.g.userData.club.rotation.x = .5 - z.swing*2; } } z.g.scale.setScalar(K.s*(z.flash > 0 ? 1.08 : 1));
     const w = 1.6*K.s, f = clamp(z.hp/z.max, 0, 1), y = z.pos.y + 3.2*K.s; z.bar.bg.position.set(z.pos.x - w/2, y, z.pos.z); z.bar.bg.scale.set(w, .2, 1); z.bar.fill.position.set(z.pos.x - w/2, y, z.pos.z); z.bar.fill.scale.set(Math.max(.01, w*f), .14, 1); z.bar.fill.material.color.setHex(z.flash > 0 ? 0xFFFFFF : 0xFF4B3E); }
   WZ.bots = WZ.bots.filter(z => !z.dead);
   if ((G.fc || 0) % 15 === 0) wzHud();
@@ -15043,26 +15089,27 @@ function wzBotsFrame(dt){
 function wzBotCast(m){
   const z = WZ.bots.find(q => q.id === m.b), from = V3(m.f[0], m.f[1], m.f[2]), p = V3(m.p[0], m.p[1], m.p[2]);
   if (z) z.face = Math.atan2(p.x - from.x, p.z - from.z);
-  wzEffect(m.s, {key:'Z' + m.b, team:'red', C:null, from, p, k:clamp(+m.k || .7, .3, 1.5), yaw:Math.atan2(p.x - from.x, p.z - from.z), rng:mulberry32((+m.sd || 3) >>> 0)});
+  if (m.s === 'g_club') { const z2 = WZ.bots.find(q => q.id === m.b); if (z2) z2.swing = 1; bBoom(V3(p.x, p.y, p.z), 1.8, 10, 9, 'Z' + m.b, 'wild', {pal:{ball:0x6A8A2E, core:0xD9C7A3, ring:0x3A2A1A}, size:.2, snd:'thud'}); return; }   /* a goblin's club */
+  wzEffect(m.s, {key:'Z' + m.b, team:m.tm === 'wild' ? 'wild' : 'red', C:null, from, p, k:clamp(+m.k || .7, .3, 1.5), yaw:Math.atan2(p.x - from.x, p.z - from.z), rng:mulberry32((+m.sd || 3) >>> 0)});
 }
 function wzBotDie(z){ z.dead = true; if (z.g.parent) z.g.parent.remove(z.g); roundGroup.remove(z.bar.bg); roundGroup.remove(z.bar.fill); const at = V3(z.pos.x, z.pos.y + 1.2, z.pos.z); boomVisual(at, false, WZB_KINDS[z.kind].boss ? 1.2 : .35, WZ_ARC); puff(at, 0x3A2A4A, 1); sfx('pop'); }
 // players' attacks hurt them (the host counts it)
 function wzTakeArea(at, R, dmg, team){
-  if (!wzOn() || !WZ.bots.length || !wzHost() || team === 'red' || !(dmg > 0) || !at) return;
-  for (const z of WZ.bots) { if (z.dead) continue; const K = WZB_KINDS[z.kind], d = Math.hypot(z.pos.x - at.x, z.pos.y + 1.2*K.s - (at.y != null ? at.y : z.pos.y + 1.2), z.pos.z - at.z); if (d < R + .8*K.s) wzBotHurt(z, dmg*(d < R*.5 ? 1 : .7)); }
+  if (!wzOn() || !WZ.bots.length || !wzHost() || !(dmg > 0) || !at) return;
+  for (const z of WZ.bots) { if (z.dead || team === (WZB_KINDS[z.kind].neutral ? 'wild' : 'red')) continue; const K = WZB_KINDS[z.kind], d = Math.hypot(z.pos.x - at.x, z.pos.y + 1.2*K.s - (at.y != null ? at.y : z.pos.y + 1.2), z.pos.z - at.z); if (d < R + .8*K.s) wzBotHurt(z, dmg*(d < R*.5 ? 1 : .7)); }
 }
 function wzTakeCone(from, yaw, range, arc, dmg, team){
-  if (!wzOn() || !WZ.bots.length || !wzHost() || team === 'red' || !(dmg > 0)) return; const fx = Math.sin(yaw), fz = Math.cos(yaw), cosA = Math.cos(arc/2);
-  for (const z of WZ.bots) { if (z.dead) continue; const dx = z.pos.x - from.x, dz = z.pos.z - from.z, d = Math.hypot(dx, dz); if (d > range + 1) continue; if (d < 1.5 || (dx*fx + dz*fz)/d > cosA) wzBotHurt(z, dmg); }
+  if (!wzOn() || !WZ.bots.length || !wzHost() || !(dmg > 0)) return; const fx = Math.sin(yaw), fz = Math.cos(yaw), cosA = Math.cos(arc/2);
+  for (const z of WZ.bots) { if (z.dead || team === (WZB_KINDS[z.kind].neutral ? 'wild' : 'red')) continue; const dx = z.pos.x - from.x, dz = z.pos.z - from.z, d = Math.hypot(dx, dz); if (d > range + 1) continue; if (d < 1.5 || (dx*fx + dz*fz)/d > cosA) wzBotHurt(z, dmg); }
 }
-function wzBotHurt(z, dmg){ z.hp -= dmg; z.flash = .12; if (z.hp <= 0 && !z.dead) { WZ.kills++; wzBotDie(z); } }
+function wzBotHurt(z, dmg){ z.hp -= dmg; z.flash = .12; if (WZB_KINDS[z.kind].neutral && !z.angry) { z.angry = true; for (const o of WZ.bots) if (!o.dead && o.kind === z.kind && !o.angry && hdist(o.pos, z.pos) < 12) o.angry = true; } if (z.hp <= 0 && !z.dead) { WZ.kills++; wzBotDie(z); } }
 // a client: the host's report of the dark wizards
 function wzApply(m){
   if (!wzOn() || wzHost()) return; WZ.wave = m.w | 0; WZ.kills = m.k | 0; const a = Array.isArray(m.b) ? m.b : [], seen = new Set();
-  for (let i = 0; i + 7 < a.length; i += 8) { const id = a[i], kind = a[i + 1] | 0; if (!WZB_KINDS[kind]) continue; seen.add(id);
+  for (let i = 0; i + 7 < a.length; i += 8) { const id = a[i], kk = a[i + 1] | 0, kind = kk % 10; if (!WZB_KINDS[kind]) continue; seen.add(id);
     let z = WZ.bots.find(q => q.id === id); const to = V3(a[i + 2]/10, a[i + 3]/10, a[i + 4]/10);
     if (!z) { z = wzBotMake(kind, to.x, to.z, a[i + 7]); z.id = id; z.pos.copy(to); }
-    if (a[i + 5] < z.hp) z.flash = .12; z.hp = a[i + 5]; z.max = a[i + 7]; z.face = a[i + 6]/100; z.to = to; }
+    z.angry = kk >= 10; if (a[i + 5] < z.hp) z.flash = .12; z.hp = a[i + 5]; z.max = a[i + 7]; z.face = a[i + 6]/100; z.to = to; }
   for (const z of WZ.bots) if (!seen.has(z.id) && !z.dead) wzBotDie(z);
 }
 function wzWin(){
@@ -17148,7 +17195,7 @@ function clientHandle(m){
     case 'eover': if (eggOn()) eggShowOver(m); break;
     case 'td': if (tdOn()) tdApply(m); break;
     case 'zbs': wzApply(m); break;
-    case 'zb': if (wzOn() && Array.isArray(m.f) && Array.isArray(m.p) && WIZ_SK[m.s]) wzBotCast(m); break;
+    case 'zb': if (wzOn() && Array.isArray(m.f) && Array.isArray(m.p) && (WIZ_SK[m.s] || m.s === 'g_club')) wzBotCast(m); break;
     case 'zend': wzWin(); break;
     case 'zmsg': if (wzOn() && typeof m.m === 'string') toast(m.m.slice(0, 120)); break;
     case 'zls': if (wzOn()) wzStrike(m); break;
