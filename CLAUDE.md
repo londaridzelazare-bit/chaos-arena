@@ -754,3 +754,9 @@ subdivided plane laid on groundH), opening 0 -> 100% with no spin or wobble, wit
 strokes (wzPolysFor = the caster's own drawing). Every cast opens two circles: one at the caster (low rays) and one at the target.
 Nothing is thrown any more: spark strikes from the sky into the target circle, fire = wzGeyser, ice = wzSpikes, boulder falls from
 the sky, tornado rises at the target, wand = small arcane burst; targets within 80 m (wzEffect clamps o.p). Music volume .04.
+Wizards 2026-10-14.5: creature models (wzWraithMesh hooded floating wraith with rag strips + glowing hands, wzGoblinMesh hunched
+shaman, new wzFrogMesh, wzaAnimal night animals in wiz, wzBats swaps the bird flocks to bats), wizards have a long cape. Every spell
+has a colour (WIZ_SK[id].col). Aimed spells: the key shows a preview of your own circle where you aim (WZP, wzPreviewFrame; the red
+marker is hidden), Click opens it (wzCastAt); self spells cast at once. Falling powers (spark, boulder, bolt, meteor, seal) also
+open a circle in the air above the target (wzGlyphFX o.sky). The paper shows a big feather quill (WZ_QUILL_SVG, wzQuillAttach)
+instead of the cursor.

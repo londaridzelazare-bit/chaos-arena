@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-14.4';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-14.5';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -2354,6 +2354,7 @@ function setTargeting(id){
   const s = skillDef(id);
   sfx(G.targeting ? 'grab' : 'place');
   if (G.targeting && GUARD[id]) toast(RING_IDS[id] ? `${s.e} ${s.name}: aim at the ground. On a ring (gold) = combine, further out (white) = a new ring. Click.` : `${s.e} ${s.name}: aim and click to place it. Press ${s.key} to put it away.`);
+  else if (G.targeting && WIZ_SK[id]) toast(`${s.e} ${s.name}: aim the circle, Click to open it. ${s.key} again (or right-click) puts it away.`);
   else if (G.targeting && id !== 's_cut' && id !== 's_sever') toast(id === 'shinra' ? `${s.e} Aim the marker, face the way you want to push, then click. Press ${s.key} to put it away.` : `${s.e} ${s.name}: aim the red marker and click. Keep clicking to spam. Press ${s.key} to put it away.`);
   renderTray();
 }
@@ -2379,7 +2380,8 @@ function updateTargeting(){
   mkRing.material.opacity = .65 + Math.sin(G.t*8)*.25;
   mkArrow.visible = id === 'shinra' || id === 'sword'; mkArrow.rotation.y = G.yaw;
   if (AVATAR[id] && !['aim', 'aimcharge', 'sky'].includes(AVATAR[id].kind)) marker.visible = false;
-  if (WOOD_SK[id] && WOOD_SK[id].kind !== 'aimcharge') marker.visible = false;   // Wood Sage powers aimed with the crosshair alone   // Genos powers aimed with the crosshair alone
+  if (WOOD_SK[id] && WOOD_SK[id].kind !== 'aimcharge') marker.visible = false;
+  if (typeof WIZ_SK !== 'undefined' && WIZ_SK[id]) marker.visible = false;   /* Wizards: the preview circle */   // Wood Sage powers aimed with the crosshair alone   // Genos powers aimed with the crosshair alone
 }
 function castAt(){
   const id = G.targeting;
@@ -14701,6 +14703,8 @@ const WIZ_SK = {
   z_ink: {name:'Circle activated', e:'✨', hide:true, cd:0}
 };
 const WZ_IDS = Object.keys(WIZ_SK).filter(id => WIZ_SK[id].tier);
+{ const C = {z_spark:0xFFF07A, z_fire:0xFF6A2A, z_ice:0x7FDFFF, z_rock:0xD8A060, z_ward:0xB48CFF, z_heal:0x7CFF9A, z_bolt:0x8FB0FF, z_wind:0xD8F0E8, z_meteor:0xFF3A2A, z_seal:0xFFD84D};
+  for (const id of WZ_IDS) { WIZ_SK[id].col = C[id]; if (WIZ_SK[id].kind !== 'self') WIZ_SK[id].range = WIZ_SK[id].range || 80; } }
 const WZ_KEYS = {}; for (const id of WZ_IDS) WZ_KEYS[WIZ_SK[id].key.toLowerCase()] = id;
 for (const id of WZ_IDS) { const d = WIZ_SK[id]; d.polys = d.glyph(); if (d.r) TARGET_R[id] = d.r; }
 // resample polylines every `step`
@@ -14765,12 +14769,12 @@ const WZ_RAY_GEO = (() => { const a = new THREE.PlaneGeometry(1, 1); a.translate
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(idx); return g; })();
 // the circle, flat on the ground: it grows, spins, and light rises out of every stroke, then it fades
 function wzGlyphFX(id, at, size, col, o){
-  o = o || {}; const grp = new THREE.Group(); grp.position.copy(at); grp.rotation.y = o.rot != null ? o.rot : 0; roundGroup.add(grp);
+  o = o || {}; const grp = new THREE.Group(); grp.position.copy(at); grp.rotation.y = o.rot != null ? o.rot : 0; roundGroup.add(grp); if (o.sky) grp.scale.y = -1;   /* a circle in the air: flat, rays pointing down */
   const N = size > 14 ? 40 : 26, geo = new THREE.PlaneGeometry(1, 1, N, N); geo.rotateX(-Math.PI/2); const base = Float32Array.from(geo.attributes.position.array), pos = geo.attributes.position, cr = Math.cos(grp.rotation.y), sr = Math.sin(grp.rotation.y);
   const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({map:wzTex(id, col, o.key), transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, polygonOffset:true, polygonOffsetFactor:-4}));
   m.userData.noRay = true; m.renderOrder = 4; m.frustumCulled = false; grp.add(m);
   // world-space ground height under a local point
-  const gyAt = (lx, lz) => groundH(at.x + lx*cr + lz*sr, at.z - lx*sr + lz*cr) - at.y + .08;
+  const gyAt = (lx, lz) => o.sky ? 0 : groundH(at.x + lx*cr + lz*sr, at.z - lx*sr + lz*cr) - at.y + .08;
   const lay = sc => { for (let v = 0; v < pos.count; v++) { const lx = base[v*3]*sc, lz = base[v*3 + 2]*sc; pos.setXYZ(v, lx, gyAt(lx, lz), lz); } pos.needsUpdate = true; };
   const pts = wzSample(wzPolysFor(id, o.key), .09).filter((_, i) => i % 2 === 0).slice(0, 120), n = pts.length;
   const rays = new THREE.InstancedMesh(WZ_RAY_GEO, new THREE.MeshBasicMaterial({map:wzRayTex(), color:col, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide}), Math.max(1, n));
@@ -14789,6 +14793,18 @@ function wzGlyphFX(id, at, size, col, o){
 /* ---------- the paper: an ink pen, ink that pools when you go slowly and thins when you flick, bleeds into the paper, shines
    while wet and splatters; activating it lights the strokes gold and stamps a wax seal with the grade ---------- */
 const WZ_PEN = "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'><path d='M4 36 C10 22 20 10 35 3 C37 9 30 19 16 27 C12 29 8 32 4 36 Z' fill='%23302018' stroke='%23C9A24A' stroke-width='1.3'/><path d='M8 31 C15 22 23 14 32 7' stroke='%23806040' stroke-width='1' fill='none'/><path d='M2 38 L6 32 L9 35 Z' fill='%23D9B04A' stroke='%23201006' stroke-width='.8'/></svg>\") 2 38, crosshair";
+const WZ_QUILL_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+<defs><linearGradient id="qf" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#2A1E14"/><stop offset=".55" stop-color="#E8DCC4"/><stop offset="1" stop-color="#FFFFFF"/></linearGradient></defs>
+<path d="M14 82 C26 60 44 34 88 6 C84 22 74 40 58 56 C46 68 30 76 14 82 Z" fill="url(#qf)" stroke="#5A4A3A" stroke-width="1.2"/>
+<path d="M16 80 C34 58 56 32 86 8" stroke="#6A5A48" stroke-width="1.6" fill="none"/>
+<g stroke="#B8AA94" stroke-width=".8" fill="none"><path d="M40 52 L52 60"/><path d="M48 42 L62 48"/><path d="M56 32 L70 36"/><path d="M64 24 L76 26"/><path d="M36 50 L32 40"/><path d="M46 38 L42 28"/><path d="M56 28 L54 18"/></g>
+<path d="M4 92 L12 78 L18 84 Z" fill="#1A1008" stroke="#0A0604" stroke-width=".8"/><path d="M4 92 L9 85" stroke="#C9A24A" stroke-width="1"/></svg>`;
+function wzQuillAttach(cv, el){
+  const q = document.createElement('div'); q.innerHTML = WZ_QUILL_SVG; q.style.cssText = 'position:fixed;left:0;top:0;width:96px;height:96px;pointer-events:none;z-index:41;transform-origin:4px 92px;display:none;filter:drop-shadow(3px 6px 4px rgba(0,0,0,.45))'; el.appendChild(q);
+  let down = false; const at = e => { q.style.display = 'block'; q.style.left = (e.clientX - 4) + 'px'; q.style.top = (e.clientY - 92) + 'px'; q.style.transform = `rotate(${down ? 6 : -4}deg) translate(${down ? '1px,2px' : '0,0'})`; };
+  cv.style.cursor = 'none'; cv.addEventListener('pointermove', at); cv.addEventListener('pointerenter', at); cv.addEventListener('pointerleave', () => { q.style.display = 'none'; });
+  cv.addEventListener('pointerdown', e => { down = true; at(e); }); addEventListener('pointerup', () => { down = false; });
+}
 function wzPaperBg(W){
   const c = document.createElement('canvas'); c.width = c.height = W; const g = c.getContext('2d'), r = wzaRng('paper' + W);
   const gr = g.createRadialGradient(W/2, W/2, W*.1, W/2, W/2, W*.75); gr.addColorStop(0, '#FAF0D4'); gr.addColorStop(1, '#E2CC98'); g.fillStyle = gr; g.fillRect(0, 0, W, W);
@@ -14822,6 +14838,7 @@ function wzPaperOpen(id){
   el.addEventListener('pointerdown', e => e.stopPropagation()); el.addEventListener('contextmenu', e => { e.preventDefault(); });
   el.querySelector('#wzGo').onclick = () => wzPaperActivate(); el.querySelector('#wzClr').onclick = () => { if (Pp.glow) return; Pp.strokes = []; Pp.blots = []; Pp.splats = []; };
   el.querySelector('#wzX').onclick = () => wzPaperClose(true); el.querySelector('#wzGd').onclick = () => wzGuideToggle();
+  wzQuillAttach(cv, el);
   wzGuideToggle(true); const tick = () => { if (WZ.paper !== Pp) return; wzPaperDraw(); Pp.raf = requestAnimationFrame(tick); }; tick();
   localCast('z_draw', null, {on:1}); sfx('grab');
 }
@@ -14872,9 +14889,24 @@ function wzUse(id){
   if (!WZ.ink[id]) { wzPaperOpen(id); return; }
   if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
   const k = WZ.ink[id].k, sd = Math.floor(Math.random()*1e9);
-  if (d.kind === 'area') { setTargeting(id); return; }
   if (d.kind === 'self') { localCast(id, null, {k, sd}); return; }
-  localCast(id, aimPoint(140), {k, sd});
+  setTargeting(id);   /* the preview circle follows your aim; Click places it */
+}
+// how big a spell's circle is where it lands
+function wzCircleSize(id, k){ const d = WIZ_SK[id]; return d.kind === 'area' ? Math.max(12, d.r*3*(id === 'z_meteor' ? 1 : Math.sqrt(k || 1))) : 10 + 2*d.tier; }
+// the preview: your own circle, faint and breathing, lying on the ground where it would open (grey when out of reach)
+const WZP = {id:null, grp:null, geo:null, base:null, mat:null};
+function wzPreviewFrame(){
+  const id = G.targeting && WIZ_SK[G.targeting] && WIZ_SK[G.targeting].tier ? G.targeting : null, me = localP();
+  if (!id || !me || WZ.paper) { if (WZP.grp) WZP.grp.visible = false; return; }
+  if (WZP.id !== id) { if (WZP.grp) { roundGroup.remove(WZP.grp); WZP.geo.dispose(); WZP.mat.dispose(); } const d = WIZ_SK[id], N = 30, geo = new THREE.PlaneGeometry(1, 1, N, N); geo.rotateX(-Math.PI/2);
+    WZP.mat = new THREE.MeshBasicMaterial({map:wzTex(id, d.col, G.localKey), transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, polygonOffset:true, polygonOffsetFactor:-4});
+    const m = new THREE.Mesh(geo, WZP.mat); m.frustumCulled = false; m.userData.noRay = true; m.renderOrder = 4; WZP.grp = new THREE.Group(); WZP.grp.add(m); roundGroup.add(WZP.grp); Object.assign(WZP, {id, geo, base:Float32Array.from(geo.attributes.position.array), size:wzCircleSize(id, WZ.ink[id] ? WZ.ink[id].k : 1)}); }
+  const q = G.targetPoint || (marker.visible ? marker.position : null); if (!q) { WZP.grp.visible = false; return; }
+  WZP.grp.visible = true; WZP.grp.position.set(q.x, groundH(q.x, q.z), q.z); const yaw = Math.atan2(q.x - me.body.position.x, q.z - me.body.position.z); WZP.grp.rotation.y = yaw;
+  const pos = WZP.geo.attributes.position, b = WZP.base, S = WZP.size, cr = Math.cos(yaw), sr = Math.sin(yaw), gy0 = WZP.grp.position.y;
+  for (let v = 0; v < pos.count; v++) { const lx = b[v*3]*S, lz = b[v*3 + 2]*S; pos.setXYZ(v, lx, groundH(q.x + lx*cr + lz*sr, q.z - lx*sr + lz*cr) - gy0 + .1, lz); } pos.needsUpdate = true;
+  WZP.mat.opacity = (G.targetPoint ? .35 : .15) + Math.sin(G.t*4)*.1; WZP.mat.color.setHex(G.targetPoint ? 0xFFFFFF : 0x777777);
 }
 function wzCastAt(id){
   if (!G.targetPoint) { toast(G.targetWhy || 'Aim at the ground.'); return; }
@@ -14921,16 +14953,17 @@ function wzShoot(o, speed, extra){ const p = o.p || o.from.clone().add(V3(Math.s
 function wzEffect(id, o){
   if (o.p) { const dx = o.p.x - o.from.x, dz = o.p.z - o.from.z, L = Math.hypot(dx, dz); if (L > 80) o.p = V3(o.from.x + dx/L*80, 0, o.from.z + dz/L*80); o.p.x = clamp(o.p.x, -WZB_EDGE + 3, WZB_EDGE - 3); o.p.z = clamp(o.p.z, -WZB_EDGE + 3, WZB_EDGE - 3); o.p.y = groundH(o.p.x, o.p.z); }
   const gq = h => gqOf(o, h), k = o.k, d = WIZ_SK[id], dir = o.p ? V3(o.p.x - o.from.x, 0, o.p.z - o.from.z).normalize() : V3(Math.sin(o.yaw), 0, Math.cos(o.yaw)), yaw = Math.atan2(dir.x, dir.z);
-  if (d && d.tier) { const col = o.team === 'red' && !o.C ? 0xC08AFF : o.team === 'wild' ? 0x9FB8FF : d.tier >= 4 ? 0xFFD84D : 0xFFE9A8, foot = V3(o.from.x, groundH(o.from.x, o.from.z), o.from.z);
+  if (d && d.tier) { const col = d.col || 0xFFE9A8, foot = V3(o.from.x, groundH(o.from.x, o.from.z), o.from.z);
     wzGlyphFX(id, foot, d.kind === 'self' ? 8 + d.tier : 5 + d.tier, col, {life:d.kind === 'self' ? 1.8 : 1.1, key:o.key, rot:yaw, rayH:d.kind === 'self' ? 3 : 1.3, rayOp:d.kind === 'self' ? .7 : .4});   /* the caster's circle (low rays: it mustn't blind you) */
-    if (d.kind !== 'self' && o.p && id !== 'z_seal') { const area = d.kind === 'area'; wzGlyphFX(id, V3(o.p.x, groundH(o.p.x, o.p.z), o.p.z), area ? Math.max(12, d.r*3*(id === 'z_meteor' ? 1 : Math.sqrt(k))) : 10 + 2*d.tier, col, {life:area ? (id === 'z_meteor' ? 3.8 : 1.8) : 1.7, key:o.key, rot:yaw}); } }
+    if (o.p && ['z_spark', 'z_rock', 'z_bolt', 'z_meteor', 'z_seal'].includes(id)) wzGlyphFX(id, V3(o.p.x, groundH(o.p.x, o.p.z) + (id === 'z_meteor' ? 30 : id === 'z_seal' ? 26 : 18), o.p.z), wzCircleSize(id, k)*(id === 'z_meteor' ? .9 : .8), d.col || 0xFFE9A8, {life:id === 'z_meteor' ? 3.8 : 1.6, key:o.key, rot:yaw, sky:true, rayH:6, open:.3});   /* the sky circle it falls from */
+    if (d.kind !== 'self' && o.p && id !== 'z_seal') { const area = d.kind === 'area'; wzGlyphFX(id, V3(o.p.x, groundH(o.p.x, o.p.z), o.p.z), area ? wzCircleSize(id, k) : wzCircleSize(id, k), col, {life:area ? (id === 'z_meteor' ? 3.8 : 1.8) : 1.7, key:o.key, rot:yaw}); } }
   switch (id) {
     case 'z_wand': { const q = gq(.6); wzAfter(.12, () => { boomVisual(q.clone(), false, .14, WZ_ARC); sparkle(q, 0xC9B8FF); bBoom(q.clone(), 1.5, 8, 2, o.key, o.team, {quiet:true}); sfx('zapHit'); }); wzGlyphFX('z_spark', V3(q.x, q.y - .6, q.z), 3.2, 0xC9B8FF, {life:.6, rayH:1.4}); wzGlyphFX('z_spark', V3(o.from.x, groundH(o.from.x, o.from.z), o.from.z), 2.4, 0xC9B8FF, {life:.5, rayH:1}); sfx('zap'); return; }
-    case 'z_spark': { const q = gq(.6); wzAfter(.28, () => { arcBeam(V3(q.x + rr(-2, 2), q.y + 24, q.z + rr(-2, 2)), q.clone(), 0xFFF3A0); arcBeam(V3(q.x, q.y + 20, q.z), q.clone(), 0xFFFFFF); bBoom(q.clone(), 1.9, 16*k, 4, o.key, o.team, {pal:WZ_SKY, size:.22, snd:'zapHit'}); }); sfx('zap'); return; }
+    case 'z_spark': { const q = gq(.6); wzAfter(.28, () => { arcBeam(V3(q.x, q.y + 17.4, q.z), q.clone(), 0xFFF3A0); arcBeam(V3(q.x, q.y + 17.4, q.z), q.clone(), 0xFFFFFF); bBoom(q.clone(), 1.9, 16*k, 4, o.key, o.team, {pal:WZ_SKY, size:.22, snd:'zapHit'}); }); sfx('zap'); return; }
     case 'z_fire': { const q = gq(.2); wzAfter(.45, () => { wzGeyser(q, 6 + 2*k); bBoom(V3(q.x, q.y + 1, q.z), 3.6*Math.sqrt(k), 30*k, 10, o.key, o.team, {pal:WZ_FIRE, size:.5}); igniteAt(q, 2.5); }); sfx('fireball'); return; }
     case 'z_ice': { const q = gq(0); wzAfter(.35, () => { wzSpikes(q, 2.6); bBoom(V3(q.x, q.y + .8, q.z), 2.8, 24*k, 6, o.key, o.team, {pal:WZ_ICE, size:.3});
       const P = victimFor(o.key, o.team); if (P && hdist(P.body.position, q) < 3.6) { P.slowT = Math.max(P.slowT || 0, 2.5); toast('❄️ Frozen: slowed!'); } for (const z of WZ.bots) if (!z.dead && hdist(z.pos, q) < 3.6) z.slowT = 2.5; }); sfx('zap'); return; }
-    case 'z_rock': { const q = gq(0), start = V3(q.x + rr(-4, 4), q.y + 40, q.z + rr(-4, 4)), m = new THREE.Mesh(PAIN_ROCK, M3(0x7A6E62)); m.scale.setScalar(.85); addOutline(m);
+    case 'z_rock': { const q = gq(0), start = V3(q.x, q.y + 17, q.z), m = new THREE.Mesh(PAIN_ROCK, M3(0x7A6E62)); m.scale.setScalar(.85); addOutline(m);
       addBomb({p:start, v:q.clone().sub(start).normalize().multiplyScalar(44), g:.6, r:.8, R:3.2*Math.sqrt(k), dmg:34*k, kb:20, m, owner:o.key, team:o.team, face:false, tumble:6, trail:0x8A7A6A, trailS:.4, fx:{size:.45, pal:{ball:0x8A7A6A, core:0xD9C7A3, ring:0x6E6672}, snd:'thud'}}); sfx('whoosh'); return; }
     case 'z_ward': wzWard(o); return;
     case 'z_heal': wzHeal(o); return;
@@ -15026,7 +15059,7 @@ function wzFrame(dt){
     const c = V3(C.body.position.x, C.body.position.y + .4, C.body.position.z); W.m.position.copy(c); W.m.scale.setScalar(W.R*Math.min(1, W.t*4)); W.mat.uniforms.t.value += dt; W.mat.uniforms.hit.value = Math.max(0, W.mat.uniforms.hit.value - dt*2);
     for (const b of BX.bombs) if (!b.dead && b.team !== W.team && b.owner !== W.key && b.p.distanceTo(c) < W.R + .3) { b.dead = true; roundGroup.remove(b.m); sparkle(b.p, 0xC9B8FF); W.mat.uniforms.hit.value = 1; sfx('zapHit'); } }
   for (const k in chars) { const P = chars[k]; if (P && !P.wzHat) wzDress(P); }
-  wzBotsFrame(dt); wzWorldFrame(dt);
+  wzBotsFrame(dt); wzWorldFrame(dt); wzPreviewFrame();
 }
 // every wizard gets a pointed hat and a staff
 function wzDress(P){
@@ -15046,8 +15079,8 @@ const WZB_KINDS = [
   {n:'Stone Warden', hp:150, sp:3.4, cd:[4, 5.5], spell:'z_rock', col:0x55555E, s:1.3, want:14},
   {n:'Stormcaller', hp:100, sp:4.8, cd:[4.5, 6], spell:'z_bolt', col:0x223A7A, s:1.1, want:24},
   {n:'Archmage', hp:1100, sp:3.2, cd:[2.6, 3.4], spell:'z_meteor', col:0x14081F, s:1.9, want:20, boss:true},
-  {n:'Goblin', hp:60, sp:6.2, cd:[1, 1.4], spell:'g_club', col:0x5A7A2A, s:.8, want:1.8, neutral:true, mesh:'goblin'},
-  {n:'Ghost', hp:80, sp:4.2, cd:[2.6, 3.4], spell:'z_ice', col:0xC8D8FF, s:1.05, want:13, neutral:true, mesh:'ghost'}
+  {n:'Goblin', hp:60, sp:6.2, cd:[1, 1.4], spell:'g_club', col:0x5A7A2A, s:.95, want:1.8, neutral:true, mesh:'goblin'},
+  {n:'Ghost', hp:80, sp:4.2, cd:[2.6, 3.4], spell:'z_ice', col:0xC8D8FF, s:1.2, want:13, neutral:true, mesh:'ghost'}
 ];
 const WZ_WAVES = 12;
 function wzStart(){
@@ -15074,6 +15107,9 @@ function wzBotMesh(K){
 }
 // a goblin (green, big ears, a club) or a ghost (a translucent sheet with hollow eyes)
 function wzNeutralMesh(K){
+  { const g = K.mesh === 'goblin' ? wzGoblinMesh() : wzWraithMesh(); g.scale.setScalar(K.s);
+    const mk = c => { const s0 = new THREE.Sprite(new THREE.SpriteMaterial({color:c, depthTest:false, depthWrite:false})); s0.center.set(0, .5); s0.renderOrder = 41; s0.userData.noRay = true; s0.visible = false; roundGroup.add(s0); return s0; };
+    return {g, bar:{bg:mk(0x1A1A1A), fill:mk(0xFF4B3E)}}; }
   const g = new THREE.Group(), add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = K.mesh !== 'ghost'; g.add(m); return m; };
   if (K.mesh === 'goblin') { const skin = new THREE.MeshLambertMaterial({color:0x6A8A2E}), rag = new THREE.MeshLambertMaterial({map:WZT_TEX.cloth(0x5A3A22, 0x3A2414)}), dark = new THREE.MeshLambertMaterial({color:0x2A1E12});
     for (const s0 of [-1, 1]) { add(new THREE.CylinderGeometry(.09, .1, .6, 7), skin, s0*.15, .3, 0); add(new THREE.BoxGeometry(.16, .08, .26), dark, s0*.15, .03, .06); }
@@ -15155,7 +15191,8 @@ function wzBotsFrame(dt){
   } else for (const z of WZ.bots) { if (z.dead || !z.to) continue; z.pos.lerp(z.to, Math.min(1, dt*10)); }
   for (const z of WZ.bots) { if (z.dead) continue; const K = WZB_KINDS[z.kind]; z.flash = Math.max(0, z.flash - dt);
     z.g.position.copy(z.pos); z.g.position.y += Math.sin(G.t*3 + z.id)*.08; z.g.rotation.y = z.face;
-    if (K.neutral) { const on = !!z.angry || z.hp < z.max; z.bar.bg.visible = z.bar.fill.visible = on; if (z.angryShown !== !!z.angry) { z.angryShown = !!z.angry; z.g.traverse(o => { if (o.userData.eye) o.material.color.setHex(z.angry ? 0xFF2A2A : K.mesh === 'ghost' ? 0x9FB8FF : 0xFFD84D); }); }
+    if (z.g.userData.anim) z.g.userData.anim(dt, z);
+    if (K.neutral) { const on = !!z.angry || z.hp < z.max; z.bar.bg.visible = z.bar.fill.visible = on; if (z.angryShown !== !!z.angry) { z.angryShown = !!z.angry; z.g.traverse(o => { if (o.userData.eye) o.material.color.setHex(z.angry ? 0xFF2A2A : K.mesh === 'ghost' ? 0x4AF0E0 : 0xE07A10); }); }
       if (z.g.userData.club) { z.swing = Math.max(0, (z.swing || 0) - dt*3); z.g.userData.club.rotation.x = .5 - z.swing*2; } } z.g.scale.setScalar(K.s*(z.flash > 0 ? 1.08 : 1));
     const w = 1.6*K.s, f = clamp(z.hp/z.max, 0, 1), y = z.pos.y + 3.2*K.s; z.bar.bg.position.set(z.pos.x - w/2, y, z.pos.z); z.bar.bg.scale.set(w, .2, 1); z.bar.fill.position.set(z.pos.x - w/2, y, z.pos.z); z.bar.fill.scale.set(Math.max(.01, w*f), .14, 1); z.bar.fill.material.color.setHex(z.flash > 0 ? 0xFFFFFF : 0xFF4B3E); }
   WZ.bots = WZ.bots.filter(z => !z.dead);
@@ -15294,12 +15331,12 @@ function wzTheme(on){
     hemi.color.setHex(0x7A70D8); hemi.groundColor.setHex(0x163A2E); hemi.intensity = .78; sun.color.setHex(0xB0BAFF); sun.intensity = .72;
     scene.fog.near = 30; scene.fog.far = 330; seaMat.color.setHex(0x16203F); NAT_MAT.color.setHex(0x8A9AC0);
     if ($('vignette')) $('vignette').style.background = 'radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(8,4,24,.62) 100%)';
-    OUTLINE_MAT.visible = false; islandTop.material = wzaMats().ground; for (const c of clouds) c.visible = false; sea.visible = false; foam.visible = false;
+    wzBats(true); OUTLINE_MAT.visible = false; islandTop.material = wzaMats().ground; for (const c of clouds) c.visible = false; sea.visible = false; foam.visible = false;
     sky.visible = true; w.pts.visible = true; w.d.forEach(q => q.set = false); wzThemeRound();
   } else if (WZT.saved) {
     const S = WZT.saved; hemi.color.setHex(S.hs); hemi.groundColor.setHex(S.hg); hemi.intensity = S.hi; sun.color.setHex(S.sc); sun.intensity = S.si; scene.fog.near = S.fn; scene.fog.far = S.ff; seaMat.color.setHex(S.sea); NAT_MAT.color.setHex(S.nat);
     if ($('vignette') && S.vig) $('vignette').style.background = S.vig; sky.visible = false; w.pts.visible = false;
-    OUTLINE_MAT.visible = true; islandTop.material = terrainMat; for (const c of clouds) c.visible = true; sea.visible = true; foam.visible = true;
+    wzBats(false); OUTLINE_MAT.visible = true; islandTop.material = terrainMat; for (const c of clouds) c.visible = true; sea.visible = true; foam.visible = true;
   }
 }
 // per round (roundGroup is rebuilt with every map): castles at the corners, runes on the ground
@@ -15567,6 +15604,7 @@ function wzaWizard(rig, o){
   const legs = [-1, 1].map(s => { const p = new THREE.Group(); p.position.set(s*.13, .72, 0); add(new THREE.CylinderGeometry(.08, .09, .6, 8), lam(o.dark), p, 0, -.32, 0); const boot = add(new THREE.BoxGeometry(.18, .12, .3), lam(0x2A1A12), p, 0, -.64, .05); boot.geometry.translate(0, 0, 0); rig.add(p); return p; });
   add(wzaLathe([[.6, .03], [.58, .1], [.52, .36], [.43, .64], [.34, .9], [.3, 1.0], [.33, 1.12], [.34, 1.24], [.3, 1.34], [.2, 1.43], [.12, 1.47]], 18), robeM, rig);
   add(wzaLathe([[.44, 1.14], [.43, 1.2], [.38, 1.32], [.27, 1.43], [.15, 1.49]], 16), darkM, rig);   // the shoulder cape
+  add(new THREE.CylinderGeometry(.42, .66, 1.32, 16, 1, true, Math.PI*.58, Math.PI*.84), darkM, rig, 0, .76, -.02);   // the long cape behind
   const belt = add(new THREE.TorusGeometry(.31, .035, 6, 22), lam(0x3A2414), rig, 0, 1.0, 0); belt.rotation.x = Math.PI/2; add(new THREE.BoxGeometry(.1, .09, .04), lam(o.trim), rig, 0, 1.0, .32);
   const strap = add(new THREE.BoxGeometry(.04, .95, .03), lam(0x5A3A1E), rig, .03, 1.12, .27); strap.rotation.z = .72; add(new THREE.BoxGeometry(.2, .22, .1), lam(0x6A4628), rig, .32, .8, .2);
   const arms = [-1, 1].map(s => { const p = new THREE.Group(); p.position.set(s*.33, 1.33, 0);
@@ -15701,16 +15739,6 @@ function wzStrike(m){
     return t < .8; }});
 }
 /* ---------- crowned frogs ---------- */
-function wzFrogMesh(){
-  const g = new THREE.Group(), skin = new THREE.MeshLambertMaterial({color:0x3E8A3A}), belly = new THREE.MeshLambertMaterial({color:0xB8C878}), gold = new THREE.MeshLambertMaterial({color:0xFFD24A, emissive:0x553300}), add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; g.add(m); return m; };
-  add(new THREE.SphereGeometry(.42, 12, 9), skin, 0, .34, 0).scale.set(1, .72, 1.15); add(new THREE.SphereGeometry(.34, 10, 8), belly, 0, .26, .12).scale.set(.95, .6, 1);
-  add(new THREE.SphereGeometry(.3, 12, 9), skin, 0, .55, .3).scale.set(1.1, .8, .9);
-  for (const s of [-1, 1]) { add(new THREE.SphereGeometry(.11, 10, 8), new THREE.MeshLambertMaterial({color:0xF2E6A0}), s*.15, .72, .38); add(new THREE.SphereGeometry(.055, 8, 6), new THREE.MeshBasicMaterial({color:0x0A0A0A}), s*.16, .74, .47);
-    add(new THREE.SphereGeometry(.13, 8, 6), skin, s*.36, .14, -.18).scale.set(1, .6, 1.8); add(new THREE.SphereGeometry(.08, 8, 6), skin, s*.26, .1, .32).scale.set(1, .5, 1.4); }
-  const crown = new THREE.Group(); crown.position.set(0, .83, .26); g.add(crown); const band = new THREE.Mesh(new THREE.CylinderGeometry(.16, .17, .1, 10, 1, true), gold); band.material.side = THREE.DoubleSide; crown.add(band);
-  for (let i = 0; i < 5; i++) { const a = i/5*Math.PI*2, sp0 = new THREE.Mesh(new THREE.ConeGeometry(.04, .13, 5), gold); sp0.position.set(Math.cos(a)*.16, .1, Math.sin(a)*.16); crown.add(sp0); const gem = new THREE.Mesh(new THREE.SphereGeometry(.025, 6, 4), new THREE.MeshBasicMaterial({color:[0xFF3B5A, 0x5AB4FF, 0x7CFF9A][i % 3]})); gem.position.set(Math.cos(a)*.17, 0, Math.sin(a)*.17); crown.add(gem); }
-  noRayAll(g); g.userData.crown = crown; return g;
-}
 function wzFrogPlace(f){ const rng = mulberry32((((G.seed || 1) ^ 0xF406) + f.i*7919 + f.gen*104729) >>> 0), [x, z] = wzaSpot(rng, 1.5); f.pos = V3(x, groundH(x, z), z); f.g.position.copy(f.pos); f.g.rotation.y = rng()*6; f.g.visible = true; f.dead = false; f.hop = 0; f.hopT = rr(1, 5); }
 function wzFrogsBuild(){ WZW.frogs = []; for (let i = 0; i < 6; i++) { const f = {i, gen:0, g:wzFrogMesh(), dead:false}; roundGroup.add(f.g); wzFrogPlace(f); WZW.frogs.push(f); } }
 function wzFrogsFrame(dt){
@@ -15781,6 +15809,104 @@ function wzSecretsFrame(dt){
 }
 function wzWorldBuild(){ wzMistBuild(); wzCloudsBuild(); wzFrogsBuild(); wzSecretsBuild(); WZW.strikeT = 8; WZW.surgeT = 0; WZW.seen = {}; }
 function wzWorldFrame(dt){ if (!WZW.fog.length) return; wzMistFrame(dt); wzCloudsFrame(dt); wzFrogsFrame(dt); wzSecretsFrame(dt); }
+
+/* ---------- Wizards creatures, sculpted (no boxes): the wraith, the goblin shaman, the crowned frog, the night animals, bats ---------- */
+const wzSkinTex = (key, base, spot, dots) => wzaTex(key, 128, 128, (g, W, H, r) => { g.fillStyle = base; g.fillRect(0, 0, W, H);
+  for (let i = 0; i < dots; i++) { const x = r()*W, y = r()*H, R = 2 + r()*9; wrap9(W, (ox, oy) => { const gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, R); gr.addColorStop(0, spot); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x + ox - R, y + oy - R, R*2, R*2); }); }
+  for (let i = 0; i < 300; i++) { g.fillStyle = `rgba(0,0,0,${r()*.12})`; g.fillRect(r()*W, r()*H, 1 + r()*2, 1 + r()*2); } });
+const wzFurTex = (key, h, l) => wzaTex(key, 128, 128, (g, W, H, r) => { g.fillStyle = `hsl(${h},18%,${l}%)`; g.fillRect(0, 0, W, H); for (let i = 0; i < 1600; i++) { const x = r()*W, y = r()*H, len = 4 + r()*9; g.strokeStyle = `hsla(${h + r()*12 - 6},${12 + r()*16}%,${l - 8 + r()*18}%,.85)`; g.lineWidth = 1; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (r() - .5)*3, y + len); g.stroke(); } });
+const wzLam = (o) => new THREE.MeshLambertMaterial(o);
+function wzAdd(g, geo, mat, x, y, z, rx, ry, rz){ const m = new THREE.Mesh(geo, mat); m.position.set(x || 0, y || 0, z || 0); m.rotation.set(rx || 0, ry || 0, rz || 0); m.castShadow = true; g.add(m); return m; }
+const wzGlowSprite = (col, s) => { const sp0 = new THREE.Sprite(new THREE.SpriteMaterial({map:WZT_TEX.glow(), color:col, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending})); sp0.scale.set(s, s, 1); sp0.userData.noRay = true; return sp0; };
+/* the wraith: a tall hooded shape that floats, a void where the face should be, a cloak that trails away in rags, bony hands with a teal glow */
+function wzWraithMesh(){
+  const g = new THREE.Group(), cloth = wzLam({map:WZT_TEX.cloth(0x1C2A2E, 0x24383C), side:THREE.DoubleSide}), dark = wzLam({color:0x070A0C}), bone = wzLam({color:0x8AA0A0, emissive:0x0A2A2A});
+  wzAdd(g, new THREE.LatheGeometry(wzaV([[.62, .5], [.55, .8], [.45, 1.2], [.38, 1.6], [.4, 1.85], [.3, 2.05], [.12, 2.15]]), 18), cloth);
+  const hood = wzAdd(g, new THREE.LatheGeometry(wzaV([[.3, 1.95], [.36, 2.15], [.35, 2.4], [.27, 2.6], [.12, 2.72], [.02, 2.76]]), 16, .6, Math.PI*2 - 1.2), cloth); hood.rotation.x = -.12;
+  wzAdd(g, new THREE.SphereGeometry(.24, 12, 10), dark, 0, 2.3, .06);
+  const strips = []; for (let i = 0; i < 22; i++) { const a = i/22*Math.PI*2, L = .7 + Math.random()*.9, w = .14 + Math.random()*.08, geo = new THREE.PlaneGeometry(w, L, 1, 4); geo.translate(0, -L/2, 0);
+    const pp = geo.attributes.position; for (let v = 0; v < pp.count; v++) if (pp.getY(v) < -L*.8) pp.setX(v, pp.getX(v)*(.3 + Math.random()*.5));
+    const s0 = wzAdd(g, geo, cloth, Math.sin(a)*.58, .55, Math.cos(a)*.58, 0, a, 0); s0.userData.ph = Math.random()*6; strips.push(s0); }
+  const hands = [-1, 1].map(s => { const arm = new THREE.Group(); arm.position.set(s*.4, 1.75, .1); arm.rotation.set(-1.0, 0, s*.25); g.add(arm);
+    wzAdd(arm, new THREE.CylinderGeometry(.11, .2, .75, 10, 1, true), cloth, 0, -.35, 0);
+    const hand = new THREE.Group(); hand.position.y = -.78; arm.add(hand); for (let f = 0; f < 4; f++) { const fi = wzAdd(hand, new THREE.CylinderGeometry(.012, .02, .22, 5), bone, (f - 1.5)*.035, -.1, .02); fi.rotation.x = .4 + f*.05; }
+    const gl = wzGlowSprite(0x4AF0E0, .7); gl.position.y = -.2; gl.userData.eye = true; hand.add(gl); return gl; });
+  noRayAll(g); g.userData.anim = (dt, z) => { const t = G.t; strips.forEach(s0 => { s0.rotation.x = Math.sin(t*2.2 + s0.userData.ph)*.25 + .1; }); hands.forEach((h, i) => { const k = .6 + Math.sin(t*5 + i)*.2; h.scale.set(k, k, 1); }); if (Math.random() < .15) puff(V3(z.pos.x + rr(-.4, .4), z.pos.y + .4, z.pos.z + rr(-.4, .4)), 0x2A5A5A, .25); };
+  return g;
+}
+/* the goblin shaman: hunched, a long crooked nose, bulging eyes, a fanged grin, long ears, wild white hair and beard, a shaggy
+   fur cloak, a necklace of little skulls and a horned staff */
+function wzGoblinMesh(){
+  const g = new THREE.Group(), body = new THREE.Group(); body.rotation.x = .32; g.add(body);
+  const skin = wzLam({map:wzSkinTex('gskin', '#6E8A2A', 'rgba(40,60,10,.5)', 40)}), fur = wzLam({map:wzFurTex('gfur', 25, 18), side:THREE.DoubleSide}), hair = wzLam({map:WZT_TEX.hair(0xE8E6DA)}), bone = wzLam({color:0xD8C8A0}), wood = wzLam({map:WZT_TEX.bark()});
+  for (const s of [-1, 1]) { const lg = new THREE.Group(); lg.position.set(s*.16, .55, 0); g.add(lg); wzAdd(lg, new THREE.CylinderGeometry(.06, .08, .5, 7), skin, 0, -.2, .08, .3); wzAdd(lg, new THREE.CylinderGeometry(.05, .06, .35, 7), skin, 0, -.45, -.02, -.2); wzAdd(lg, new THREE.SphereGeometry(.09, 8, 6), skin, 0, -.6, .07).scale.set(.9, .45, 1.6); }
+  wzAdd(body, wzaLathe([[.25, .5], [.3, .7], [.32, .9], [.27, 1.1], [.15, 1.22]], 12), skin);
+  const cloak = wzAdd(body, wzaLathe([[.62, .35], [.55, .55], [.45, .85], [.4, 1.1], [.3, 1.25]], 16), fur); const cp = cloak.geometry.attributes.position; for (let v = 0; v < cp.count; v++) if (cp.getY(v) < .4) cp.setY(v, cp.getY(v) - Math.random()*.18);
+  for (let i = 0; i < 5; i++) { const a = (i - 2)*.35, sk = new THREE.Group(); sk.position.set(Math.sin(a)*.3, 1.0 - Math.abs(i - 2)*.04, .26 + Math.cos(a)*.03); body.add(sk); wzAdd(sk, new THREE.SphereGeometry(.05, 8, 6), bone).scale.set(1, 1.1, .9); wzAdd(sk, new THREE.BoxGeometry(.06, .03, .04), bone, 0, -.045, .01);
+    for (const e of [-1, 1]) wzAdd(sk, new THREE.SphereGeometry(.012, 4, 3), wzLam({color:0x1A1008}), e*.018, .01, .045); }
+  const head = new THREE.Group(); head.position.set(0, 1.42, .18); body.add(head);
+  wzAdd(head, new THREE.SphereGeometry(.26, 16, 12), skin).scale.set(1, .95, 1.05);
+  const nose = wzAdd(head, wzaLathe([[0, .38], [.04, .3], [.07, .15], [.075, 0]], 8), skin, 0, -.04, .2, Math.PI/2 + .35); nose.scale.z = .85;
+  for (const s of [-1, 1]) { wzAdd(head, new THREE.SphereGeometry(.075, 12, 10), wzLam({color:0xF2E6B0}), s*.1, .07, .2); wzAdd(head, new THREE.SphereGeometry(.035, 8, 6), new THREE.MeshBasicMaterial({color:0xE07A10}), s*.1, .07, .27).userData.eye = true; wzAdd(head, new THREE.SphereGeometry(.016, 6, 4), new THREE.MeshBasicMaterial({color:0x050505}), s*.1, .07, .302);
+    wzAdd(head, new THREE.BoxGeometry(.13, .03, .05), hair, s*.1, .16, .21, 0, 0, -s*.35);
+    const ear = wzAdd(head, wzaLathe([[0, .55], [.05, .4], [.09, .2], [.08, 0]], 8), skin, s*.24, .08, -.02, 0, 0, -s*1.15); ear.scale.z = .35; }
+  wzAdd(head, new THREE.SphereGeometry(.15, 14, 8, 0, Math.PI*2, Math.PI*.5, Math.PI*.42), wzLam({color:0x5A1010, side:THREE.DoubleSide}), 0, -.12, .14).scale.set(1.2, .7, .6);
+  for (let i = 0; i < 7; i++) { const x = (i - 3)*.04, top = i % 2; wzAdd(head, new THREE.ConeGeometry(.016, .07, 4), wzLam({color:0xF2E6B0}), x, top ? -.08 : -.19, .22, top ? Math.PI : 0); }
+  for (let i = 0; i < 9; i++) { const a = -1.5 + i*.37; wzAdd(head, new THREE.ConeGeometry(.05, .26, 5), hair, Math.sin(a)*.24, .18 + Math.cos(a)*.08, -.06 - Math.abs(Math.cos(a))*.05, -.5, 0, -Math.sin(a)*.9); }
+  const beard = wzAdd(head, wzaLathe([[0, -.62], [.06, -.48], [.13, -.3], [.17, -.12], [.14, 0]], 10), hair, 0, -.18, .08, .35); beard.scale.z = .6; wzAdd(head, new THREE.TorusGeometry(.06, .02, 6, 12, Math.PI*1.4), hair, .03, -.78, .25, 0, 0, 1);
+  const staff = new THREE.Group(); staff.position.set(.5, .85, .25); g.add(staff); wzAdd(staff, new THREE.CylinderGeometry(.035, .05, 1.9, 6), wood, 0, .3, 0);
+  for (let i = 0; i < 4; i++) wzAdd(staff, new THREE.TorusGeometry(.05, .012, 4, 8), wzLam({color:0x8A6A40}), 0, .9 + i*.06, 0, Math.PI/2);
+  for (const s of [-1, 1]) wzAdd(staff, new THREE.ConeGeometry(.04, .3, 6), bone, s*.12, 1.28, 0, 0, 0, -s*1.1); wzAdd(staff, new THREE.ConeGeometry(.035, .22, 6), bone, 0, 1.38, 0);
+  for (const s of [-1, 1]) { const arm = wzAdd(body, new THREE.CylinderGeometry(.045, .06, .6, 7), skin, s*.38, 1.0, .1, -.3, 0, s*.5); for (let f = 0; f < 3; f++) wzAdd(arm, new THREE.ConeGeometry(.018, .1, 4), bone, (f - 1)*.025, -.34, .02, Math.PI); }
+  noRayAll(g); g.userData.club = staff; return g;
+}
+/* the crowned frog: mottled skin, golden eyes with slit pupils, a wide mouth */
+function wzFrogMesh(){
+  const g = new THREE.Group(), skin = wzLam({map:wzSkinTex('fskin', '#3E7A34', 'rgba(20,40,10,.7)', 26)}), belly = wzLam({color:0xC8C878}), gold = wzLam({color:0xFFD24A, emissive:0x553300});
+  wzAdd(g, new THREE.SphereGeometry(.42, 16, 12), skin, 0, .34, 0).scale.set(1, .7, 1.15); wzAdd(g, new THREE.SphereGeometry(.34, 12, 10), belly, 0, .24, .14).scale.set(.95, .55, 1);
+  wzAdd(g, new THREE.SphereGeometry(.32, 16, 12), skin, 0, .52, .3).scale.set(1.15, .72, .95);
+  wzAdd(g, new THREE.TorusGeometry(.28, .012, 4, 16, Math.PI), wzLam({color:0x1A2A10}), 0, .44, .32, 0, 0, Math.PI).scale.set(1, .5, 1);
+  for (const s of [-1, 1]) { wzAdd(g, new THREE.SphereGeometry(.12, 12, 10), skin, s*.17, .72, .36); wzAdd(g, new THREE.SphereGeometry(.09, 12, 10), wzLam({color:0xE8B820, emissive:0x3A2A00}), s*.18, .74, .44); wzAdd(g, new THREE.BoxGeometry(.02, .1, .02), new THREE.MeshBasicMaterial({color:0x050505}), s*.18, .74, .53);
+    wzAdd(g, new THREE.SphereGeometry(.13, 10, 8), skin, s*.36, .16, -.16).scale.set(1, .6, 1.9); wzAdd(g, new THREE.SphereGeometry(.07, 8, 6), skin, s*.3, .07, .34).scale.set(1.3, .4, 1.3); }
+  const crown = new THREE.Group(); crown.position.set(0, .8, .26); g.add(crown); const band = new THREE.Mesh(new THREE.CylinderGeometry(.16, .17, .1, 12, 1, true), gold); band.material.side = THREE.DoubleSide; crown.add(band);
+  for (let i = 0; i < 5; i++) { const a = i/5*Math.PI*2, sp0 = new THREE.Mesh(new THREE.ConeGeometry(.04, .14, 5), gold); sp0.position.set(Math.cos(a)*.16, .11, Math.sin(a)*.16); crown.add(sp0); const gem = new THREE.Mesh(new THREE.SphereGeometry(.025, 6, 4), new THREE.MeshBasicMaterial({color:[0xFF3B5A, 0x5AB4FF, 0x7CFF9A][i % 3]})); gem.position.set(Math.cos(a)*.17, 0, Math.sin(a)*.17); crown.add(gem); }
+  noRayAll(g); g.userData.crown = crown; return g;
+}
+/* the night animals: a black hare, a shadow stag with glowing antlers, a dusk fox (all with the walk-cycle legs the animals expect) */
+function wzaAnimal(type, rng){
+  const g = new THREE.Group(), legs = [], leg = (x, z, h, w, mat) => { const p = new THREE.Group(); p.position.set(x, h, z); wzAdd(p, new THREE.CylinderGeometry(w*.5, w*.35, h, 6), mat, 0, -h/2, 0); g.add(p); legs.push(p); };
+  const eye = (x, y, z, col) => { const e = wzAdd(g, new THREE.SphereGeometry(.03, 6, 4), new THREE.MeshBasicMaterial({color:col}), x, y, z); const gl = wzGlowSprite(col, .18); e.add(gl); };
+  if (type === 'rabbit') { const fur = wzLam({map:wzFurTex('hare', 230, 16)});
+    wzAdd(g, new THREE.SphereGeometry(.2, 12, 10), fur, 0, .24, -.02).scale.set(.85, .9, 1.25); wzAdd(g, new THREE.SphereGeometry(.12, 12, 10), fur, 0, .4, .2).scale.set(.9, .9, 1.15);
+    for (const s of [-1, 1]) { wzAdd(g, wzaLathe([[0, .3], [.04, .22], [.045, .08], [.03, 0]], 8), fur, s*.05, .46, .16, -.3, 0, s*.12).scale.z = .45; eye(s*.06, .43, .3, 0xFF5A3A); }
+    wzAdd(g, new THREE.SphereGeometry(.06, 8, 6), wzLam({color:0x8A8A9A}), 0, .3, -.24); legs.length = 0;
+  } else if (type === 'deer') { const fur = wzLam({map:wzFurTex('stag', 260, 14)}), antler = new THREE.MeshBasicMaterial({color:0x4AF0E0});
+    wzAdd(g, new THREE.SphereGeometry(.42, 14, 10), fur, 0, 1.15, 0).scale.set(.8, .75, 1.55); wzAdd(g, new THREE.CylinderGeometry(.12, .18, .7, 8), fur, 0, 1.5, .5, -.7);
+    const hd = new THREE.Group(); hd.position.set(0, 1.85, .78); g.add(hd); wzAdd(hd, new THREE.SphereGeometry(.15, 12, 10), fur).scale.set(.85, .85, 1.4); wzAdd(hd, new THREE.ConeGeometry(.08, .25, 8), fur, 0, -.04, .2, Math.PI/2);
+    for (const s of [-1, 1]) { eye(s*.08, .03, .14, 0x4AF0E0); const a1 = wzAdd(hd, new THREE.CylinderGeometry(.02, .03, .55, 5), antler, s*.1, .32, -.02, -.2, 0, s*.45);
+      for (let k = 0; k < 3; k++) wzAdd(a1, new THREE.CylinderGeometry(.012, .02, .25, 4), antler, 0, -.1 + k*.14, .05, .8, 0, s*.3); const gl = wzGlowSprite(0x4AF0E0, .8); gl.position.set(s*.2, .5, 0); hd.add(gl); }
+    for (const [x, z] of [[.16, .42], [-.16, .42], [.16, -.42], [-.16, -.42]]) leg(x, z, .85, .12, fur);
+  } else { const fur = wzLam({map:wzFurTex('fox', 18, 22)}), dark = wzLam({color:0x1A1210});
+    wzAdd(g, new THREE.SphereGeometry(.2, 12, 10), fur, 0, .44, 0).scale.set(.8, .8, 1.6); const hd = new THREE.Group(); hd.position.set(0, .58, .36); g.add(hd);
+    wzAdd(hd, new THREE.SphereGeometry(.13, 12, 10), fur).scale.set(1, .9, 1.1); wzAdd(hd, new THREE.ConeGeometry(.07, .2, 8), fur, 0, -.03, .16, Math.PI/2);
+    for (const s of [-1, 1]) { wzAdd(hd, new THREE.ConeGeometry(.05, .14, 4), dark, s*.08, .15, 0); eye(s*.06, .03, .1, 0xFFC84A); }
+    const tail = wzAdd(g, new THREE.ConeGeometry(.09, .55, 8), fur, 0, .48, -.5, -1.9); tail.scale.x = .8;
+    for (const [x, z] of [[.09, .2], [-.09, .2], [.09, -.2], [-.09, -.2]]) leg(x, z, .32, .07, dark); }
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; }); return {g, legs};
+}
+/* bats instead of birds (the same flocks, bat wings, lower and jittery) */
+const WZ_BAT = {on:false, geo:null};
+function wzBats(on){
+  if (on === WZ_BAT.on) return; WZ_BAT.on = on; const B = BIRDS;
+  if (!WZ_BAT.geo) { const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(.2, .12); sh.lineTo(.42, .14); sh.lineTo(.62, .06); sh.lineTo(.55, -.04); sh.quadraticCurveTo(.48, -.02, .44, -.1); sh.quadraticCurveTo(.36, -.04, .3, -.12); sh.quadraticCurveTo(.2, -.05, .14, -.12); sh.lineTo(0, -.06); sh.lineTo(0, 0);
+    const wing = new THREE.ShapeGeometry(sh); wing.rotateX(-Math.PI/2); const body = new THREE.SphereGeometry(.1, 8, 6); body.scale(1, .9, 1.6);
+    WZ_BAT.geo = {wing, body, w0:B.wing.geometry, b0:B.body.geometry}; }
+  const G2 = WZ_BAT.geo, dark = new THREE.Color(0x0E0A12);
+  B.wing.geometry = on ? G2.wing : G2.w0; B.body.geometry = on ? G2.body : G2.b0; B.wing.material.side = on ? THREE.DoubleSide : THREE.FrontSide;
+  if (on) { for (let i = 0; i < B.list.length; i++) { B.body.setColorAt(i, dark); B.wing.setColorAt(i*2, dark); B.wing.setColorAt(i*2 + 1, dark); } }
+  else { const cDark = new THREE.Color(0x2B2F36), cGull = new THREE.Color(0xF2F4F7), cWingG = new THREE.Color(0xC9CED6); B.list.forEach((b, i) => { const g0 = B.flocks[b.f].gull; B.body.setColorAt(i, g0 ? cGull : cDark); B.wing.setColorAt(i*2, g0 ? cWingG : cDark); B.wing.setColorAt(i*2 + 1, g0 ? cWingG : cDark); }); }
+  if (B.body.instanceColor) B.body.instanceColor.needsUpdate = true; if (B.wing.instanceColor) B.wing.instanceColor.needsUpdate = true;
+}
 
 /* ===================================== WORLD: rain, nature, an unbreakable ground =====================================
    The ground never changes shape any more: craterAt() only scorches it (colour), World Severance leaves a glowing
@@ -16216,6 +16342,7 @@ const ANIMALS = {
   fox:   {n:2.5, mass:7, r:.26, h:.6, hit:.45, hp:18, walk:2.6, run:9, scare:14, hop:0, emoji:'🦊'}
 };
 function animalMesh(type, rng){
+  if (G.pvp && G.mode === 'wiz') return wzaAnimal(type, rng);   /* Wizards: the night animals */
   const g = new THREE.Group(), legs = [];
   const leg = (x, z, h, w, col) => { const p = new THREE.Group(); p.position.set(x, h, z); bx(w, h, w, col, 0, -h/2, 0, p); g.add(p); legs.push(p); };
   if (type === 'rabbit') {
@@ -16359,9 +16486,10 @@ function birdsFrame(dt){
     } else {
       const a = t*F.w + F.ph, cx = F.x + Math.cos(a)*F.R, cz = F.z + Math.sin(a)*F.R;
       const ox = b.off.x*Math.cos(a) - b.off.z*Math.sin(a), oz = b.off.x*Math.sin(a) + b.off.z*Math.cos(a);
-      b.p.set(cx + ox, F.h + b.off.y + Math.sin(t*1.3 + b.fl)*.6, cz + oz);
+      b.p.set(cx + ox, (WZ_BAT.on ? F.h*.45 + 4 : F.h) + b.off.y + Math.sin(t*1.3 + b.fl)*.6, cz + oz);
+      if (WZ_BAT.on) { b.p.x += Math.sin(t*7 + b.fl*3)*.5; b.p.y += Math.sin(t*9 + b.fl*5)*.4; b.p.z += Math.cos(t*6 + b.fl*2)*.5; }   /* bats flutter */
       yaw = Math.atan2(-Math.sin(a)*Math.sign(F.w), Math.cos(a)*Math.sign(F.w)); b.yaw = yaw; bank = -Math.sign(F.w)*.25;
-      flap = Math.sin(t*b.fs + b.fl) > -.2 ? Math.sin(t*b.fs + b.fl)*.7 : -.15;   // flap, then glide a little
+      flap = WZ_BAT.on ? Math.sin(t*b.fs*2 + b.fl)*.9 : Math.sin(t*b.fs + b.fl) > -.2 ? Math.sin(t*b.fs + b.fl)*.7 : -.15;   // flap, then glide a little
     }
     _be.set(0, yaw, bank, 'YXZ'); _bq.setFromEuler(_be); _bm.compose(b.p, _bq, _bs); B.body.setMatrixAt(i, _bm);
     for (const s of [-1, 1]) { _be.set(0, yaw, bank, 'YXZ'); _bq.setFromEuler(_be); _bq2.setFromAxisAngle(_bo.set(0, 0, 1), s > 0 ? flap : Math.PI - flap); _bq.multiply(_bq2); _bm.compose(b.p, _bq, _bs); B.wing.setMatrixAt(i*2 + (s > 0 ? 0 : 1), _bm); }
