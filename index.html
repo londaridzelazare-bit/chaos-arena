@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-14.3';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-14.4';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -14735,82 +14735,136 @@ function wzTex(id, col, key){ const own = key && WZ.drawn[key] && WZ.drawn[key][
 function wzPack(strokes){ let step = .03, out; for (let tries = 0; tries < 4; tries++, step *= 1.6) { out = []; let n = 0; for (const st of strokes) { const q = wzSample([st], step).map(([x, y]) => [Math.round(x*100), Math.round(y*100)]); if (q.length > 1) { out.push(q); n += q.length; } } if (n <= 700) break; } return out; }
 function wzUnpack(a){ if (!Array.isArray(a)) return null; const out = []; let n = 0; for (const st of a.slice(0, 200)) { if (!Array.isArray(st)) continue; const pl = []; for (const q of st) { if (!Array.isArray(q) || n++ > 1500) break; pl.push([clamp(+q[0] || 0, -130, 130)/100, clamp(+q[1] || 0, -130, 130)/100]); } if (pl.length > 1) out.push(pl); } return out.length ? out : null; }
 // a glowing copy of the circle, flat (on the ground) or upright (facing yaw), that grows, spins and fades
-function wzGlyphFX(id, at, size, col, o){
-  o = o || {}; const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({map:wzTex(id, col, o.key), transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide}));
-  m.position.copy(at); m.renderOrder = 4; if (o.flat) m.rotation.x = -Math.PI/2; else m.rotation.y = o.yaw || 0; m.userData.noRay = true; roundGroup.add(m);
-  const life = o.life || .8; let t = 0;
-  fxAdd({update(dt){ t += dt; const k = t/life, e = Math.min(1, t/.15); m.scale.setScalar(size*(.4 + .6*e)*(1 + .08*Math.sin(t*20))); if (o.flat) m.rotation.z += dt*(o.spin || 1.2); else m.rotateZ(dt*(o.spin || 2)); m.material.opacity = k < .7 ? 1 : Math.max(0, 1 - (k - .7)/.3);
-    if (t >= life) { roundGroup.remove(m); m.material.dispose(); return false; } return true; }});
-  return m;
-}
-
 /* ---------- the paper ---------- */
-function wzPaperOpen(id){
-  const P = localP(); if (!P || P.alive === false || WZ.paper) return;
-  const d = WIZ_SK[id]; releaseLock(); G.targeting = null; marker.visible = false;
-  const el = document.createElement('div'); el.id = 'wzPaper';
-  el.style.cssText = 'position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:rgba(20,10,30,.28);pointer-events:auto';
-  const sz = Math.round(Math.min(560, innerWidth*.86, innerHeight*.66));
-  el.innerHTML = `<div style="background:linear-gradient(160deg,#F7EBCB,#EAD6A6);border:4px solid #5A3A1A;border-radius:10px;box-shadow:0 10px 0 #3A2410,0 0 0 9999px rgba(0,0,0,.0);padding:12px 14px 10px;font:800 15px Nunito,system-ui,sans-serif;color:#3A2410;max-width:94vw">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px"><span style="font-size:19px">${d.e} ${d.name} <small style="opacity:.7">· ${'★'.repeat(d.tier)}${'☆'.repeat(5 - d.tier)}</small></span><span id="wzHint" style="font-size:13px;opacity:.8">Drawn once, yours all match. Neater = stronger.</span></div>
-    <canvas id="wzCv" style="width:${sz}px;height:${sz}px;display:block;touch-action:none;cursor:crosshair;border-radius:6px;background:radial-gradient(#FBF3DC,#EFDDB0)"></canvas>
-    <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;flex-wrap:wrap"><button class="btn primary" id="wzGo">✨ Activate (Enter)</button><button class="btn" id="wzClr">🧽 Clear (C)</button><button class="btn" id="wzGd"></button><button class="btn" id="wzX">✕ Close (Esc)</button></div></div>`;
-  document.body.appendChild(el);
-  const cv = el.querySelector('#wzCv'), dpr = Math.min(2, devicePixelRatio || 1); cv.width = cv.height = Math.round(sz*dpr);
-  WZ.paper = {id, el, cv, g:cv.getContext('2d'), sz, dpr, strokes:[], cur:null, blots:[], noGuide:!WZ.guide};
-  const Pp = WZ.paper, toN = e => { const r = cv.getBoundingClientRect(), S = r.width*.46; return [(e.clientX - r.left - r.width/2)/S, -(e.clientY - r.top - r.height/2)/S]; };
-  cv.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); cv.setPointerCapture(e.pointerId); Pp.cur = [toN(e)]; Pp.strokes.push(Pp.cur); wzPaperDraw(); });
-  cv.addEventListener('pointermove', e => { if (!Pp.cur) return; const q = toN(e), l = Pp.cur[Pp.cur.length - 1]; if (Math.hypot(q[0] - l[0], q[1] - l[1]) > .008) { Pp.cur.push(q); wzPaperDraw(); } });
-  const up = () => { Pp.cur = null; }; cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
-  el.addEventListener('pointerdown', e => e.stopPropagation()); el.addEventListener('contextmenu', e => { e.preventDefault(); });
-  el.querySelector('#wzGo').onclick = () => wzPaperActivate(); el.querySelector('#wzClr').onclick = () => { Pp.strokes = []; Pp.blots = []; wzPaperDraw(); };
-  el.querySelector('#wzX').onclick = () => wzPaperClose(true); el.querySelector('#wzGd').onclick = () => wzGuideToggle();
-  wzGuideToggle(true); wzPaperDraw(); localCast('z_draw', null, {on:1}); sfx('grab');
-}
 function wzGuideToggle(keep){
   const Pp = WZ.paper; if (!Pp) return; if (!keep) { WZ.guide = !WZ.guide; try { localStorage.setItem('ca-wzguide', WZ.guide ? 'on' : 'off'); } catch (e) {} }
   if (WZ.guide) Pp.noGuide = false;   // once you've seen the guide on this page, there's no bonus
   const b = Pp.el.querySelector('#wzGd'); b.textContent = WZ.guide ? '👁 Guide: on (G)' : '🙈 Guide: off (G) · +15% power'; wzPaperDraw();
 }
-function wzPaperDraw(){
-  const Pp = WZ.paper; if (!Pp) return; const g = Pp.g, W = Pp.cv.width, S = W*.46, c = W/2;
-  g.clearRect(0, 0, W, W);
-  // the paper's own faint grain
-  g.strokeStyle = 'rgba(120,80,30,.08)'; g.lineWidth = 1; for (let i = 1; i < 12; i++) { g.beginPath(); g.moveTo(0, i*W/12); g.lineTo(W, i*W/12); g.stroke(); }
-  if (WZ.guide) wzDrawGlyph(g, WIZ_SK[Pp.id].polys, c, c, S, 'rgba(110,70,30,.24)', 9*Pp.dpr);
-  for (const b of Pp.blots) { g.fillStyle = 'rgba(40,20,10,.55)'; g.beginPath(); g.arc(c + b[0]*S, c - b[1]*S, b[2]*S, 0, Math.PI*2); g.fill(); }
-  wzDrawGlyph(g, Pp.strokes, c, c, S, '#2A160A', 4.2*Pp.dpr);
-}
 // hit while drawing: the hand jerks (a stray stroke) and ink splashes
 function wzSmudge(){
   const Pp = WZ.paper; if (!Pp) return; const x0 = rr(-.7, .7), y0 = rr(-.7, .7), st = [[x0, y0]];
   for (let i = 0; i < 8; i++) { const l = st[st.length - 1]; st.push([l[0] + rr(-.12, .12), l[1] + rr(-.12, .12)]); }
-  Pp.strokes.push(st); for (let i = 0; i < 4; i++) Pp.blots.push([x0 + rr(-.15, .15), y0 + rr(-.15, .15), rr(.02, .05)]);
+  const nw = performance.now(); Pp.strokes.push(st.map(([x, y]) => [x, y, .016, nw])); for (let i = 0; i < 4; i++) Pp.blots.push([x0 + rr(-.15, .15), y0 + rr(-.15, .15), rr(.02, .05)]);
   wzPaperDraw(); const h = Pp.el.querySelector('#wzHint'); if (h) { h.textContent = '💥 Hit! Your hand slipped.'; h.style.color = '#B3191B'; }
-}
-function wzPaperClose(cancel){
-  const Pp = WZ.paper; if (!Pp) return; WZ.paper = null; Pp.el.remove(); localCast('z_draw', null, {on:0});
-  if (cancel) requestLock();
-}
-function wzPaperActivate(){
-  const Pp = WZ.paper; if (!Pp) return; const d = WIZ_SK[Pp.id], r = wzScore(d.polys, Pp.strokes), pct = Math.round(r.score*100);
-  const h = Pp.el.querySelector('#wzHint');
-  if (r.score < .35) { if (h) { h.textContent = `The circle didn't take (${pct}%). Keep tracing, or clear it.`; h.style.color = '#B3191B'; } sfx('crack'); return; }
-  const k = wzPower(r.score, Pp.noGuide), id = Pp.id;
-  WZ.ink[id] = {k, s:r.score, g:wzGrade(r.score), ng:Pp.noGuide};
-  const dr = wzPack(Pp.strokes);
-  wzPaperClose(false); requestLock();
-  localCast('z_ink', null, {sp:id, k:+k.toFixed(3), d:dr});
-  toast(`✨ ${d.e} ${d.name} inscribed: ${pct}% (${wzGrade(r.score)}) → ${Math.round(k*100)}% power${Pp.noGuide ? ' (drawn from memory!)' : ''}. It's yours for the match.`);
-  renderTray();
 }
 function wzPaperKey(e){
   const k = keyName(e);
-  if (k === 'enter') wzPaperActivate(); else if (k === 'escape') wzPaperClose(true); else if (k === 'c') { WZ.paper.strokes = []; WZ.paper.blots = []; wzPaperDraw(); } else if (k === 'g') wzGuideToggle();
+  if (k === 'enter') wzPaperActivate(); else if (k === 'escape') wzPaperClose(true); else if (k === 'c' && !WZ.paper.glow) { WZ.paper.strokes = []; WZ.paper.blots = []; WZ.paper.splats = []; } else if (k === 'g') wzGuideToggle();
   else if (k === 'z' && (e.ctrlKey || e.metaKey)) { WZ.paper.strokes.pop(); wzPaperDraw(); }
 }
 addEventListener('keydown', e => { if (!WZ.paper) return; if (e.target && e.target.tagName === 'INPUT') return; e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) wzPaperKey(e); }, true);
 addEventListener('keyup', e => { if (WZ.paper) e.stopImmediatePropagation(); }, true);
+
+// the polylines of a spell's circle as `key` drew it (or the clean circle)
+const wzPolysFor = (id, key) => (key && WZ.drawn[key] && WZ.drawn[key][id]) || WIZ_SK[id].polys;
+// a soft vertical shaft of light (bright at the foot, fading upward)
+const wzRayTex = () => wzaTex('ray', 32, 128, (g, W, H) => { const gr = g.createLinearGradient(0, H, 0, 0); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.25, 'rgba(255,255,255,.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  const gx = g.createLinearGradient(0, 0, W, 0); gx.addColorStop(0, 'rgba(0,0,0,1)'); gx.addColorStop(.5, 'rgba(0,0,0,0)'); gx.addColorStop(1, 'rgba(0,0,0,1)'); g.globalCompositeOperation = 'destination-out'; g.fillStyle = gx; g.fillRect(0, 0, W, H); });
+const WZ_RAY_GEO = (() => { const a = new THREE.PlaneGeometry(1, 1); a.translate(0, .5, 0); const b = a.clone(); b.rotateY(Math.PI/2); const pos = new Float32Array([...a.attributes.position.array, ...b.attributes.position.array]), uv = new Float32Array([...a.attributes.uv.array, ...b.attributes.uv.array]), idx = [...a.index.array, ...[...b.index.array].map(i => i + 4)];
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(idx); return g; })();
+// the circle, flat on the ground: it grows, spins, and light rises out of every stroke, then it fades
+function wzGlyphFX(id, at, size, col, o){
+  o = o || {}; const grp = new THREE.Group(); grp.position.copy(at); grp.rotation.y = o.rot != null ? o.rot : 0; roundGroup.add(grp);
+  const N = size > 14 ? 40 : 26, geo = new THREE.PlaneGeometry(1, 1, N, N); geo.rotateX(-Math.PI/2); const base = Float32Array.from(geo.attributes.position.array), pos = geo.attributes.position, cr = Math.cos(grp.rotation.y), sr = Math.sin(grp.rotation.y);
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({map:wzTex(id, col, o.key), transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, polygonOffset:true, polygonOffsetFactor:-4}));
+  m.userData.noRay = true; m.renderOrder = 4; m.frustumCulled = false; grp.add(m);
+  // world-space ground height under a local point
+  const gyAt = (lx, lz) => groundH(at.x + lx*cr + lz*sr, at.z - lx*sr + lz*cr) - at.y + .08;
+  const lay = sc => { for (let v = 0; v < pos.count; v++) { const lx = base[v*3]*sc, lz = base[v*3 + 2]*sc; pos.setXYZ(v, lx, gyAt(lx, lz), lz); } pos.needsUpdate = true; };
+  const pts = wzSample(wzPolysFor(id, o.key), .09).filter((_, i) => i % 2 === 0).slice(0, 120), n = pts.length;
+  const rays = new THREE.InstancedMesh(WZ_RAY_GEO, new THREE.MeshBasicMaterial({map:wzRayTex(), color:col, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide}), Math.max(1, n));
+  rays.userData.noRay = true; rays.frustumCulled = false; rays.renderOrder = 5; grp.add(rays);
+  const hs = pts.map(() => (.45 + Math.random()*.55)*(o.rayH || (2 + size*.25))), M = new THREE.Matrix4(), Q = new THREE.Quaternion(), V = new THREE.Vector3(), S = new THREE.Vector3();
+  const life = o.life || 1, open = o.open || .35; let t = 0, laid = -1;
+  fxAdd({update(dt){ t += dt; const e = Math.min(1, t/open), sc = size*(1 - Math.pow(1 - e, 3)), fade = t < life*.7 ? 1 : Math.max(0, 1 - (t - life*.7)/(life*.3));
+    if (laid < 1) { lay(Math.max(.001, sc)); laid = e; }
+    m.material.opacity = fade; rays.material.opacity = fade*(o.rayOp || .85);
+    for (let i = 0; i < n; i++) { const [x, y] = pts[i], lx = x*sc/2, lz = -y*sc/2, rise = Math.min(1, Math.max(0, (t - open*.6 - i*.003)/.3)); V.set(lx, gyAt(lx, lz) - .05, lz); S.set(.16 + size*.012, Math.max(.001, hs[i]*rise), .16 + size*.012); M.compose(V, Q, S); rays.setMatrixAt(i, M); }
+    rays.instanceMatrix.needsUpdate = true;
+    if (t >= life) { roundGroup.remove(grp); m.material.dispose(); geo.dispose(); rays.material.dispose(); rays.dispose(); return false; } return true; }});
+  return m;
+}
+
+/* ---------- the paper: an ink pen, ink that pools when you go slowly and thins when you flick, bleeds into the paper, shines
+   while wet and splatters; activating it lights the strokes gold and stamps a wax seal with the grade ---------- */
+const WZ_PEN = "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'><path d='M4 36 C10 22 20 10 35 3 C37 9 30 19 16 27 C12 29 8 32 4 36 Z' fill='%23302018' stroke='%23C9A24A' stroke-width='1.3'/><path d='M8 31 C15 22 23 14 32 7' stroke='%23806040' stroke-width='1' fill='none'/><path d='M2 38 L6 32 L9 35 Z' fill='%23D9B04A' stroke='%23201006' stroke-width='.8'/></svg>\") 2 38, crosshair";
+function wzPaperBg(W){
+  const c = document.createElement('canvas'); c.width = c.height = W; const g = c.getContext('2d'), r = wzaRng('paper' + W);
+  const gr = g.createRadialGradient(W/2, W/2, W*.1, W/2, W/2, W*.75); gr.addColorStop(0, '#FAF0D4'); gr.addColorStop(1, '#E2CC98'); g.fillStyle = gr; g.fillRect(0, 0, W, W);
+  for (let i = 0; i < 900; i++) { g.strokeStyle = `rgba(${120 + r()*60|0},${90 + r()*40|0},${40 + r()*30|0},${.05 + r()*.08})`; g.lineWidth = .6 + r(); const x = r()*W, y = r()*W, a = r()*6, l = 4 + r()*16; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a)*l, y + Math.sin(a)*l); g.stroke(); }
+  for (let i = 0; i < 7; i++) { const x = r()*W, y = r()*W, R = W*(.03 + r()*.08), s = g.createRadialGradient(x, y, 0, x, y, R); s.addColorStop(0, 'rgba(150,100,40,.12)'); s.addColorStop(1, 'rgba(150,100,40,0)'); g.fillStyle = s; g.fillRect(x - R, y - R, R*2, R*2); }
+  const v = g.createRadialGradient(W/2, W/2, W*.35, W/2, W/2, W*.72); v.addColorStop(0, 'rgba(90,50,20,0)'); v.addColorStop(1, 'rgba(90,50,20,.35)'); g.fillStyle = v; g.fillRect(0, 0, W, W);
+  return c;
+}
+function wzPaperOpen(id){
+  const P = localP(); if (!P || P.alive === false || WZ.paper) return;
+  const d = WIZ_SK[id]; releaseLock(); G.targeting = null; marker.visible = false;
+  const el = document.createElement('div'); el.id = 'wzPaper';
+  el.style.cssText = 'position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center, rgba(20,10,30,.15), rgba(10,4,20,.55));pointer-events:auto';
+  const sz = Math.round(Math.min(600, innerWidth*.88, innerHeight*.7));
+  el.innerHTML = `<div id="wzSheet" style="background:linear-gradient(160deg,#3A2416,#22140A);border:3px solid #7A5A2A;border-radius:12px;box-shadow:0 18px 40px rgba(0,0,0,.6),inset 0 0 0 2px #C9A24A;padding:12px 14px 10px;font:800 15px Nunito,system-ui,sans-serif;color:#F2E2B8;max-width:96vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px"><span style="font-size:19px;color:#FFE9A8">${d.e} ${d.name} <small style="opacity:.75;color:#D9B04A">${'★'.repeat(d.tier)}${'☆'.repeat(5 - d.tier)}</small></span><span id="wzHint" style="font-size:13px;opacity:.85">Drawn once, yours all match. Neater = stronger.</span></div>
+    <canvas id="wzCv" style="width:${sz}px;height:${sz}px;display:block;touch-action:none;cursor:${WZ_PEN};border-radius:4px;box-shadow:0 2px 10px rgba(0,0,0,.5)"></canvas>
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;flex-wrap:wrap"><button class="btn primary" id="wzGo">✨ Activate (Enter)</button><button class="btn" id="wzClr">🧽 Clear (C)</button><button class="btn" id="wzGd"></button><button class="btn" id="wzX">✕ Close (Esc)</button></div></div>`;
+  document.body.appendChild(el);
+  const cv = el.querySelector('#wzCv'), dpr = Math.min(2, devicePixelRatio || 1); cv.width = cv.height = Math.round(sz*dpr);
+  WZ.paper = {id, el, cv, g:cv.getContext('2d'), sz, dpr, strokes:[], cur:null, blots:[], splats:[], noGuide:!WZ.guide, bg:wzPaperBg(cv.width), last:null, raf:0, glow:null};
+  const Pp = WZ.paper, toN = e => { const r = cv.getBoundingClientRect(), S = r.width*.46; return [(e.clientX - r.left - r.width/2)/S, -(e.clientY - r.top - r.height/2)/S]; };
+  cv.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); if (Pp.glow) return; cv.setPointerCapture(e.pointerId); const q = toN(e), now = performance.now(); Pp.cur = [[q[0], q[1], .02, now]]; Pp.strokes.push(Pp.cur); Pp.last = {x:e.clientX, y:e.clientY, t:now};
+    Pp.blots.push([q[0], q[1], .012 + Math.random()*.008]); if (actx && !muted) WZ_SFX.dab(); });
+  cv.addEventListener('pointermove', e => { if (!Pp.cur || Pp.glow) return; const q = toN(e), l = Pp.cur[Pp.cur.length - 1]; if (Math.hypot(q[0] - l[0], q[1] - l[1]) < .006) return;
+    const now = performance.now(), L = Pp.last, sp = Math.hypot(e.clientX - L.x, e.clientY - L.y)/Math.max(1, now - L.t); Pp.last = {x:e.clientX, y:e.clientY, t:now};
+    const w = clamp(.024 - sp*.0055, .008, .024), wl = l[2] + (w - l[2])*.35; Pp.cur.push([q[0], q[1], wl, now]);
+    if (sp > 2.2 && Math.random() < .5) for (let i = 0; i < 3; i++) Pp.splats.push([q[0] + (Math.random() - .5)*.12, q[1] + (Math.random() - .5)*.12, .003 + Math.random()*.006]);
+    if (actx && !muted && now - (Pp.scrT || 0) > 70) { Pp.scrT = now; WZ_SFX.scratch(Math.min(1, sp/2)); } });
+  const up = () => { if (Pp.cur && Pp.cur.length > 2) { const l = Pp.cur[Pp.cur.length - 1]; Pp.blots.push([l[0], l[1], .006 + Math.random()*.006]); } Pp.cur = null; }; cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  el.addEventListener('pointerdown', e => e.stopPropagation()); el.addEventListener('contextmenu', e => { e.preventDefault(); });
+  el.querySelector('#wzGo').onclick = () => wzPaperActivate(); el.querySelector('#wzClr').onclick = () => { if (Pp.glow) return; Pp.strokes = []; Pp.blots = []; Pp.splats = []; };
+  el.querySelector('#wzX').onclick = () => wzPaperClose(true); el.querySelector('#wzGd').onclick = () => wzGuideToggle();
+  wzGuideToggle(true); const tick = () => { if (WZ.paper !== Pp) return; wzPaperDraw(); Pp.raf = requestAnimationFrame(tick); }; tick();
+  localCast('z_draw', null, {on:1}); sfx('grab');
+}
+function wzPaperDraw(){
+  const Pp = WZ.paper; if (!Pp) return; const g = Pp.g, W = Pp.cv.width, S = W*.46, c = W/2, now = performance.now(), X = x => c + x*S, Y = y => c - y*S;
+  g.clearRect(0, 0, W, W); g.drawImage(Pp.bg, 0, 0);
+  if (WZ.guide) wzDrawGlyph(g, WIZ_SK[Pp.id].polys, c, c, S, 'rgba(110,70,30,.2)', 9*Pp.dpr);
+  g.lineCap = g.lineJoin = 'round';
+  // the ink bleeds a little into the paper
+  for (const st of Pp.strokes) for (let i = 1; i < st.length; i++) { const a = st[i - 1], b = st[i]; g.strokeStyle = 'rgba(70,35,15,.16)'; g.lineWidth = (a[2] + b[2])*S*1.15 + 2*Pp.dpr; g.beginPath(); g.moveTo(X(a[0]), Y(a[1])); g.lineTo(X(b[0]), Y(b[1])); g.stroke(); }
+  for (const [x, y, r] of Pp.blots) { const gr = g.createRadialGradient(X(x), Y(y), 0, X(x), Y(y), r*S*1.8); gr.addColorStop(0, 'rgba(20,10,4,.95)'); gr.addColorStop(.6, 'rgba(20,10,4,.75)'); gr.addColorStop(1, 'rgba(40,20,8,0)'); g.fillStyle = gr; g.beginPath(); g.arc(X(x), Y(y), r*S*1.8, 0, 7); g.fill(); }
+  for (const [x, y, r] of Pp.splats) { g.fillStyle = 'rgba(20,10,4,.85)'; g.beginPath(); g.arc(X(x), Y(y), r*S, 0, 7); g.fill(); }
+  // the strokes, thick where slow and thin where fast; wet ink shines for a moment
+  const gl = Pp.glow ? Math.min(1, (now - Pp.glow.t0)/450) : 0;
+  for (const st of Pp.strokes) for (let i = 1; i < st.length; i++) { const a = st[i - 1], b = st[i], w = (a[2] + b[2])*S/2;
+    g.strokeStyle = gl ? `rgb(${30 + 200*gl|0},${15 + 160*gl|0},${6 + 40*gl|0})` : '#1C0E05'; if (gl) { g.shadowColor = '#FFD84D'; g.shadowBlur = 18*gl*Pp.dpr; }
+    g.lineWidth = w; g.beginPath(); g.moveTo(X(a[0]), Y(a[1])); g.lineTo(X(b[0]), Y(b[1])); g.stroke(); g.shadowBlur = 0;
+    const age = (now - b[3])/1000; if (!gl && age < 1.4) { g.strokeStyle = `rgba(150,140,200,${.32*(1 - age/1.4)})`; g.lineWidth = w*.3; g.beginPath(); g.moveTo(X(a[0]) - w*.18, Y(a[1]) - w*.18); g.lineTo(X(b[0]) - w*.18, Y(b[1]) - w*.18); g.stroke(); } }
+  // the wax seal with the grade
+  if (Pp.glow) { const k = Math.min(1, Math.max(0, (now - Pp.glow.t0 - 300)/250)), sx = W*.83, sy = W*.83, R = W*.085*(1.6 - .6*k);
+    if (k > 0) { g.globalAlpha = k; g.fillStyle = '#8A1414'; g.beginPath(); for (let i = 0; i <= 16; i++) { const a = i/16*Math.PI*2, rr0 = R*(1 + (i % 2)*.08); g.lineTo(sx + Math.cos(a)*rr0, sy + Math.sin(a)*rr0); } g.fill(); g.fillStyle = '#B32020'; g.beginPath(); g.arc(sx, sy, R*.78, 0, 7); g.fill();
+      g.fillStyle = '#FFE9A8'; g.font = `900 ${R*1.05|0}px Georgia, serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(Pp.glow.grade, sx, sy + R*.05); g.font = `800 ${R*.32|0}px Nunito, sans-serif`; g.fillText(Pp.glow.pct + '%', sx, sy + R*.6); g.globalAlpha = 1; } }
+}
+function wzPaperClose(cancel){
+  const Pp = WZ.paper; if (!Pp) return; WZ.paper = null; cancelAnimationFrame(Pp.raf); Pp.el.remove(); localCast('z_draw', null, {on:0});
+  if (cancel) requestLock();
+}
+function wzPaperActivate(){
+  const Pp = WZ.paper; if (!Pp || Pp.glow) return; const d = WIZ_SK[Pp.id], r = wzScore(d.polys, Pp.strokes.map(st => st.map(q => [q[0], q[1]]))), pct = Math.round(r.score*100);
+  const h = Pp.el.querySelector('#wzHint');
+  if (r.score < .35) { if (h) { h.textContent = `The circle didn't take (${pct}%). Keep tracing, or clear it.`; h.style.color = '#FF8A7A'; } const sh = Pp.el.querySelector('#wzSheet'); if (sh && sh.animate) sh.animate([{transform:'translateX(0)'}, {transform:'translateX(-9px)'}, {transform:'translateX(8px)'}, {transform:'translateX(-4px)'}, {transform:'translateX(0)'}], {duration:320}); sfx('crack'); return; }
+  const k = wzPower(r.score, Pp.noGuide), id = Pp.id, grade = wzGrade(r.score);
+  Pp.glow = {t0:performance.now(), grade, pct}; sfx('holy'); requestLock();
+  setTimeout(() => {
+    if (WZ.paper !== Pp) return;
+    WZ.ink[id] = {k, s:r.score, g:grade, ng:Pp.noGuide};
+    const dr = wzPack(Pp.strokes.map(st => st.map(q => [q[0], q[1]])));
+    wzPaperClose(false);
+    localCast('z_ink', null, {sp:id, k:+k.toFixed(3), d:dr});
+    toast(`✨ ${d.e} ${d.name} inscribed: ${pct}% (${grade}) → ${Math.round(k*100)}% power${Pp.noGuide ? ' (drawn from memory!)' : ''}. It's yours for the match.`);
+    renderTray();
+  }, 950);
+}
 
 /* ---------- using spells ---------- */
 function wzUse(id){
@@ -14846,7 +14900,7 @@ function runWiz(id, p, x){
   if (id === 'z_ink') { const s = x.sp; if (!WIZ_SK[s] || (WZ.drawn[ci.key] && WZ.drawn[ci.key][s])) return; (WZ.hostInk[ci.key] = WZ.hostInk[ci.key] || {})[s] = clamp(+x.k || .45, .45, 1.44); wzDrawState(ci.key, ci.C, false);
     const dr = wzUnpack(x.d); if (dr) (WZ.drawn[ci.key] = WZ.drawn[ci.key] || {})[s] = dr;
     // the circle you drew lights up on the ground under you
-    const at = V3(ci.pos.x, groundH(ci.pos.x, ci.pos.z) + .12, ci.pos.z); wzGlyphFX(s, at, 5.5, 0xFFE9A8, {flat:true, life:2.2, spin:.8, key:ci.key}); sparkle(V3(at.x, at.y + 1, at.z), 0xFFE9A8); sfx('holy');
+    const at = V3(ci.pos.x, groundH(ci.pos.x, ci.pos.z) + .12, ci.pos.z); wzGlyphFX(s, at, 12, 0xFFE9A8, {life:2.8, key:ci.key, rayH:7, open:.6}); sparkle(V3(at.x, at.y + 1, at.z), 0xFFE9A8); sfx('holy');
     if (ci.key !== G.localKey) killFeedText(`✨ ${ci.C.name || 'A wizard'} inscribed ${WIZ_SK[s].e} ${WIZ_SK[s].name}`); return; }
   const C = ci.C, f = V3(Math.sin(C.face), 0, Math.cos(C.face)), from = V3(ci.pos.x + f.x*.7, ci.pos.y + 1.45, ci.pos.z + f.z*.7);
   C.castPose = .5;
@@ -14865,17 +14919,19 @@ const wzOrb = (r, col, halo) => { const g = new THREE.Group(); g.add(new THREE.M
 function wzShoot(o, speed, extra){ const p = o.p || o.from.clone().add(V3(Math.sin(o.yaw), 0, Math.cos(o.yaw)).multiplyScalar(40)); const v = p.clone().sub(o.from); v.normalize().multiplyScalar(speed); return addBomb(Object.assign({p:o.from.clone(), v, owner:o.key, team:o.team}, extra)); }
 // what a spell does (players' casts and the dark wizards' alike)
 function wzEffect(id, o){
-  const k = o.k, d = WIZ_SK[id], dir = o.p ? V3(o.p.x - o.from.x, 0, o.p.z - o.from.z).normalize() : V3(Math.sin(o.yaw), 0, Math.cos(o.yaw)), yaw = Math.atan2(dir.x, dir.z);
-  if (d && d.tier && id !== 'z_seal') { const area = d.kind === 'area' && o.p, q = o.p && d.kind !== 'self' ? o.p : o.from, at = V3(q.x, groundH(q.x, q.z) + .12, q.z);
-    wzGlyphFX(id, at, area ? Math.max(4, d.r*2*(id === 'z_meteor' ? 1 : Math.sqrt(k))) : (d.kind === 'self' ? 2.4 : 3.2) + .45*d.tier, o.team === 'red' && !o.C ? 0xC08AFF : d.tier >= 4 ? 0xFFD84D : 0xFFE9A8, {flat:true, life:area ? (id === 'z_meteor' ? 3.6 : 1) : 1.3, spin:area ? .5 : 2, key:o.key}); }
+  if (o.p) { const dx = o.p.x - o.from.x, dz = o.p.z - o.from.z, L = Math.hypot(dx, dz); if (L > 80) o.p = V3(o.from.x + dx/L*80, 0, o.from.z + dz/L*80); o.p.x = clamp(o.p.x, -WZB_EDGE + 3, WZB_EDGE - 3); o.p.z = clamp(o.p.z, -WZB_EDGE + 3, WZB_EDGE - 3); o.p.y = groundH(o.p.x, o.p.z); }
+  const gq = h => gqOf(o, h), k = o.k, d = WIZ_SK[id], dir = o.p ? V3(o.p.x - o.from.x, 0, o.p.z - o.from.z).normalize() : V3(Math.sin(o.yaw), 0, Math.cos(o.yaw)), yaw = Math.atan2(dir.x, dir.z);
+  if (d && d.tier) { const col = o.team === 'red' && !o.C ? 0xC08AFF : o.team === 'wild' ? 0x9FB8FF : d.tier >= 4 ? 0xFFD84D : 0xFFE9A8, foot = V3(o.from.x, groundH(o.from.x, o.from.z), o.from.z);
+    wzGlyphFX(id, foot, d.kind === 'self' ? 8 + d.tier : 5 + d.tier, col, {life:d.kind === 'self' ? 1.8 : 1.1, key:o.key, rot:yaw, rayH:d.kind === 'self' ? 3 : 1.3, rayOp:d.kind === 'self' ? .7 : .4});   /* the caster's circle (low rays: it mustn't blind you) */
+    if (d.kind !== 'self' && o.p && id !== 'z_seal') { const area = d.kind === 'area'; wzGlyphFX(id, V3(o.p.x, groundH(o.p.x, o.p.z), o.p.z), area ? Math.max(12, d.r*3*(id === 'z_meteor' ? 1 : Math.sqrt(k))) : 10 + 2*d.tier, col, {life:area ? (id === 'z_meteor' ? 3.8 : 1.8) : 1.7, key:o.key, rot:yaw}); } }
   switch (id) {
-    case 'z_wand': wzShoot(o, 62, {g:.02, r:.25, R:1.1, dmg:8, kb:2, m:wzOrb(.16, 0xE0C8FF, 0x9D6BFF), trail:0xC9B8FF, trailS:.12, fx:{size:.12, pal:WZ_ARC, snd:'zapHit'}}); sfx('zap'); return;
-    case 'z_spark': wzShoot(o, 78, {g:0, r:.3, R:1.5, dmg:16*k, kb:4, m:wzOrb(.2, 0xFFF3A0, 0xFFE14D), trail:0xFFF3A0, trailS:.14, fx:{size:.18, pal:WZ_SKY, snd:'zapHit'}}); sfx('zap'); return;
-    case 'z_fire': wzShoot(o, 36, {g:.15, r:.5, R:3.6*Math.sqrt(k), dmg:30*k, kb:10, m:wzOrb(.45, 0xFFB02E, 0xFF5A1F), trail:0xFF8A2E, trailS:.4, onHit:(b, at) => { bBoom(at, b.R, b.dmg, b.kb, b.owner, b.team, {pal:WZ_FIRE, size:.5}); igniteAt(at, 2.5); }}); sfx('fireball'); return;
-    case 'z_ice': { const m = new THREE.Group(); const sh = new THREE.Mesh(new THREE.OctahedronGeometry(.35, 0), new THREE.MeshBasicMaterial({color:0xBFF3FF})); sh.scale.set(.5, .5, 2.6); m.add(sh); noRayAll(m);
-      wzShoot(o, 62, {g:.08, r:.35, R:2.2, dmg:24*k, kb:6, m, trail:0xE6F8FF, trailS:.2, onHit:(b, at) => { bBoom(at, b.R, b.dmg, b.kb, b.owner, b.team, {pal:WZ_ICE, size:.3}); const P = victimFor(b.owner, b.team); if (P && P.body.position.distanceTo(at) < b.R + 1.2) { P.slowT = Math.max(P.slowT || 0, 2.5); toast('❄️ Frozen: slowed!'); } for (const z of WZ.bots) if (!z.dead && z.pos.distanceTo(at) < b.R + 1.2) z.slowT = 2.5; sparkle(at, 0xBFF3FF); }}); sfx('zap'); return; }
-    case 'z_rock': { const to = o.p || o.from.clone().addScaledVector(dir, 30), T = clamp(o.from.distanceTo(to)/28, .45, 1.4), m = new THREE.Mesh(PAIN_ROCK, M3(0x7A6E62)); m.scale.setScalar(.75); addOutline(m);
-      addBomb({p:o.from.clone(), v:lobVel(o.from, to, T), g:1, r:.75, R:3.2*Math.sqrt(k), dmg:34*k, kb:20, m, owner:o.key, team:o.team, face:false, tumble:6, fx:{size:.4, pal:{ball:0x8A7A6A, core:0xD9C7A3, ring:0x6E6672}, snd:'thud'}}); sfx('whoosh'); return; }
+    case 'z_wand': { const q = gq(.6); wzAfter(.12, () => { boomVisual(q.clone(), false, .14, WZ_ARC); sparkle(q, 0xC9B8FF); bBoom(q.clone(), 1.5, 8, 2, o.key, o.team, {quiet:true}); sfx('zapHit'); }); wzGlyphFX('z_spark', V3(q.x, q.y - .6, q.z), 3.2, 0xC9B8FF, {life:.6, rayH:1.4}); wzGlyphFX('z_spark', V3(o.from.x, groundH(o.from.x, o.from.z), o.from.z), 2.4, 0xC9B8FF, {life:.5, rayH:1}); sfx('zap'); return; }
+    case 'z_spark': { const q = gq(.6); wzAfter(.28, () => { arcBeam(V3(q.x + rr(-2, 2), q.y + 24, q.z + rr(-2, 2)), q.clone(), 0xFFF3A0); arcBeam(V3(q.x, q.y + 20, q.z), q.clone(), 0xFFFFFF); bBoom(q.clone(), 1.9, 16*k, 4, o.key, o.team, {pal:WZ_SKY, size:.22, snd:'zapHit'}); }); sfx('zap'); return; }
+    case 'z_fire': { const q = gq(.2); wzAfter(.45, () => { wzGeyser(q, 6 + 2*k); bBoom(V3(q.x, q.y + 1, q.z), 3.6*Math.sqrt(k), 30*k, 10, o.key, o.team, {pal:WZ_FIRE, size:.5}); igniteAt(q, 2.5); }); sfx('fireball'); return; }
+    case 'z_ice': { const q = gq(0); wzAfter(.35, () => { wzSpikes(q, 2.6); bBoom(V3(q.x, q.y + .8, q.z), 2.8, 24*k, 6, o.key, o.team, {pal:WZ_ICE, size:.3});
+      const P = victimFor(o.key, o.team); if (P && hdist(P.body.position, q) < 3.6) { P.slowT = Math.max(P.slowT || 0, 2.5); toast('❄️ Frozen: slowed!'); } for (const z of WZ.bots) if (!z.dead && hdist(z.pos, q) < 3.6) z.slowT = 2.5; }); sfx('zap'); return; }
+    case 'z_rock': { const q = gq(0), start = V3(q.x + rr(-4, 4), q.y + 40, q.z + rr(-4, 4)), m = new THREE.Mesh(PAIN_ROCK, M3(0x7A6E62)); m.scale.setScalar(.85); addOutline(m);
+      addBomb({p:start, v:q.clone().sub(start).normalize().multiplyScalar(44), g:.6, r:.8, R:3.2*Math.sqrt(k), dmg:34*k, kb:20, m, owner:o.key, team:o.team, face:false, tumble:6, trail:0x8A7A6A, trailS:.4, fx:{size:.45, pal:{ball:0x8A7A6A, core:0xD9C7A3, ring:0x6E6672}, snd:'thud'}}); sfx('whoosh'); return; }
     case 'z_ward': wzWard(o); return;
     case 'z_heal': wzHeal(o); return;
     case 'z_bolt': wzBolt(o); return;
@@ -14883,6 +14939,26 @@ function wzEffect(id, o){
     case 'z_meteor': wzMeteor(o); return;
     case 'z_seal': wzSeal(o); return;
   }
+}
+// the ground point of the spell's circle (h metres up)
+function gqOf(o, h){ const q = o.p || o.from; return V3(q.x, groundH(q.x, q.z) + (h || 0), q.z); }
+function wzAfter(t, fn){ let k = 0; fxAdd({update(dt){ k += dt; if (k >= t) { fn(); return false; } return true; }}); }
+// a geyser of fire bursting up out of a circle
+function wzGeyser(q, H){
+  const g = new THREE.Group(), cones = [[1.3, H, 0xFF5A1F, .9], [.9, H*.8, 0xFFB02E, .9], [.5, H*.6, 0xFFF3B0, .95]].map(([r, h, c, op]) => { const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 12, 1, true), new THREE.MeshBasicMaterial({color:c, transparent:true, opacity:op, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide})); m.geometry.translate(0, h/2, 0); g.add(m); return m; });
+  g.position.copy(q); noRayAll(g); roundGroup.add(g); let t = 0;
+  fxAdd({update(dt){ t += dt; const up = Math.min(1, t/.15), f = t < .5 ? 1 : Math.max(0, 1 - (t - .5)/.5); cones.forEach((m, i) => { m.scale.set(1 + .15*Math.sin(t*30 + i), up*(.9 + .1*Math.sin(t*20 + i)), 1 + .15*Math.cos(t*26 + i)); m.material.opacity = f*(.9 - i*.05); m.rotation.y += dt*(4 + i*2); });
+    if (Math.random() < .9) puff(V3(q.x + rr(-.8, .8), q.y + rr(0, H*.8), q.z + rr(-.8, .8)), pick([0xFF8A2E, 0xFFB02E, 0xFF5A1F, 0x3A2A22]), .5);
+    if (t > 1) { roundGroup.remove(g); return false; } return true; }});
+}
+// ice spikes erupting out of a circle
+function wzSpikes(q, R){
+  const g = new THREE.Group(), sp = []; for (let i = 0; i < 10; i++) { const a = i/9*Math.PI*2, r = i ? R*(.4 + Math.random()*.6) : 0, m = new THREE.Mesh(new THREE.OctahedronGeometry(.45, 0), new THREE.MeshLambertMaterial({color:0xBFF3FF, emissive:0x2A6A8A, transparent:true, opacity:.9}));
+    m.position.set(Math.cos(a)*r, 0, Math.sin(a)*r); m.rotation.set((Math.random() - .5)*.6, Math.random()*3, (Math.random() - .5)*.6); m.userData.h = i ? 1.2 + Math.random()*1.6 : 3.2; g.add(m); sp.push(m); }
+  g.position.copy(q); noRayAll(g); roundGroup.add(g); let t = 0;
+  fxAdd({update(dt){ t += dt; const up = Math.min(1, t/.12), down = t > 1.3 ? Math.max(0, 1 - (t - 1.3)/.4) : 1; sp.forEach(m => { const h = m.userData.h*up*down; m.scale.set(.7, Math.max(.01, h), .7); m.position.y = h*.3; });
+    if (t > 1.75) { roundGroup.remove(g); return false; } return true; }});
+  sparkle(V3(q.x, q.y + 1, q.z), 0xBFF3FF);
 }
 function wzWard(o){
   const old = WZ.wards[o.key]; if (old) { roundGroup.remove(old.m); }
@@ -14909,10 +14985,10 @@ function wzBolt(o){
     return t < .6; }});
 }
 function wzWind(o, dir){
-  const c = V3(o.from.x, groundH(o.from.x, o.from.z), o.from.z).addScaledVector(dir, 2), g = new THREE.Group(), rings = [];
+  const q0 = o.p || o.from.clone().addScaledVector(dir, 12), c = V3(q0.x, groundH(q0.x, q0.z), q0.z), g = new THREE.Group(), rings = [];
   for (let i = 0; i < 7; i++) { const r = new THREE.Mesh(new THREE.TorusGeometry(.5 + i*.32, .09, 6, 20), new THREE.MeshBasicMaterial({color:0xE6EEF5, transparent:true, opacity:.55, depthWrite:false})); r.rotation.x = Math.PI/2; r.position.y = .3 + i*.62; g.add(r); rings.push(r); }
   noRayAll(g); g.position.copy(c); roundGroup.add(g); let t = 0, tick = 0; const life = 4 + o.k, hitAt = new Map(); sfx('whoosh');
-  fxAdd({update(dt){ t += dt; c.addScaledVector(dir, 8.5*dt); c.y = groundH(c.x, c.z); g.position.copy(c); rings.forEach((r, i) => { r.rotation.z += dt*(6 + i); r.position.x = Math.sin(t*5 + i*.7)*.25; });
+  fxAdd({update(dt){ t += dt; c.addScaledVector(dir, 2.2*dt); c.y = groundH(c.x, c.z); g.position.copy(c); rings.forEach((r, i) => { r.rotation.z += dt*(6 + i); r.position.x = Math.sin(t*5 + i*.7)*.25; });
     if (Math.random() < .6) puff(V3(c.x + rr(-1.5, 1.5), c.y + rr(0, 4), c.z + rr(-1.5, 1.5)), 0xD9D2C3, .5);
     tick -= dt; if (tick <= 0) { tick = .3; const mid = V3(c.x, c.y + 1.6, c.z);
       const P = victimFor(o.key, o.team); if (P && hdist(P.body.position, c) < 3.2 && P.body.position.y - c.y < 6) { painHurt(P, 7*o.k, o.key); knock(P, dir.x*3, 9, dir.z*3, .5); }
@@ -14931,7 +15007,7 @@ function wzMeteor(o){
 }
 function wzSeal(o){
   const p = o.p; if (!p) return; const R = 10 + 3*o.k, at = V3(p.x, groundH(p.x, p.z) + .15, p.z);
-  const seal = wzGlyphFX('z_seal', at, R*2, 0xFFE9A8, {flat:true, life:3.4, spin:.6, key:o.key}); sfx('holy'); sfx('rumble'); let t = 0, hit = false;
+  const seal = wzGlyphFX('z_seal', at, R*2.4, 0xFFE9A8, {life:3.4, key:o.key, open:.8, rayH:9}); sfx('holy'); sfx('rumble'); let t = 0, hit = false;
   if (victimFor(o.key, o.team) && hdist(localP().body.position, p) < R) toast('🔯 A Grand Seal under you! Get out!');
   fxAdd({update(dt){ t += dt; if (Math.random() < .8) sparkle(V3(p.x + rr(-R, R)*.7, at.y + rr(0, 2), p.z + rr(-R, R)*.7), 0xFFE9A8);
     if (!hit && t > 2.4) { hit = true; lightPillar(at, R*.5, true); flash(.6, .5); shakeAt(at, 1.6, 120); sfx('boom');
@@ -15271,7 +15347,7 @@ function wzThemeFrame(dt){
 const WZM = {a:null, want:false};
 function wzMusic(on){
   WZM.want = on;
-  if (on && !WZM.a) { WZM.a = new Audio('music/wizards.mp3'); WZM.a.loop = true; WZM.a.volume = .2; WZM.a.preload = 'auto'; WZM.a.addEventListener('error', () => { WZM.a = null; WZM.want = false; }); }
+  if (on && !WZM.a) { WZM.a = new Audio('music/wizards.mp3'); WZM.a.loop = true; WZM.a.volume = .04; WZM.a.preload = 'auto'; WZM.a.addEventListener('error', () => { WZM.a = null; WZM.want = false; }); }
   wzMusicSync();
 }
 function wzMusicSync(){ const a = WZM.a; if (!a) return; if (WZM.want && !muted && !document.hidden) { if (a.paused) a.play().catch(() => {}); } else if (!a.paused) a.pause(); }
@@ -15593,7 +15669,9 @@ const WZ_SFX = {
   meow(){ dTone('triangle', 520, 380, .5, .03, 0, .08); dTone('triangle', 700, 420, .4, .02, .05, .1); },
   caw(){ dNoise(.25, .1, 1200, 700, 'bandpass'); dNoise(.25, .1, 1100, 650, 'bandpass', .3); },
   shriek(){ dTone('sine', 900, 400, 1.2, .03, 0, .3); dTone('sine', 940, 380, 1.2, .02, .05, .3); dNoise(1.2, .06, 2000, 600, 'bandpass', 0, .3); },
-  rumble(){ dNoise(2.4, .35, 140, 60, 'lowpass', 0, .3); dTone('sine', 45, 28, 2.2, .2); }
+  rumble(){ dNoise(2.4, .35, 140, 60, 'lowpass', 0, .3); dTone('sine', 45, 28, 2.2, .2); },
+  scratch(v){ dNoise(.09, .015 + .045*(v || .5), 2600, 3800, 'bandpass', 0, .01); },
+  dab(){ dTone('sine', 160, 90, .16, .05); dNoise(.1, .05, 700, 300, 'lowpass', 0, .01); }
 };
 // the game's sound names, as heard in Wizards
 const WZ_SFX_MAP = {zap:'arcane', zapHit:'arcane', fireball:'flame', fire:'flame', boom:'impact', bboom:'impact', thunder:'thunder', holy:'choir', grav:'chime', grab:'chime', place:'chime', click:'chime', pop:'gasp', splat:'gasp', crack:'small', splat2:'small',

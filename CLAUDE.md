@@ -747,3 +747,10 @@ Wizards 2026-10-14.3: neutral creatures (WZB_KINDS 5 Goblin, 6 Ghost, neutral:tr
 player (goblin club 'g_club' = small bBoom; ghost z_ice); calm after 10 s with nobody near. Snapshot kind + 10 = angry. bEnemies /
 wzTakeArea skip bots of the caster's team ('red' dark wizards, 'wild' neutrals). The drawn circle now glows where the spell lands
 (the aim point); self spells under the caster. Test t90.
+Wizards 2026-10-14.4: the paper (wzPaperOpen/Draw/Activate) has an ink-pen cursor (WZ_PEN svg), a parchment background, strokes
+with width per point ([x, y, w, t]: slow = thick), bleed, wet sheen, splatter, scratch/dab sounds (WZ_SFX.scratch/dab); activating
+lights the strokes gold and stamps a wax seal with the grade, then closes after 950 ms. wzGlyphFX: a terrain-following circle (a
+subdivided plane laid on groundH), opening 0 -> 100% with no spin or wobble, with rays (WZ_RAY_GEO instanced) rising out of the
+strokes (wzPolysFor = the caster's own drawing). Every cast opens two circles: one at the caster (low rays) and one at the target.
+Nothing is thrown any more: spark strikes from the sky into the target circle, fire = wzGeyser, ice = wzSpikes, boulder falls from
+the sky, tornado rises at the target, wand = small arcane burst; targets within 80 m (wzEffect clamps o.p). Music volume .04.
