@@ -766,3 +766,9 @@ host spawns him seated (wzNeutralFrame); wzKingFrame: asleep until hurt -> chase
 circle, then a blast), 'k_wave' (expanding ring, jump it), 'k_souls' (5 homing orbs); calm after 15 s with nobody within 70 m -> walks
 back (front -> seat), sits, heals. wzKingFell (wzBotDie): everyone full health + WZW.surgeT 60 s; back after 180 s (WZN.kingT).
 Boss bar #wzBoss while he fights within 90 m. Test t91.
+Wizards 2026-10-14.7: a RIVER (wzaRiver, fixed path z ~ -58..-70 across the map): the bed is carved into terrH (so the mesh, groundH
+and the heightfield all follow, syncTerrain), the water is a flat flowing ribbon at a level smoothed along the river (WZR.pts
+[x, z, level], wzRiverNear), muddy banks (wzGround), wading slows you. Arched wooden bridges where roads cross (wzaBridges, every
+plank a static body). Shooting stars (WZS2, wzStarsFrame). SECRET SPELLS: z_raven (Q), z_chains (R), z_drain (F), z_void (V) are
+hidden (WIZ_SK secret) until you walk onto their glowing scroll (WZD, wzDiagramsBuild/Frame: behind the throne, graveyard, forest,
+near (84,-72)); WZ.known per player, the tray shows found ones; effects in wzSecretEffect. Test t92.

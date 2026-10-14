@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-14.6';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-14.7';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -14913,7 +14913,7 @@ function wzCastAt(id){
   if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
   localCast(id, G.targetPoint.clone(), {k:WZ.ink[id] ? WZ.ink[id].k : .5, sd:Math.floor(Math.random()*1e9)}); G.targeting = null; marker.visible = false; renderTray();
 }
-function wzKeyDown(k){ if (k === 'tab') return false; const id = WZ_KEYS[k]; if (!id) return false; if (G.targeting === id) { setTargeting(id); return true; } wzUse(id); return true; }
+function wzKeyDown(k){ if (k === 'tab') return false; const id = WZ_KEYS[k]; if (!id) return false; if (WIZ_SK[id].secret && !WZ.known[id]) return true;   /* not found yet */ if (G.targeting === id) { setTargeting(id); return true; } wzUse(id); return true; }
 function wzMouseDown(){
   if (G.targeting && WIZ_SK[G.targeting]) { wzCastAt(G.targeting); return true; }
   if ((G.cd.z_wand || 0) > 0 || G.spCd > 0) return true; G.spCd = .1; localCast('z_wand', aimPoint(120), {}); return true;
@@ -14957,6 +14957,7 @@ function wzEffect(id, o){
     wzGlyphFX(id, foot, d.kind === 'self' ? 8 + d.tier : 5 + d.tier, col, {life:d.kind === 'self' ? 1.8 : 1.1, key:o.key, rot:yaw, rayH:d.kind === 'self' ? 3 : 1.3, rayOp:d.kind === 'self' ? .7 : .4});   /* the caster's circle (low rays: it mustn't blind you) */
     if (o.p && ['z_spark', 'z_rock', 'z_bolt', 'z_meteor', 'z_seal'].includes(id)) wzGlyphFX(id, V3(o.p.x, groundH(o.p.x, o.p.z) + (id === 'z_meteor' ? 30 : id === 'z_seal' ? 26 : 18), o.p.z), wzCircleSize(id, k)*(id === 'z_meteor' ? .9 : .8), d.col || 0xFFE9A8, {life:id === 'z_meteor' ? 3.8 : 1.6, key:o.key, rot:yaw, sky:true, rayH:6, open:.3});   /* the sky circle it falls from */
     if (d.kind !== 'self' && o.p && id !== 'z_seal') { const area = d.kind === 'area'; wzGlyphFX(id, V3(o.p.x, groundH(o.p.x, o.p.z), o.p.z), area ? wzCircleSize(id, k) : wzCircleSize(id, k), col, {life:area ? (id === 'z_meteor' ? 3.8 : 1.8) : 1.7, key:o.key, rot:yaw}); } }
+  if (d && d.secret) { wzSecretEffect(id, o); return; }
   switch (id) {
     case 'z_wand': { const q = gq(.6); wzAfter(.12, () => { boomVisual(q.clone(), false, .14, WZ_ARC); sparkle(q, 0xC9B8FF); bBoom(q.clone(), 1.5, 8, 2, o.key, o.team, {quiet:true}); sfx('zapHit'); }); wzGlyphFX('z_spark', V3(q.x, q.y - .6, q.z), 3.2, 0xC9B8FF, {life:.6, rayH:1.4}); wzGlyphFX('z_spark', V3(o.from.x, groundH(o.from.x, o.from.z), o.from.z), 2.4, 0xC9B8FF, {life:.5, rayH:1}); sfx('zap'); return; }
     case 'z_spark': { const q = gq(.6); wzAfter(.28, () => { arcBeam(V3(q.x, q.y + 17.4, q.z), q.clone(), 0xFFF3A0); arcBeam(V3(q.x, q.y + 17.4, q.z), q.clone(), 0xFFFFFF); bBoom(q.clone(), 1.9, 16*k, 4, o.key, o.team, {pal:WZ_SKY, size:.22, snd:'zapHit'}); }); sfx('zap'); return; }
@@ -15086,7 +15087,7 @@ const WZB_KINDS = [
 ];
 const WZ_WAVES = 12;
 function wzStart(){
-  wzBotsClear(); WZ.spots = null; for (const k in WZ.tex) if (k.includes('|')) { WZ.tex[k].dispose(); delete WZ.tex[k]; } Object.assign(WZ, {ink:{}, drawn:{}, hostInk:{}, wards:{}, wave:0, kills:0, seq:0, waveT:G.wzCoop ? 3 : 0});
+  wzBotsClear(); WZ.spots = null; for (const k in WZ.tex) if (k.includes('|')) { WZ.tex[k].dispose(); delete WZ.tex[k]; } Object.assign(WZ, {ink:{}, drawn:{}, known:{}, hostInk:{}, wards:{}, wave:0, kills:0, seq:0, waveT:G.wzCoop ? 3 : 0});
   for (const k in WZ.drawFx) roundGroup.remove(WZ.drawFx[k].g); WZ.drawFx = {};
   document.querySelector('#top .score').style.display = G.wzCoop ? 'none' : '';
   renderTray(); wzHud(true);
@@ -15239,9 +15240,9 @@ function wzWin(){
 }
 // the Skills bar: every spell's circle; un-drawn ones say so
 function wzTray(t){
-  const items = WZ_IDS.map(id => { const d = WIZ_SK[id], ink = WZ.ink[id];
+  const ids = WZ_IDS.filter(id => !WIZ_SK[id].secret || WZ.known[id]), items = ids.map(id => { const d = WIZ_SK[id], ink = WZ.ink[id];
     return `<button class="skill${ink ? '' : ' wzblank'}" data-sp="${id}" aria-pressed="${G.targeting === id}" title="${d.name}: ${d.d}${ink ? ` · inscribed ${Math.round(ink.s*100)}% (${ink.g}), ${Math.round(ink.k*100)}% power` : ' · press to draw its circle'}" aria-label="${d.name}" style="${ink ? '' : 'opacity:.62'}"><span class="si"><img src="${wzIcon(id)}" alt="" style="width:30px;height:30px;display:block;margin:auto;filter:${ink ? 'drop-shadow(0 0 4px #FFD84D)' : 'grayscale(.4)'}"></span><span class="sn">${d.e} ${d.name}</span><sup>${ink ? `${ink.g} ${Math.round(ink.k*100)}%` : '✍️'}</sup><kbd>${d.key}</kbd></button>`; }).join('');
-  t.innerHTML = `<div class="bar sticker"><div class="tl">Spellbook</div><div class="skills" style="--cols:5">${items}</div></div>`;
+  t.innerHTML = `<div class="bar sticker"><div class="tl">Spellbook</div><div class="skills" style="--cols:${Math.ceil(ids.length/2)}">${items}</div></div>`;
   t.querySelectorAll('[data-sp]').forEach(b => b.onclick = e => { e.stopPropagation(); wzUse(b.dataset.sp); });
 }
 
@@ -15378,6 +15379,7 @@ function wzThemeFrame(dt){
   skyMat.uniforms.top.value.setHex(0x05061C); skyMat.uniforms.mid.value.setHex(0x2A1656); skyMat.uniforms.bot.value.setHex(0x0C0820); scene.fog.color.setHex(0x1C1238);
   sunDisk.visible = sunGlow.visible = false; cloudMat.color.setHex(0x2A2650);
   tufts.material.color.setHex(0x1E5A44);
+  wzStarsFrame(dt);
   for (const s of WZT.twinkle) { const k = s.userData.k*(.75 + .35*Math.sin(G.t*2.2 + s.userData.ph)); s.scale.set(k, k, 1); }
   // wisps drift round the player
   const W = WZT.wisps, me = localP(), cx = me ? me.body.position.x : c.x, cz = me ? me.body.position.z : c.z, a = W.pts.geometry.attributes.position;
@@ -15400,7 +15402,7 @@ addEventListener('pointerdown', () => { if (WZM.want) wzMusicSync(); }, true); a
 document.addEventListener('visibilitychange', wzMusicSync);
 // the ground at night: dark teal grass with patches of glowing moss
 const _wzMoss = new THREE.Color(0x3AFFA0), _wzTint = new THREE.Color(.4, .62, .58);
-function wzGround(c, x, z){ c.multiply(_wzTint); const n = Math.sin(x*.9 + Math.sin(z*.37)*3)*Math.cos(z*.8 + Math.sin(x*.29)*3); if (n > .8) c.lerp(_wzMoss, Math.min(.55, (n - .8)*2.4)); return c; }
+function wzGround(c, x, z){ c.multiply(_wzTint); if (WZR.pts && z > -90 && z < -36) { const rd = wzRiverDist(x, z); if (rd < 7) c.lerp(_wzMud, (1 - smooth(3, 7, rd))*.7); } const n = Math.sin(x*.9 + Math.sin(z*.37)*3)*Math.cos(z*.8 + Math.sin(x*.29)*3); if (n > .8) c.lerp(_wzMoss, Math.min(.55, (n - .8)*2.4)); return c; }
 
 const WIZ_MAP = {name:'Moonlit Vale', e:'🌙', d:'A cold night. Something watches from the castles.'};
 
@@ -15579,7 +15581,9 @@ function wzaBuildMap(){
   for (const sx of [-1, 1]) for (let z = -44; z <= 44; z += 11) keep.push([sx*ISL*.48, z, 9]);
   // roads: to both spawns, the village, the church and every castle
   const roads = [[[0, 0], [-30, 6], [-67, 0]], [[0, 0], [30, -6], [67, 0]], [[0, 0], [8, 40], [-4, 74], [0, 92]], [[0, 0], [-6, -40], [4, -72], [0, -80]], [[0, 0], [-40, -38], [-80, -84]], [[0, 0], [40, -35], [80, -80]], [[0, 0], [-38, 42], [-80, 86]], [[0, 0], [42, 40], [82, 84]]];
-  for (const rd of roads) { const sp = wzaRoad(rd, 3.6, 'cobble'); for (let i = 0; i < sp.length; i += 2) keep.push([sp[i].x, sp[i].z, 3]); }
+  wzaRiver(keep); const roadsSp = [];
+  for (const rd of roads) { const sp = wzaRoad(rd, 3.6, 'cobble'); roadsSp.push(sp); for (let i = 0; i < sp.length; i += 2) keep.push([sp[i].x, sp[i].z, 3]); }
+  wzaBridges(roadsSp);
   // the castles
   for (const [x, z, st, s] of [[-104, -104, 0, 1.9], [104, -100, 1, 1.6], [-100, 106, 2, 1.7], [102, 104, 0, 1.5]]) { wzaCastle(x, z, st, s); keep.push([x, z, 24*s]); }
   // the village: a street of houses with lamps
@@ -15817,8 +15821,8 @@ function wzSecretsFrame(dt){
     if (me.alive !== false && Math.hypot(p.x - ch.x, p.z - ch.z) < 2.2) { ch.open = true; sfx('holy'); sparkle(V3(ch.x, groundH(ch.x, ch.z) + 1, ch.z), 0xFFD84D); WZW.surgeT = G.t + 30; toast('📜 An ancient tome! Arcane Surge: your spells recharge twice as fast for 30 s.'); } }
   if (WZW.surgeT > G.t) for (const k in G.cd) if (WIZ_SK[k] && G.cd[k] > 0) G.cd[k] = Math.max(0, G.cd[k] - dt);   // twice as fast
 }
-function wzWorldBuild(){ wzMistBuild(); wzCloudsBuild(); wzFrogsBuild(); wzSecretsBuild(); WZW.strikeT = 8; WZW.surgeT = 0; WZW.seen = {}; }
-function wzWorldFrame(dt){ if (!WZW.fog.length) return; wzMistFrame(dt); wzCloudsFrame(dt); wzFrogsFrame(dt); wzSecretsFrame(dt); }
+function wzWorldBuild(){ wzMistBuild(); wzCloudsBuild(); wzFrogsBuild(); wzSecretsBuild(); wzDiagramsBuild(); WZW.strikeT = 8; WZW.surgeT = 0; WZW.seen = {}; }
+function wzWorldFrame(dt){ if (!WZW.fog.length) return; wzMistFrame(dt); wzRiverFrame(dt); wzDiagramsFrame(dt); wzCloudsFrame(dt); wzFrogsFrame(dt); wzSecretsFrame(dt); }
 
 /* ---------- Wizards creatures, sculpted (no boxes): the wraith, the goblin shaman, the crowned frog, the night animals, bats ---------- */
 const wzSkinTex = (key, base, spot, dots) => wzaTex(key, 128, 128, (g, W, H, r) => { g.fillStyle = base; g.fillRect(0, 0, W, H);
@@ -16025,6 +16029,129 @@ function wzKingFell(z){
   const me = localP(); if (me && me.alive !== false) { me.hp = 100; updateHud(); } WZW.surgeT = G.t + 60;
   toast('👑💀 The Bone King has fallen! His blessing: full health, and your spells recharge twice as fast for 60 s.');
   if (wzHost()) WZN.kingT = G.t + 180;
+}
+
+/* ---------- Wizards: the river, shooting stars, and secret diagrams (four hidden scrolls, each unlocks a spell to draw) ---------- */
+// the river: a dark, softly glowing ribbon of water across the south of the map; wading slows you; bridges where roads cross
+WZT_TEX.water = () => wzaTex('water', 128, 128, (g, W, H, r) => { g.fillStyle = '#0E2A36'; g.fillRect(0, 0, W, H);
+  for (let i = 0; i < 70; i++) { const x = r()*W, y = r()*H, l = 6 + r()*20; g.strokeStyle = `rgba(${90 + r()*80|0},${180 + r()*60|0},${200 + r()*55|0},${.15 + r()*.3})`; g.lineWidth = 1 + r()*1.5; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + 3, y + l/2, x, y + l); g.stroke(); } });
+const WZR = {pts:null, mesh:null, mat:null};
+function wzaRiver(keep){
+  const pts = [[-130, -64], [-96, -70], [-62, -59], [-30, -67], [0, -58], [32, -66], [64, -60], [96, -70], [130, -63]], W = 7, HW = W/2 + .7;
+  const curve = new THREE.CatmullRomCurve3(pts.map(([x, z]) => new THREE.Vector3(x, 0, z))), L = curve.getLength(), N = Math.ceil(L/1.5), sp = curve.getSpacedPoints(N);
+  const nrm = sp.map((q, i) => { const a = sp[Math.max(0, i - 1)], b = sp[Math.min(N, i + 1)], dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz) || 1; return [-dz/l, dx/l]; });
+  // the water level: under both banks, smoothed along the river so it never steps
+  let lv = sp.map((q, i) => { let m = 1e9; for (let s = -1; s <= 1; s += .25) m = Math.min(m, groundH(q.x + nrm[i][0]*(W/2 + 1)*s, q.z + nrm[i][1]*(W/2 + 1)*s)); return m - .45; });
+  for (let it = 0; it < 8; it++) lv = lv.map((v, i) => Math.min(v, (lv[Math.max(0, i - 1)] + v*2 + lv[Math.min(N, i + 1)])/4));
+  // carve the bed into the ground itself (the mesh, groundH and the physics all follow)
+  const R = W/2 + 10; let z0 = 1e9, z1 = -1e9; for (const q of sp) { z0 = Math.min(z0, q.z); z1 = Math.max(z1, q.z); }
+  for (let j = 0; j < TN; j++) { const z = -ISL + j*TES; if (z < z0 - R || z > z1 + R) continue;
+    for (let i = 0; i < TN; i++) { const x = -ISL + i*TES; let b = 1e9, bi = 0; for (let k = 0; k <= N; k++) { const d = (sp[k].x - x)*(sp[k].x - x) + (sp[k].z - z)*(sp[k].z - z); if (d < b) { b = d; bi = k; } }
+      const dd = Math.sqrt(b); if (dd > R) continue; const v = i + j*TN, bed = lv[bi] - 1.3 + Math.max(0, dd - (W/2 - 1.2))*.8; if (bed < terrH[v]) terrH[v] = bed; } }
+  WZR.pts = sp.filter((_, i) => i % 2 === 0).map((q, i) => [q.x, q.z, lv[i*2]]); WZR.hw = HW;
+  syncTerrain();
+  // the water: flat across, flowing
+  const pos = [], uv = [], idx = []; let acc = 0;
+  for (let i = 0; i <= N; i++) { if (i) acc += sp[i].distanceTo(sp[i - 1]);
+    for (const s of [-1, 1]) { pos.push(sp[i].x + nrm[i][0]*HW*s, lv[i], sp[i].z + nrm[i][1]*HW*s); uv.push((s + 1)/2, acc/6); }
+    if (i < N) { const k = i*2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); } }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.setIndex(idx); geo.computeVertexNormals();
+  if (geo.attributes.normal.getY(0) < 0) { idx.reverse(); geo.setIndex(idx); geo.computeVertexNormals(); }
+  const t = WZT_TEX.water().clone(); t.needsUpdate = true; WZR.mat = new THREE.MeshLambertMaterial({map:t, emissive:0x0A3A40, emissiveMap:t, transparent:true, opacity:.86, depthWrite:false});
+  WZR.mesh = new THREE.Mesh(geo, WZR.mat); WZR.mesh.renderOrder = 2; WZR.mesh.userData.noRay = true; WZR.mesh.receiveShadow = true; roundGroup.add(WZR.mesh);
+  // a stony bed under the water
+  wzaRoad(pts, W + 1, 'rock');
+  for (const q of WZR.pts) keep.push([q[0], q[1], 6]);
+}
+const wzRiverNear = (x, z) => { if (!WZR.pts) return null; let b = 1e9, n = null; for (const q of WZR.pts) { const d = (q[0] - x)*(q[0] - x) + (q[1] - z)*(q[1] - z); if (d < b) { b = d; n = q; } } return {d:Math.sqrt(b), lv:n[2]}; };
+const wzRiverDist = (x, z) => { const n = wzRiverNear(x, z); return n ? n.d : 99; };
+const _wzMud = new THREE.Color(0x2A2A1C);
+// an arched wooden bridge wherever a road crosses the river (walkable: every plank is solid)
+function wzaBridges(roadsSp){
+  const done = [];
+  for (const sp of roadsSp) for (let i = 1; i < sp.length - 1; i++) { const q = sp[i], n = wzRiverNear(q.x, q.z); if (!n || n.d > 1.6 || done.some(d => Math.hypot(d[0] - q.x, d[1] - q.z) < 14)) continue; done.push([q.x, q.z]);
+    const a = sp[i - 1], b = sp[i + 1], ry = Math.atan2(b.x - a.x, b.z - a.z), fx = Math.sin(ry), fz = Math.cos(ry), H = 8, K = 8;
+    const yA = groundH(q.x - fx*H, q.z - fz*H), yB = groundH(q.x + fx*H, q.z + fz*H), yAt = u => Math.max(yA + (yB - yA)*(u + 1)/2 + .12, n.lv + .75 + .55*(1 - u*u));
+    const m = new THREE.Matrix4().compose(new THREE.Vector3(q.x, 0, q.z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new THREE.Vector3(1, 1, 1));
+    for (let k = -K; k <= K; k++) { const u = k/K, y = yAt(u); wzaPutIn(boxUV(3.6, .16, 1.02, 1), 'wood', m, 0, y, u*H);
+      wzaBody(q.x + fx*u*H, y - .08, q.z + fz*u*H, [1.8, .16, .52], ry); }
+    for (const s of [-1, 1]) { for (let k = -K; k <= K; k += 2) { const u = k/K; wzaPutIn(boxUV(.16, 1.05, .16, 1), 'wood', m, s*1.72, yAt(u) + .5, u*H); }
+      for (let k = -K; k < K; k += 2) { const u0 = k/K, u1 = (k + 2)/K, y0 = yAt(u0) + .98, y1 = yAt(u1) + .98, dz = (u1 - u0)*H, len = Math.hypot(dz, y1 - y0), g = boxUV(.11, .11, len, 1); g.rotateX(-Math.atan2(y1 - y0, dz)); wzaPutIn(g, 'wood', m, s*1.72, (y0 + y1)/2, (u0 + u1)/2*H); } }
+    // the abutments: stone under each end
+    for (const e of [-1, 1]) wzaPutIn(boxUV(4.2, 1.6, 1.6, 1), 'rock', m, 0, yAt(e) - .9, e*(H + .3));
+  }
+}
+function wzRiverFrame(dt){
+  if (WZR.mat) WZR.mat.map.offset.y -= dt*.18;
+  const me = localP(); if (!me || me.alive === false) return; const P = me.body.position, n = wzRiverNear(P.x, P.z);
+  if (n && n.d < WZR.hw && P.y < n.lv + 1.3) { me.slowT = Math.max(me.slowT || 0, .25); if (Math.random() < .1) splashAt(V3(P.x, n.lv + .05, P.z)); }
+}
+// shooting stars across the sky now and then (each screen its own)
+const WZS2 = {t:3, list:[]};
+function wzStarsFrame(dt){
+  const sky = WZT.sky; if (!sky) return; WZS2.t -= dt;
+  if (WZS2.t <= 0) { WZS2.t = 3 + Math.random()*8; const a = Math.random()*Math.PI*2, y = .35 + Math.random()*.4, r = Math.sqrt(1 - y*y), R = 2200, from = V3(Math.cos(a)*r*R, y*R, Math.sin(a)*r*R), d = V3(Math.random() - .5, -.35 - Math.random()*.3, Math.random() - .5).normalize();
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(6), 3)); geo.setAttribute('color', new THREE.Float32BufferAttribute([1, 1, 1, 0, 0, 0], 3));
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({vertexColors:true, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, fog:false})); line.frustumCulled = false; sky.add(line);
+    const head = wzGlowSprite(0xE8F0FF, 40); head.material.fog = false; sky.add(head); WZS2.list.push({line, head, p:from, d, t:0, life:.9 + Math.random()*.6, sp:1400 + Math.random()*900}); }
+  WZS2.list = WZS2.list.filter(s => { s.t += dt; const k = s.t/s.life, p = s.p.clone().addScaledVector(s.d, s.sp*s.t), tail = p.clone().addScaledVector(s.d, -Math.min(420, s.sp*s.t)), pa = s.line.geometry.attributes.position; pa.setXYZ(0, p.x, p.y, p.z); pa.setXYZ(1, tail.x, tail.y, tail.z); pa.needsUpdate = true;
+    const f = k < .2 ? k/.2 : Math.max(0, 1 - (k - .2)/.8); s.line.material.opacity = f; s.head.position.copy(p); s.head.material.opacity = f;
+    if (k >= 1) { sky.remove(s.line); sky.remove(s.head); s.line.geometry.dispose(); s.line.material.dispose(); return false; } return true; });
+}
+/* ---------- four secret spells (hidden from the spellbook until you find their diagram) ---------- */
+Object.assign(WIZ_SK, {
+  z_raven: {name:'Raven Swarm', e:'🐦‍⬛', key:'Q', tier:3, kind:'shot', cd:9, fixed:true, secret:true, d:'a swarm of ghost ravens bursts out and tears at everything near the circle',
+    glyph:() => { const g = [...GL.circ(0, 0, .9), ...GL.circ(0, 0, .78)]; g.push([[-.55, .1], [-.25, .3], [0, .05], [.25, .3], [.55, .1]], [[-.4, -.2], [-.15, -.05], [0, -.25], [.15, -.05], [.4, -.2]]); for (let i = 0; i < 3; i++) { const a = -Math.PI/2 + (i - 1)*.6; g.push(...GL.ngon(Math.cos(a)*.55, Math.sin(a)*.55, .1, 3, a)); } return g; }},
+  z_chains: {name:'Soul Chains', e:'⛓️', key:'R', tier:3, kind:'shot', cd:10, fixed:true, secret:true, d:'spectral chains rise and hold everything near the circle in place',
+    glyph:() => { const g = [...GL.circ(0, 0, .9), ...GL.circ(0, 0, .74), ...GL.ngon(0, 0, .22, 4, Math.PI/4)]; for (let i = 0; i < 4; i++) { const a = i*Math.PI/2, c = Math.cos(a), s0 = Math.sin(a); g.push(...GL.line(c*.22, s0*.22, c*.74, s0*.74)); for (const r of [.38, .56]) g.push(...GL.circ(c*r, s0*r, .07)); } return g; }},
+  z_drain: {name:'Soul Drain', e:'🩸', key:'F', tier:4, kind:'shot', cd:12, fixed:true, secret:true, d:'drains the life of everything in the circle into you',
+    glyph:() => [...GL.circ(0, 0, .92), ...GL.circ(0, 0, .8), ...GL.ngon(0, .05, .62, 3, -Math.PI/2), ...GL.spiral(0, .05, .04, .3, 1.6), ...GL.circ(-.55, .45, .06), ...GL.circ(.55, .45, .06), ...GL.circ(0, -.72, .06)]},
+  z_void: {name:'Void Rift', e:'🕳️', key:'V', tier:5, kind:'area', cd:28, fixed:true, secret:true, range:80, r:9, d:'a rift drags everything into the circle, then implodes',
+    glyph:() => { const g = [...GL.circ(0, 0, .95), ...GL.circ(0, 0, .84), ...GL.circ(0, 0, .2), ...GL.circ(0, 0, .08), ...GL.ngon(0, 0, .7, 4, 0), ...GL.ngon(0, 0, .7, 4, Math.PI/4)]; for (let i = 0; i < 24; i++) { const a = i/24*Math.PI*2; g.push(...GL.line(Math.cos(a)*.84, Math.sin(a)*.84, Math.cos(a)*.9, Math.sin(a)*.9)); } return g; }}
+});
+for (const id of ['z_raven', 'z_chains', 'z_drain', 'z_void']) { const d = WIZ_SK[id]; d.polys = d.glyph(); if (d.r) TARGET_R[id] = d.r; d.col = {z_raven:0xA07AFF, z_chains:0x6AFFE0, z_drain:0xFF4A8A, z_void:0x8A3AFF}[id]; d.range = d.range || 80; WZ_IDS.push(id); WZ_KEYS[d.key.toLowerCase()] = id; }
+WZ.known = {};
+// what the secret spells do (from their circle)
+function wzSecretEffect(id, o){
+  const k = o.k, q = gqOf(o, 0);
+  if (id === 'z_raven') { const birds = []; for (let i = 0; i < 12; i++) { const b = new THREE.Group(), m = new THREE.MeshBasicMaterial({color:0x2A1A44, transparent:true, opacity:.9, side:THREE.DoubleSide}); const body = new THREE.Mesh(new THREE.SphereGeometry(.18, 6, 4), m); body.scale.z = 1.8; b.add(body);
+      const wings = [-1, 1].map(s => { const w = new THREE.Mesh(new THREE.PlaneGeometry(.7, .3), m); w.position.x = s*.38; w.rotation.x = -Math.PI/2; b.add(w); return w; }); const gl = wzGlowSprite(0xA07AFF, .6); b.add(gl); noRayAll(b); roundGroup.add(b); birds.push({b, wings, a:i/12*Math.PI*2, r:2 + Math.random()*4, h:1 + Math.random()*3, sp:2 + Math.random()*2}); }
+    sfx('caw'); let t = 0, tick = 0; fxAdd({update(dt){ t += dt; tick -= dt; birds.forEach(B => { B.a += dt*B.sp; B.b.position.set(q.x + Math.cos(B.a)*B.r, q.y + B.h + Math.sin(t*4 + B.a)*.5, q.z + Math.sin(B.a)*B.r); B.b.rotation.y = -B.a; B.wings.forEach((w, i) => w.rotation.z = (i ? -1 : 1)*Math.sin(t*20 + B.a)*.8); });
+      if (tick <= 0) { tick = .4; summonsTakeArea(V3(q.x, q.y + 1.5, q.z), 7, 5*k, o.key, o.team); const P = victimFor(o.key, o.team); if (P && hdist(P.body.position, q) < 7) painHurt(P, 5*k, o.key); }
+      if (t > 4.5) { birds.forEach(B => roundGroup.remove(B.b)); return false; } return true; }}); return; }
+  if (id === 'z_chains') { wzAfter(.3, () => { const P = victimFor(o.key, o.team), targets = []; if (P && hdist(P.body.position, q) < 6.5) { P.pinT = Math.max(P.pinT || 0, 2.6); P.slowT = Math.max(P.slowT || 0, 3); painHurt(P, 18*k, o.key); targets.push(V3(P.body.position.x, P.body.position.y + 1, P.body.position.z)); toast('⛓️ Bound by soul chains!'); }
+      for (const z of WZ.bots) if (!z.dead && hdist(z.pos, q) < 6.5) { z.slowT = 3.5; z.busy = 2.6; targets.push(V3(z.pos.x, z.pos.y + 1.2, z.pos.z)); }
+      summonsTakeArea(V3(q.x, q.y + 1, q.z), 6.5, 18*k, o.key, o.team);
+      for (const tp of targets) for (let c = 0; c < 3; c++) { const a = c/3*Math.PI*2, from = V3(q.x + Math.cos(a)*6, q.y, q.z + Math.sin(a)*6), d = tp.clone().sub(from), L = d.length(), ch = new THREE.Mesh(new THREE.CylinderGeometry(.06, .06, L, 6), new THREE.MeshBasicMaterial({color:0x6AFFE0, transparent:true, opacity:.8, blending:THREE.AdditiveBlending, depthWrite:false}));
+        ch.position.copy(from).addScaledVector(d, .5); ch.quaternion.setFromUnitVectors(V3(0, 1, 0), d.normalize()); ch.userData.noRay = true; roundGroup.add(ch); let t = 0; fxAdd({update(dt){ t += dt; ch.material.opacity = .8*Math.max(0, 1 - t/2.6); if (t > 2.6) { roundGroup.remove(ch); return false; } return true; }}); }
+      sfx('drone'); }); return; }
+  if (id === 'z_drain') { const beam = new THREE.Mesh(new THREE.CylinderGeometry(.18, .18, 1, 8, 1, true), new THREE.MeshBasicMaterial({color:0xFF4A8A, transparent:true, opacity:.7, blending:THREE.AdditiveBlending, depthWrite:false})); beam.userData.noRay = true; roundGroup.add(beam); sfx('shriek');
+    let t = 0, tick = 0; fxAdd({update(dt){ t += dt; tick -= dt; const C = chars[o.key], to = C ? V3(C.body.position.x, C.body.position.y + 1.2, C.body.position.z) : o.from, from = V3(q.x, q.y + 1, q.z), d = to.clone().sub(from), L = d.length();
+      beam.position.copy(from).addScaledVector(d, .5); beam.scale.set(1 + Math.sin(t*20)*.2, L, 1 + Math.sin(t*20)*.2); beam.quaternion.setFromUnitVectors(V3(0, 1, 0), d.clone().normalize()); if (Math.random() < .6) puff(from.clone().addScaledVector(d, Math.random()), 0xFF4A8A, .2);
+      if (tick <= 0) { tick = .3; summonsTakeArea(from, 4, 6*k, o.key, o.team); const P = victimFor(o.key, o.team); if (P && hdist(P.body.position, q) < 4) painHurt(P, 6*k, o.key); const me = localP(); if (o.key === G.localKey && me && me.alive !== false) { me.hp = Math.min(100, me.hp + 3*k); updateHud(); } }
+      if (t > 3.2) { roundGroup.remove(beam); return false; } return true; }}); return; }
+  if (id === 'z_void') { const hole = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), new THREE.MeshBasicMaterial({color:0x000000})), halo = wzGlowSprite(0x8A3AFF, 1); hole.position.set(q.x, q.y + 3, q.z); halo.position.copy(hole.position); hole.userData.noRay = true; roundGroup.add(hole); roundGroup.add(halo); sfx('drone');
+    let t = 0, boom = false; fxAdd({update(dt){ t += dt; const k2 = Math.min(1, t/.5); hole.scale.setScalar(.2 + 1.6*k2 + Math.sin(t*12)*.1); halo.scale.set(9*k2, 9*k2, 1);
+      if (t < 2.6) { const P = bodyFor(o.key, o.team); if (P && P.harm) { const b = P.P.body.position, d = V3(q.x - b.x, 0, q.z - b.z), L = d.length(); if (L < 14 && L > 1) { d.normalize(); P.P.body.velocity.x += d.x*22*dt; P.P.body.velocity.z += d.z*22*dt; } }
+        for (const z of WZ.bots) { if (z.dead || WZB_KINDS[z.kind].mesh === 'king') continue; const L = hdist(z.pos, q); if (L < 14 && L > .8) { z.pos.x += (q.x - z.pos.x)/L*6*dt; z.pos.z += (q.z - z.pos.z)/L*6*dt; } }
+        if (Math.random() < .9) { const a = Math.random()*Math.PI*2, r = 8 + Math.random()*5; puff(V3(q.x + Math.cos(a)*r, q.y + Math.random()*3, q.z + Math.sin(a)*r), 0x5A2A9A, .4); } }
+      else if (!boom) { boom = true; roundGroup.remove(hole); bBoom(V3(q.x, q.y + 1.5, q.z), 9, 70*k, 22, o.key, o.team, {mush:true, size:1.3, pal:{ball:0x8A3AFF, core:0xFFFFFF, ring:0x3A0A6A}}); flash(.5, .3); shakeAt(q, 1.5, 100); }
+      if (t > 3.2) { roundGroup.remove(halo); return false; } return true; }}); return; }
+}
+// the diagrams: glowing parchments hidden around the map; walk over one to learn its spell (each player finds their own)
+WZT_TEX.scroll = id => wzaTex('scroll' + id, 128, 160, (g, W, H) => { const gr = g.createLinearGradient(0, 0, W, H); gr.addColorStop(0, '#F4E4BC'); gr.addColorStop(1, '#D8BE84'); g.fillStyle = gr; g.fillRect(8, 6, W - 16, H - 12); g.fillStyle = '#8A6A3A'; g.fillRect(0, 0, W, 10); g.fillRect(0, H - 10, W, 10); wzDrawGlyph(g, WIZ_SK[id].polys, W/2, H/2, 46, '#3A1A08', 2.4); });
+const WZD = {list:[]};
+function wzDiagramsBuild(){
+  WZD.list = []; const rng = mulberry32(((G.seed || 1) ^ 0xD1A6) >>> 0), T = WZA.throne;
+  const spots = [T ? [T.x - Math.sin(T.ry)*6.5, T.z - Math.cos(T.ry)*6.5] : wzaSpot(rng, 1), [0, -84], wzaSpot(rng, 1.5, [60, 20, 30]), wzaSpot(rng, 1.5, [84, -72, 10])];
+  ['z_raven', 'z_chains', 'z_drain', 'z_void'].forEach((id, i) => { const [x, z] = spots[i], g = new THREE.Group(), page = new THREE.Mesh(new THREE.PlaneGeometry(.8, 1), new THREE.MeshBasicMaterial({map:WZT_TEX.scroll(id), side:THREE.DoubleSide, transparent:true}));
+    g.add(page); const gl = wzGlowSprite(WIZ_SK[id].col, 2.4); g.add(gl); const beam = new THREE.Mesh(new THREE.CylinderGeometry(.25, .5, 14, 10, 1, true), new THREE.MeshBasicMaterial({color:WIZ_SK[id].col, transparent:true, opacity:.12, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide})); beam.position.y = 6.5; g.add(beam);
+    noRayAll(g); g.position.set(x, groundH(x, z) + 1.3, z); roundGroup.add(g); WZD.list.push({id, g, page, x, z, y0:g.position.y, taken:false}); });
+}
+function wzDiagramsFrame(dt){
+  const me = localP(); for (const D of WZD.list) { if (D.taken) continue; D.g.rotation.y += dt*.8; D.g.position.y = D.y0 + Math.sin(G.t*1.8 + D.x)*.15;
+    if (me && me.alive !== false && Math.hypot(me.body.position.x - D.x, me.body.position.z - D.z) < 1.9) { D.taken = true; D.g.visible = false; WZ.known[D.id] = true; const d = WIZ_SK[D.id]; sfx('holy'); sparkle(D.g.position, d.col);
+      toast(`📜 A secret diagram: ${d.e} ${d.name}! Press ${d.key} to draw it.`); renderTray(); } }
 }
 
 /* ===================================== WORLD: rain, nature, an unbreakable ground =====================================
