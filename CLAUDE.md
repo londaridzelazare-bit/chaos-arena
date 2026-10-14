@@ -781,3 +781,14 @@ tested in cameraBoom (wzaBoom). Indoors (camera inside a WZI.rooms zone) a warm 
 rune floats you down. New places (wzaPOIs): witch's hut (100,22), crypt (-22,-116), ruined watchtower (-108,26), crystal cave
 (112,-34); the Soul Chains / Soul Drain / Void Rift diagrams hide in the crypt / on the tower top / in the cave (spots may carry a y).
 Mist edge WZB_EDGE 116 -> 128. Test t93.
+Wizards 2026-10-14.9 (wiz_custom module): FUSION — with a circle out (G.targeting), another inscribed spell's key adds it to WZ.combo
+(max 3, wzComboAdd); the preview shows every layer (WZP.layers, smaller/turned); Click -> wzCastCombo -> cast 'z_combo' {cs, ks, sd}
+(never use s/t/id/p/y/o/ts). Host: wzComboOK (every spell must be in hostInk). Every screen: wzComboRun = the layered circle, then
+each spell via wzEffect(q, {...o, noCircle:true, k*1.2}) (tornado/rift last), then named fusions WZ_FUSE (sorted pair key, e.g.
+'z_fire+z_wind' Firestorm) or a generic burst. Each spell recharges x1.25. HUD line #wzCombo.
+THE WILD PAGE z_custom (key C, Shift+C or right-click in the book = redraw): a blank page; wzCustomSpec(polys) reads the PACKED
+drawing (same on every screen): complexity X x order O (chance-adjusted symmetry, closure, roundness) -> tier 1..7; shape language
+-> element (WZ_EL: fire/storm/frost/earth/life/shadow/light/cosmic; inverted triangles/stars = shadow); structure -> form
+(burst/lance/eruption/nova/barrage/vortex/summon/wave/wild). Tier 1 = whimsy (butterflies, black cat...), tier 7 = legend (sun,
+death, hole, heavens, winter, titan, tree). Spec cached per player (WZ.cspec, wzCustomForget on redraw); size/cd from the spec.
+Calibration script cal.mjs; test t94.
