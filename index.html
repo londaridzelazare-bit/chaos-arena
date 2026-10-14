@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-12.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-14.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -400,7 +400,7 @@ function sfx(n){
 }
 $('restart').addEventListener('click', () => { if (typeof restartGame === 'function') restartGame(); });
 $('rainB').addEventListener('click', e => { e.stopPropagation(); ensureAudio(); setRain(!RAIN.on); });
-$('mute').addEventListener('click', () => { muted = !muted; $('mute').textContent = muted ? '🔇' : '🔊'; $('mute').setAttribute('aria-label', muted ? 'Unmute sound' : 'Mute sound'); });
+$('mute').addEventListener('click', () => { muted = !muted; if (typeof wzMusicSync === 'function') wzMusicSync(); $('mute').textContent = muted ? '🔇' : '🔊'; $('mute').setAttribute('aria-label', muted ? 'Unmute sound' : 'Mute sound'); });
 
 /* ---------------- three ---------------- */
 const canvas = $('c');
@@ -512,6 +512,7 @@ function terrainColor(v, x, z){
     _tc.multiplyScalar(1.12); _tc.lerp(_tdGrass, .25);
     const pd = TD.pd[v]; if (pd < 3.6) { _tc.copy(pd < 2.7 ? _tdSand : _tdEdge); if (pd < 2.7 && ((Math.floor(x/2) + Math.floor(z/2)) & 1)) _tc.multiplyScalar(.95); }
   }
+  if (G.pvp && G.mode === 'wiz') wzGround(_tc, x, z);   /* Wizards: the night ground */
   const dmg = terrDmg[v];
   if (dmg > 0) { _tc.lerp(_dirt, Math.min(1, dmg*1.2)); if (dmg > 1.2) _tc.lerp(_dirt2, Math.min(1, (dmg - 1.2)*.5)); }
   return _tc;
@@ -987,7 +988,7 @@ const GRP_CHAR = 2, GRP_GRAN = 4;
 /* ---------------- player characters ---------------- */
 function makePlayer(team, cdef, pos){
   const root = new THREE.Group(), rig = new THREE.Group(); root.add(rig);
-  const {legs, arms, head} = akaBody(team, cdef, rig);
+  const {legs, arms, head} = (G.pvp && G.mode === 'wiz' ? wizBody : akaBody)(team, cdef, rig);   /* Wizards: robed wizards */
   // bazooka
   const baz = new THREE.Group(); baz.position.set(.36,1.5,.05); rig.add(baz);
   const tg = new THREE.CylinderGeometry(.13,.15,1.3,10); tg.rotateX(Math.PI/2); tg.translate(0,0,.25);
@@ -1153,7 +1154,7 @@ function stunPlayer(P, v){
 function buildRound(seed, keepChars){
   G.gen = (G.gen || 0) + 1; clearRound(); for (const k in chars) delete chars[k]; booms = []; holes = []; comets = []; skels = []; pits = []; tornados = []; volcanoes = []; bolts = []; gcows = []; puddles = []; frogs = []; storms = []; stuck = []; G.targeting = null; marker.visible = false; G.dome = null; G.eggArmor = 0; G.defPlace = null; bodyObj.clear(); hands = []; fireballs = []; judgements = []; comings = []; G.sky = null; G.worldEnding = null; golems = []; drones = []; interceptors = []; shells = []; punches = []; zones = []; auraRefs = new Set(); G.carriers = []; G.moat = null; G.eggLives = 0; G.cloak = false; G.eggRegen = false; G.halo = null; G.regenT = 0; satans = []; swords = []; gtrees = []; novas = []; vacs = []; evas = []; frozen = []; if (G.night > 0) endNight(); G.night = 0; G.warp = 0; G.freeze = 0; G.flip = 0; G.roll = 0; updateFilter(); G.gravOff = 0; G.armed = null; scene.background.set(0x9ED8F5); scene.fog.color.set(0x9ED8F5); sea.material.color.set(0x4FB3E8);
   G.seed = seed; rand = mulberry32(seed);
-  G.map = G.pvp && G.mode === 'td' ? MAPS[0] : pick(MAPS);   // Balloon Defense: always a sunny day
+  G.map = G.pvp && G.mode === 'wiz' ? WIZ_MAP : G.pvp && G.mode === 'td' ? MAPS[0] : pick(MAPS);   // Balloon Defense: always a sunny day
   const c1 = pick(CHARS), c2 = pick(CHARS);
   if (!keepChars) { G.defChar = c1; G.atkChar = c2; }
   world.gravity.set(0, G.map.grav || -9.81, 0);
@@ -1179,7 +1180,8 @@ function buildRound(seed, keepChars){
   const LIM = ISL - 4, taken = [];
   const sgMap = G.pvp && G.mode === 'td' && G.siege;
   const free = (p, r) => p.distanceTo(atkSpawn) > r + 4 && !(sgMap && Math.hypot(p.x, p.z) < LAVA[1] + 5 + r) && !(G.pvp && G.mode === 'egg' && Math.hypot(p.x, p.z) < LAVA[1] + 6 + r) && !(G.pvp && G.mode === 'td' && (tdPathDist(p.x, p.z) < r + 5 || Math.hypot(p.x, p.z) < 9 + r)) && !(G.pvp && G.mode === 'tennis' && Math.abs(p.x) < TN_CW + TN_FENCE + 6 + r && Math.abs(p.z) < TN_CL + TN_FENCE + 6 + r) && taken.every(t => Math.hypot(t.x-p.x, t.z-p.z) > t.r + r);
-  const place = (r, minR, tree) => { if (G.pvp && G.mode === 'td' && rand() > (sgMap ? (tree ? .7 : .02) : r < 1.3 ? .03 : .05)) return null;   // Balloon Defense: a simple, open map (Fortress Siege: hardly any props, lots of trees)
+  const place = (r, minR, tree) => { if (G.pvp && G.mode === 'wiz') return null;   /* Wizards builds its own map (wzaBuildMap) */
+    if (G.pvp && G.mode === 'td' && rand() > (sgMap ? (tree ? .7 : .02) : r < 1.3 ? .03 : .05)) return null;   // Balloon Defense: a simple, open map (Fortress Siege: hardly any props, lots of trees)
     for (let k=0;k<60;k++){ const a = rr(0,Math.PI*2), d = rr(minR, LIM - r); const p = new THREE.Vector3(Math.cos(a)*d, 0, Math.sin(a)*d); if (free(p, r)) { taken.push({x:p.x, z:p.z, r}); return p; } } return null; };
   const hillCols = G.map.ice ? [0xBFE6FA,0xD5F0FF] : G.map.bouncy ? [0xF093CC,0xFAB8DF] : [0x62A844,0x74B852,0x5E9E40];
   const addTree = (x, z, s) => {
@@ -3238,10 +3240,10 @@ function worldEnd(W){
 
 /* ---------------- tier 3: satan, sword, upside down, slow & frozen time, giant tree, night, supernova, vacuum decay, end of evangelion ---------------- */
 let satans = [], swords = [], gtrees = [], novas = [], vacs = [], evas = [], frozen = [];
-const baseSky = () => G.night > 0 ? 0x0B1026 : G.gravOff > 0 ? 0xC3B1F0 : G.mode === 'pain' ? PAIN_SKY : G.mode === 'td' ? 0x66C9FF : 0x9ED8F5;
+const baseSky = () => G.night > 0 ? 0x0B1026 : G.pvp && G.mode === 'wiz' ? 0x1A1238 : G.gravOff > 0 ? 0xC3B1F0 : G.mode === 'pain' ? PAIN_SKY : G.mode === 'td' ? 0x66C9FF : 0x9ED8F5;
 const baseGravity = () => (G.map && G.map.grav) || -9.81;
 function currentGravity(){ if (G.flip > 0) return Math.abs(baseGravity())*.9; if (G.gravOff > 0) return 0; return baseGravity(); }
-function updateFilter(){ canvas.style.filter = G.freeze > 0 ? 'grayscale(1) contrast(1.15) brightness(1.05)' : G.warp > 0 ? 'saturate(.55) hue-rotate(-25deg) brightness(.95)' : G.mode === 'pain' ? 'saturate(.82) contrast(1.12) brightness(.94)' : 'saturate(1.12) contrast(1.04)'; }
+function updateFilter(){ canvas.style.filter = G.freeze > 0 ? 'grayscale(1) contrast(1.15) brightness(1.05)' : G.warp > 0 ? 'saturate(.55) hue-rotate(-25deg) brightness(.95)' : G.pvp && G.mode === 'wiz' ? 'saturate(1.15) contrast(1.08) brightness(.92)' : G.mode === 'pain' ? 'saturate(.82) contrast(1.12) brightness(.94)' : 'saturate(1.12) contrast(1.04)'; }
 
 /* 1. satan walks the island */
 function makeSatan(){
@@ -4193,6 +4195,7 @@ function updateVisuals(dt){
   for (const c of clouds) { c.position.x += c.userData.sp*dt; if (c.position.x > 220) c.position.x = -220; }
   const charred = islandTop.material !== terrainMat; tufts.material.color.set(charred ? 0x2A1E18 : 0x4E9A38); flowers.visible = !charred;
   foam.material.opacity = .4 + Math.sin(seaUniforms.uT.value*1.6)*.15;
+  if (WZT.on) wzThemeFrame(dt);   /* Wizards: the night sky */
 }
 
 /* ---------------- outlines on everything + nicer skill visuals ---------------- */
@@ -4665,6 +4668,7 @@ function hurt(P, dmg){
   if (!G.pvp || !P || P !== localP() || P.alive === false || G.phase !== 'attack' || !(dmg > 0)) return;
   if (G.spawnShield > 0) return;
   if (amDefender()) fortHurtHook();
+  if (WZ.paper) wzSmudge();   /* hit while drawing a circle */
   P.hp = Math.max(0, P.hp - dmg); G.hurtFlash = Math.min(1, (G.hurtFlash || 0) + dmg/35);
   if (G.lastEnemyCast && G.t - G.lastEnemyCast.t < 8) G.lastHitBy = G.lastEnemyCast.id;
   if (P.hp <= 0) die(P);
@@ -4745,9 +4749,9 @@ function removePlayer(id){ const P = chars[id]; if (!P) return; roundGroup.remov
 function startMatch(seed, list, score, mode, cdOn, eg){
   hideOverlay(); $('matchEnd').style.display = 'none'; $('eggBanner').style.display = 'none';
   G.siege = mode === 'siege'; G.siegeN = (G.siegeNP | 0) || list.length; G.siegeNP = 0;   /* the host's path count (np) wins: a late joiner must build the same paths */ if (G.siege) mode = 'td';   /* Fortress Siege runs on Balloon Defense */
-  G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' || mode === 'swarm' || mode === 'td' || mode === 'tennis' ? mode : mode === 'chaos' ? 'td' : 'chaos'; G.cdOn = !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
+  G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' || mode === 'swarm' || mode === 'td' || mode === 'tennis' || mode === 'wiz' ? mode : mode === 'chaos' ? 'td' : 'chaos'; G.cdOn = !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
   if (G.mode === 'egg' && !eg) eg = {def:G.localKey, round:1, total:1, pts:{}};
-  buildRound(seed);
+  buildRound(seed); wzTheme(G.mode === 'wiz'); wzMusic(G.mode === 'wiz');
   painReset(); painAmbience(); barReset(); bomberReset(); swordReset(); avatarReset(); woodReset(); summonReset(); necroReset(); ultReset();
   if (!classCycle().includes(G.cls)) G.cls = classCycle()[0];   // a class hidden in this mode
   fortReset();
@@ -4757,7 +4761,8 @@ function startMatch(seed, list, score, mode, cdOn, eg){
   }
   for (const k of Object.keys(chars)) { const P = chars[k]; if (P) { roundGroup.remove(P.root); if (P.body.world) world.removeBody(P.body); } delete chars[k]; }
   G.atkChar = {name:'', e:'', atk:{}}; G.defChar = {name:'', e:'', def:{}};
-  list.forEach((info, ix) => addPlayer(G.mode === 'tennis' ? Object.assign({}, info, {team:ix % 2 ? 'blue' : 'red'}) : G.mode === 'td' ? Object.assign({}, info, {team:'blue'}) : G.mode === 'egg' ? Object.assign({}, info, {team:(eg.defs ? eg.defs[info.id] : info.id === eg.def) ? 'blue' : 'red'}) : info, info.id === G.localKey));
+  G.wzCoop = G.mode === 'wiz' && (list.length < 2 || list.every(i => i.team === list[0].team));   /* Wizards: one colour = co-op against the dark coven */
+  list.forEach((info, ix) => addPlayer(G.mode === 'wiz' && G.wzCoop ? Object.assign({}, info, {team:'blue'}) : G.mode === 'tennis' ? Object.assign({}, info, {team:ix % 2 ? 'blue' : 'red'}) : G.mode === 'td' ? Object.assign({}, info, {team:'blue'}) : G.mode === 'egg' ? Object.assign({}, info, {team:(eg.defs ? eg.defs[info.id] : info.id === eg.def) ? 'blue' : 'red'}) : info, info.id === G.localKey));
   G.phase = 'attack'; G.atkTime = Infinity; G.specials = {}; Object.keys(modeTable()).forEach(k => G.specials[k] = Infinity);
   G.targeting = null; G.cd = {}; G.spCd = 0; G.kiCd = 0; G.slowmo = 0; G.eggCam = 0;
   G.score = score || {blue:0, red:0}; G.matchOver = false; G.spawnShield = 2;
@@ -4771,6 +4776,7 @@ function startMatch(seed, list, score, mode, cdOn, eg){
   $('eggPts').style.display = G.mode === 'egg' ? 'block' : 'none'; document.querySelector('#top .score').style.display = G.mode === 'egg' || G.mode === 'swarm' || G.mode === 'td' || G.mode === 'tennis' ? 'none' : '';
   tdHudShow(G.mode === 'td'); if (G.mode !== 'td') tdClear();
   tnHud(G.mode === 'tennis'); if (G.mode !== 'tennis') TNS.on = false;
+  if (G.mode === 'wiz') { wzStart(); return; }
   if (G.mode === 'td') { tdStart(); return; }
   if (G.mode === 'tennis') { tnStart(); return; }
   if (G.mode === 'egg') { eggStart(eg); return; }
@@ -6217,8 +6223,8 @@ const PAIN = {lev:{}, vortex:{}, shield:{}, holdKeys:{}, fx:[], fields:[], rods:
 function isPain(){ return G.mode === 'pain'; }
 // the Pain powers are in your hands: the Pain class in any mode, or the default kit in Pain mode (the map rules stay with the mode)
 function painKit(){ return G.cls === 'pain' || (G.cls === 'native' && isPain()); }
-function skillTable(){ if (typeof guardActive === 'function' && guardActive()) return GUARD; return G.cls === 'bomber' ? BOMBER : G.cls === 'sword' ? SWORD : G.cls === 'avatar' ? avatarTable() : G.cls === 'wood' ? WOOD_SK : G.cls === 'summon' ? SUMMON : G.cls === 'necro' ? NECRO_SK : G.cls === 'pain' ? PAIN_SKILLS : isPain() ? PAIN_SKILLS : SPECIALS; }
-function skillDef(id){ return PAIN_SKILLS[id] || SPECIALS[id] || BOMBER[id] || SWORD[id] || (typeof AVATAR !== 'undefined' && AVATAR[id]) || (typeof WOOD_SK !== 'undefined' && WOOD_SK[id]) || SUMMON[id] || NECRO_SK[id] || GUARD[id]; }
+function skillTable(){ if (typeof guardActive === 'function' && guardActive()) return GUARD; if (G.mode === 'wiz') return WIZ_SK; return G.cls === 'bomber' ? BOMBER : G.cls === 'sword' ? SWORD : G.cls === 'avatar' ? avatarTable() : G.cls === 'wood' ? WOOD_SK : G.cls === 'summon' ? SUMMON : G.cls === 'necro' ? NECRO_SK : G.cls === 'pain' ? PAIN_SKILLS : isPain() ? PAIN_SKILLS : SPECIALS; }
+function skillDef(id){ return (typeof WIZ_SK !== 'undefined' && WIZ_SK[id]) || PAIN_SKILLS[id] || SPECIALS[id] || BOMBER[id] || SWORD[id] || (typeof AVATAR !== 'undefined' && AVATAR[id]) || (typeof WOOD_SK !== 'undefined' && WOOD_SK[id]) || SUMMON[id] || NECRO_SK[id] || GUARD[id]; }
 // cooldowns are a match setting (off by default): with them off every ability is ready again immediately
 function cdFor(id){ { const d = skillDef(id); if (d && d.fixed) return d.cd; if (d && d.ult) return d.rech && G.cdOn ? d.rech : 0; } if (!G.cdOn) return 0;   // the match's cooldown setting covers every class (World Severance stays once per round)
   if (BOMBER[id]) return BOMBER[id].cd; if (SWORD[id]) return SWORD[id].cd; if (typeof AVATAR !== 'undefined' && AVATAR[id]) return AVATAR[id].cd; if (typeof WOOD_SK !== 'undefined' && WOOD_SK[id]) return WOOD_SK[id].cd; if (SUMMON[id]) return SUMMON[id].cd; if (NECRO_SK[id]) return NECRO_SK[id].cd; if (GUARD[id]) return GUARD[id].cd; return (PAIN_SKILLS[id] && PAIN_SKILLS[id].cd) || CD[id] || 3; }
@@ -8564,6 +8570,7 @@ function castOK(c, m){
   if (m.s === 'd_use' || m.s === 'd_place') return eggDefOK(c, m);       // Egg mode protection powers
   if (GUARD[m.s]) return fortOK(c, m);                                   // the defender's kit (build and attack)
   const P = chars[m.id]; if (!P || !G.pvp || G.phase !== 'attack') return false;
+  if (WIZ_SK[m.s]) return wzOn() && wzCastOK(m);   /* Wizards: only circles that were drawn, at most at their power */
   if (m.s === 'u_kill') return typeof m.k === 'string' && m.k.startsWith('S' + m.id + ':');
   if (m.s === 'g_break' || m.s === 'wd_break') return false; /* only the host breaks barriers and wood */   // only the host breaks barriers
   if (m.s === 'w_loot') return P.alive !== false && typeof m.i === 'number';   // picking up a potion (WILD)
@@ -8607,8 +8614,8 @@ function castOK(c, m){
    any class, so players can swap freely without telling anyone. */
 const CLASS_IDS = ['native', 'pain', 'bomber', 'sword', 'avatar', 'wood', 'summon', 'necro'];
 // in Pain mode the default kit already is Pain, so the class is skipped there
-const classCycle = () => G.mode === 'td' && G.siege ? ['kit', 'pain', 'bomber', 'sword', 'avatar', 'wood'] : CLASS_IDS.filter(c => !(c === 'pain' && isPain()) && !((G.mode === 'egg' || G.mode === 'td') && (c === 'native' || c === 'summon' || c === 'necro')));   // Alpha Mode: no Chaos, Summoner or Necromancer for now
-function classInfo(c){ return c === 'kit' ? {name:'Defences', e:'🛡️'} : c === 'wood' ? {name:'Wood Sage', e:'🌳'} : c === 'avatar' ? {name:'Genos', e:'🔥'} : c === 'pain' ? {name:'Pain', e:'🌑'} : c === 'bomber' ? {name:'Bomber', e:'💣'} : c === 'sword' ? {name:'Swordsman', e:'⚔️'} : c === 'summon' ? {name:'Summoner', e:'🐾'} : c === 'necro' ? {name:'Necromancer', e:'💀'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
+const classCycle = () => G.mode === 'wiz' ? ['wizard'] : G.mode === 'td' && G.siege ? ['kit', 'pain', 'bomber', 'sword', 'avatar', 'wood'] : CLASS_IDS.filter(c => !(c === 'pain' && isPain()) && !((G.mode === 'egg' || G.mode === 'td') && (c === 'native' || c === 'summon' || c === 'necro')));   // Alpha Mode: no Chaos, Summoner or Necromancer for now
+function classInfo(c){ return c === 'wizard' ? {name:'Wizard', e:'🧙'} : c === 'kit' ? {name:'Defences', e:'🛡️'} : c === 'wood' ? {name:'Wood Sage', e:'🌳'} : c === 'avatar' ? {name:'Genos', e:'🔥'} : c === 'pain' ? {name:'Pain', e:'🌑'} : c === 'bomber' ? {name:'Bomber', e:'💣'} : c === 'sword' ? {name:'Swordsman', e:'⚔️'} : c === 'summon' ? {name:'Summoner', e:'🐾'} : c === 'necro' ? {name:'Necromancer', e:'💀'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
 function modeTable(){ return isPain() ? PAIN_SKILLS : SPECIALS; }
 G.cls = (() => { try { const c = localStorage.getItem('ca-cls'); return c === 'pain' || c === 'bomber' || c === 'sword' || c === 'avatar' || c === 'wood' || c === 'summon' || c === 'necro' ? c : 'native'; } catch (e) { return 'native'; } })();
 function switchClass(to){
@@ -8736,6 +8743,7 @@ function bEnemies(key, team){
   PAIN.dummies.forEach((o, i) => { if (!o.dead && !o.animal) out.push({id:'d' + i, pos:o.body.position}); });
   if (typeof SUM !== 'undefined') for (const e of SUM.list) if (!e.done && !e.under && e.owner !== key && !(team && e.team === team)) out.push({id:e.id, pos:e.p, sum:e});
   if (tdOn()) for (const b of TD.list) if (!b.dead && b.pos) out.push({id:'L' + b.id, pos:b.pos, bl:b});   // balloons are everybody's enemy
+  if (typeof WZ !== 'undefined' && WZ.bots.length && team !== 'red') for (const z of WZ.bots) if (!z.dead) out.push({id:'Z' + z.id, pos:z.pos, wz:z});   // the dark wizards (Wizards co-op)
   return out;
 }
 function bNearest(key, team, at, R){ let best = null, bd = R; for (const e of bEnemies(key, team)) { const d = hdist(e.pos, at); if (d < bd) { bd = d; best = e; } } return best; }
@@ -12576,14 +12584,14 @@ function summonHurt(e, dmg){
 }
 // damage to every enemy summon in a ball / a cone (key/team = whoever did it; unknown = everyone's summons)
 function summonsTakeArea(at, R, dmg, key, team){
-  tdTakeArea(at, R, dmg); woodTakeArea(at, R, dmg, key, team);
+  tdTakeArea(at, R, dmg); woodTakeArea(at, R, dmg, key, team); wzTakeArea(at, R, dmg, team);
   barriersTakeArea(at, R, dmg, key, team); swarmTakeArea(at, R, dmg); animalsTakeArea(at, R, dmg); devicesTakeArea(at, R, dmg, key); golemsTakeArea(at, R, dmg, key); minionsTakeArea(at, R, dmg, key, team); fortUnitsTakeArea(at, R, dmg, key);
   if (!SUM.list.length || !(dmg > 0)) return;
   for (const e of SUM.list) { if (e.done || (key && e.owner === key) || (team && e.team === team)) continue;
     const c = V3(e.p.x, e.p.y + 1.2*e.S, e.p.z), d = c.distanceTo(at); if (d < R + .8*e.S) summonHurt(e, dmg*(d < R ? 1 - .5*d/R : .5)); }
 }
 function summonsTakeCone(from, yaw, range, arc, dmg, key, team){
-  tdTakeCone(from, yaw, range, arc, dmg); woodTakeCone(from, yaw, range, arc, dmg, key, team);
+  tdTakeCone(from, yaw, range, arc, dmg); woodTakeCone(from, yaw, range, arc, dmg, key, team); wzTakeCone(from, yaw, range, arc, dmg, team);
   barriersTakeCone(from, yaw, range, arc, dmg, key, team); swarmTakeCone(from, yaw, range, arc, dmg);
   if (eggOn() && dmg > 0) { const mid = V3(from.x + Math.sin(yaw)*range*.5, from.y, from.z + Math.cos(yaw)*range*.5); fortUnitsTakeArea(mid, range*.6, dmg, key); golemsTakeArea(mid, range*.6, dmg, key); minionsTakeArea(mid, range*.6, dmg, key, team); devicesTakeArea(mid, range*.6, dmg, key); }
   if (!SUM.list.length || !(dmg > 0)) return;
@@ -14631,6 +14639,836 @@ function fortFrame(dt){
 }
 function splashAt(p){ for (let i = 0; i < 10; i++) { const m = pmesh('oct', rr(.1, .25), bmat(0xBFE9FF, .9)); m.position.set(p.x, -.4, p.z); m.userData.noRay = true; roundGroup.add(m); fx.push({mesh:m, v:V3(rr(-3, 3), rr(3, 7), rr(-3, 3)), r:V3(3, 3, 0), life:1}); } sfx('splash'); }
 
+/* ===================================== WIZARDS (G.mode 'wiz') =====================================
+   Everyone is a wizard. A spell has to be drawn before it can be used: press its key and a sheet of paper opens with the
+   spell's circle drawn faintly on it; trace it with the mouse and press Enter. While you draw, your wizard stands still and
+   can be hit (a hit smudges the page). The drawing is scored against the circle (wzScore: how much of your ink lies on the
+   circle, and how much of the circle you covered); under 35% the circle doesn't take and you keep drawing; otherwise the
+   spell is yours for the whole match at that power (WZ.ink[id].k, 0.45..1.25, x1.15 drawn without the guide). It can't be
+   redrawn. Stronger spells have harder circles (tier 1..5). Casting an inscribed spell is then just its key (aimed ones:
+   key, then Click on the marker), with a cooldown. Click alone: the wand bolt, no drawing needed.
+   Teams: everyone on one colour (or practice) = co-op against waves of dark wizards (host-run bots, 'zbs' snapshots, 'zb'
+   casts); two colours = team battle, knockouts as usual. Casts: 'z_draw' (paper open/closed, so others see you drawing),
+   'z_ink' (a circle activated, its power), spells z_* with x.k (the host clamps it to the inscribed power) and x.sd (a seed,
+   so scattered effects land in the same places on every screen). */
+const WZ = {ink:{}, drawn:{}, paper:null, drawFx:{}, wards:{}, bots:[], wave:0, kills:0, seq:0, sendT:0, waveT:0, hostInk:{}, guide:true, tex:{}, icons:{}};
+try { WZ.guide = localStorage.getItem('ca-wzguide') !== 'off'; } catch (e) {}
+const wzOn = () => G.pvp && G.mode === 'wiz';
+const wzHost = () => !NET.peer || NET.host;
+/* ---------- glyphs: polylines in [-1, 1] (y up) ---------- */
+const GL = {
+  circ(x, y, r){ const n = Math.max(20, Math.round(r*96)), p = []; for (let i = 0; i <= n; i++) { const a = i/n*Math.PI*2; p.push([x + Math.cos(a)*r, y + Math.sin(a)*r]); } return [p]; },
+  arc(x, y, r, a0, a1){ const n = Math.max(6, Math.round(Math.abs(a1 - a0)*r*40)), p = []; for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0)*i/n; p.push([x + Math.cos(a)*r, y + Math.sin(a)*r]); } return [p]; },
+  line(x1, y1, x2, y2){ return [[[x1, y1], [x2, y2]]]; },
+  ngon(x, y, r, n, rot){ const p = []; for (let i = 0; i <= n; i++) { const a = (rot || 0) + i/n*Math.PI*2; p.push([x + Math.cos(a)*r, y + Math.sin(a)*r]); } return [p]; },
+  arrow(x1, y1, x2, y2, h){ h = h || .12; const a = Math.atan2(y2 - y1, x2 - x1); return [[[x1, y1], [x2, y2]], [[x2 + Math.cos(a + 2.55)*h, y2 + Math.sin(a + 2.55)*h], [x2, y2], [x2 + Math.cos(a - 2.55)*h, y2 + Math.sin(a - 2.55)*h]]]; },
+  // the little "工" rune of the reference circles, turned by rot
+  rune(x, y, s, rot){ const c = Math.cos(rot || 0), sn = Math.sin(rot || 0), T = (u, v) => [x + u*c - v*sn, y + u*sn + v*c]; return [[T(-s, s), T(s, s)], [T(0, s), T(0, -s)], [T(-s*.6, -s), T(s*.6, -s)]]; },
+  zig(pts){ return [pts]; },
+  spiral(x, y, r0, r1, turns){ const n = Math.round(turns*48), p = []; for (let i = 0; i <= n; i++) { const u = i/n, a = u*turns*Math.PI*2, r = r0 + (r1 - r0)*u; p.push([x + Math.cos(a)*r, y + Math.sin(a)*r]); } return [p]; },
+  wave(x1, x2, y, amp, n){ const p = [], m = n*12; for (let i = 0; i <= m; i++) { const u = i/m; p.push([x1 + (x2 - x1)*u, y + Math.sin(u*n*Math.PI*2)*amp]); } return [p]; }
+};
+const WIZ_SK = {
+  z_spark: {name:'Spark Bolt', e:'⚡', key:'1', tier:1, kind:'shot', cd:1, fixed:true, d:'a fast bolt of lightning',
+    glyph:() => [...GL.circ(0, 0, .8), ...GL.arrow(-.5, -.5, .52, .52, .2)]},
+  z_fire: {name:'Fireball', e:'🔥', key:'2', tier:2, kind:'shot', cd:3.5, fixed:true, d:'a ball of fire that bursts and burns',
+    glyph:() => { const g = [...GL.circ(0, 0, .85), ...GL.ngon(0, -.04, .52, 3, Math.PI/2), ...GL.circ(0, -.04, .14)]; for (const a of [Math.PI/2, Math.PI/2 + 2.094, Math.PI/2 - 2.094]) g.push(...GL.line(Math.cos(a)*.52, -.04 + Math.sin(a)*.52, Math.cos(a)*.74, -.04 + Math.sin(a)*.74)); return g; }},
+  z_ice: {name:'Frost Lance', e:'❄️', key:'3', tier:2, kind:'shot', cd:3, fixed:true, d:'an icy spear that slows whoever it hits',
+    glyph:() => { const g = [...GL.circ(0, 0, .85), ...GL.circ(0, 0, .12)]; for (let i = 0; i < 6; i++) { const a = i*Math.PI/3, c = Math.cos(a), s = Math.sin(a); g.push(...GL.line(c*.12, s*.12, c*.66, s*.66), ...GL.line(c*.44 - s*.11, s*.44 + c*.11, c*.44 + s*.11, s*.44 - c*.11)); } return g; }},
+  z_rock: {name:'Boulder Throw', e:'🪨', key:'4', tier:2, kind:'shot', cd:4, fixed:true, d:'a heavy boulder thrown in an arc: big knockback',
+    glyph:() => [...GL.circ(0, 0, .85), ...GL.ngon(0, 0, .58, 4, Math.PI/4), ...GL.arrow(0, -.3, 0, .32, .14), ...GL.line(-.26, -.3, .26, -.3)]},
+  z_ward: {name:'Shield Ward', e:'🛡️', key:'5', tier:2, kind:'self', cd:12, fixed:true, d:'a bubble round you that stops spells and missiles',
+    glyph:() => [...GL.circ(0, 0, .85), ...GL.ngon(0, 0, .6, 6, Math.PI/6), ...GL.circ(0, 0, .25)]},
+  z_heal: {name:'Healing Bloom', e:'🌸', key:'6', tier:2, kind:'self', cd:14, fixed:true, d:'heals you and teammates near you',
+    glyph:() => { const g = [...GL.circ(0, 0, .85), ...GL.circ(0, 0, .1)]; for (let i = 0; i < 6; i++) { const a = i*Math.PI/3; g.push(...GL.circ(Math.cos(a)*.4, Math.sin(a)*.4, .2)); } return g; }},
+  z_bolt: {name:'Lightning Strike', e:'🌩️', key:'7', tier:3, kind:'area', cd:7, fixed:true, range:70, r:3.5, d:'lightning from the sky, jumping to two more enemies',
+    glyph:() => [...GL.circ(0, 0, .9), ...GL.circ(0, 0, .76), ...GL.zig([[-.18, .62], [.12, .2], [-.12, .05], [.16, -.3], [-.04, -.62]]), ...GL.rune(-.44, .4, .08), ...GL.rune(.44, .4, .08), ...GL.rune(-.44, -.4, .08, Math.PI), ...GL.rune(.44, -.4, .08, Math.PI)]},
+  z_wind: {name:'Tornado', e:'🌪️', key:'8', tier:3, kind:'shot', cd:8, fixed:true, d:'a tornado that rolls forward, lifting and battering',
+    glyph:() => [...GL.circ(0, 0, .9), ...GL.spiral(0, 0, .06, .52, 2), ...GL.wave(-.5, .5, .7, .05, 3), ...GL.wave(-.5, .5, -.7, .05, 3)]},
+  z_meteor: {name:'Meteor Storm', e:'☄️', key:'9', tier:4, kind:'area', cd:15, fixed:true, range:80, r:9, d:'seven burning meteors rain on an area',
+    glyph:() => { const g = [...GL.circ(0, 0, .93), ...GL.circ(0, 0, .79), ...GL.circ(0, 0, .3), ...GL.circ(0, 0, .12), ...GL.arc(0, 0, .46, .5, 2.4), ...GL.arc(0, 0, .46, 3.64, 5.54)];
+      for (let i = 0; i < 4; i++) { const a = Math.PI/4 + i*Math.PI/2; g.push(...GL.arrow(Math.cos(a)*.74, Math.sin(a)*.74, Math.cos(a)*.42, Math.sin(a)*.42, .1)); const b = i*Math.PI/2; g.push(...GL.rune(Math.cos(b)*.62, Math.sin(b)*.62, .07, b - Math.PI/2)); } return g; }},
+  z_seal: {name:'Grand Seal', e:'🔯', key:'0', tier:5, kind:'area', cd:30, fixed:true, range:80, r:12, d:'a colossal seal on the ground erupts into a pillar of light',
+    glyph:() => { const g = [...GL.circ(0, 0, .95), ...GL.circ(0, 0, .85), ...GL.circ(0, 0, .74)];
+      for (let i = 0; i < 16; i++) { const a = i/16*Math.PI*2; g.push(...GL.line(Math.cos(a)*.74, Math.sin(a)*.74, Math.cos(a)*.85, Math.sin(a)*.85)); }
+      for (let i = 0; i < 4; i++) { const a = i*Math.PI/2, cx = Math.cos(a)*.45, cy = Math.sin(a)*.45; g.push(...GL.circ(cx, cy, .19)); if (i % 2) for (let j = 0; j < 3; j++) { const b = j*2.094 + Math.PI/2; g.push(...GL.line(cx, cy, cx + Math.cos(b)*.13, cy + Math.sin(b)*.13)); } else g.push(...GL.arc(cx - .05, cy, .07, -Math.PI/2, Math.PI/2), ...GL.arc(cx + .05, cy, .07, Math.PI/2, Math.PI*1.5)); }
+      for (const y of [-.07, 0, .07]) g.push(...GL.wave(-.16, .16, y, .025, 2));
+      for (let i = 0; i < 4; i++) { const a = Math.PI/4 + i*Math.PI/2; g.push(...GL.rune(Math.cos(a)*.6, Math.sin(a)*.6, .06, a - Math.PI/2)); } return g; }},
+  z_wand: {name:'Wand Bolt', e:'🪄', key:'🖱', kind:'click', cd:.42, fixed:true, hide:true},
+  z_draw: {name:'Drawing', e:'✍️', hide:true, cd:0},
+  z_ink: {name:'Circle activated', e:'✨', hide:true, cd:0}
+};
+const WZ_IDS = Object.keys(WIZ_SK).filter(id => WIZ_SK[id].tier);
+const WZ_KEYS = {}; for (const id of WZ_IDS) WZ_KEYS[WIZ_SK[id].key.toLowerCase()] = id;
+for (const id of WZ_IDS) { const d = WIZ_SK[id]; d.polys = d.glyph(); if (d.r) TARGET_R[id] = d.r; }
+// resample polylines every `step`
+function wzSample(polys, step){ const out = []; for (const pl of polys) { for (let i = 0; i < pl.length - 1; i++) { const [x1, y1] = pl[i], [x2, y2] = pl[i + 1], L = Math.hypot(x2 - x1, y2 - y1), n = Math.max(1, Math.ceil(L/step)); for (let k = 0; k < n; k++) out.push([x1 + (x2 - x1)*k/n, y1 + (y2 - y1)*k/n]); } if (pl.length) out.push(pl[pl.length - 1]); } return out; }
+// how well the strokes match the circle: precision (your ink on the lines), coverage (the lines under your ink) -> F1
+function wzScore(polys, strokes){
+  const N = 128, toG = v => Math.round((v + 1.1)/2.2*(N - 1)), tolC = Math.round(.068/2.2*(N - 1));
+  const T = wzSample(polys, .02), D = wzSample(strokes, .02); if (D.length < 12) return {prec:0, cov:0, score:0};
+  const stamp = (g, pts) => { for (const [x, y] of pts) { const gi = toG(x), gj = toG(y); for (let dj = -tolC; dj <= tolC; dj++) for (let di = -tolC; di <= tolC; di++) { if (di*di + dj*dj > tolC*tolC) continue; const i = gi + di, j = gj + dj; if (i >= 0 && j >= 0 && i < N && j < N) g[i + j*N] = 1; } } };
+  const gT = new Uint8Array(N*N), gD = new Uint8Array(N*N); stamp(gT, T); stamp(gD, D);
+  const inG = (g, x, y) => { const i = toG(x), j = toG(y); return i >= 0 && j >= 0 && i < N && j < N && g[i + j*N] === 1; };
+  let a = 0; for (const [x, y] of D) if (inG(gT, x, y)) a++;
+  // coverage part by part (every line, rune and small circle counts, not just the long outer ring)
+  let cw = 0, cs = 0; for (const pl of polys) { const q = wzSample([pl], .02); if (!q.length) continue; let h = 0; for (const [x, y] of q) if (inG(gD, x, y)) h++; const w = Math.pow(q.length, .3); cw += w; cs += w*h/q.length; }
+  const prec = a/D.length, cov = cw ? cs/cw : 0; return {prec, cov, score:prec + cov > 0 ? 2*prec*cov/(prec + cov) : 0};
+}
+const wzGrade = s => s >= .9 ? 'S' : s >= .8 ? 'A' : s >= .65 ? 'B' : s >= .5 ? 'C' : 'D';
+const wzPower = (s, noGuide) => Math.min(1.44, (.45 + clamp((s - .35)/.65, 0, 1)*.8)*(noGuide ? 1.15 : 1));
+// draw a glyph on a 2D canvas (cx, cy the middle, S the radius in pixels)
+function wzDrawGlyph(g, polys, cx, cy, S, col, w, glow){
+  g.save(); g.strokeStyle = col; g.lineWidth = w; g.lineCap = g.lineJoin = 'round'; if (glow) { g.shadowColor = col; g.shadowBlur = glow; }
+  for (const pl of polys) { g.beginPath(); pl.forEach(([x, y], i) => { const px = cx + x*S, py = cy - y*S; i ? g.lineTo(px, py) : g.moveTo(px, py); }); g.stroke(); }
+  g.restore();
+}
+function wzIcon(id){ if (WZ.icons[id]) return WZ.icons[id]; const c = document.createElement('canvas'); c.width = c.height = 96; wzDrawGlyph(c.getContext('2d'), WIZ_SK[id].polys, 48, 48, 44, '#F6E7C1', 2.6); return (WZ.icons[id] = c.toDataURL()); }
+// the circle as it glows in the world: the caster's OWN drawing (WZ.drawn[key][id]), or the clean circle (the dark wizards)
+function wzTex(id, col, key){ const own = key && WZ.drawn[key] && WZ.drawn[key][id], k = id + col + (own ? '|' + key : ''); if (WZ.tex[k]) return WZ.tex[k];
+  const c = document.createElement('canvas'); c.width = c.height = 512; const g = c.getContext('2d'), hex = '#' + col.toString(16).padStart(6, '0');
+  wzDrawGlyph(g, own || WIZ_SK[id].polys, 256, 256, 236, hex, 7, 22); wzDrawGlyph(g, own || WIZ_SK[id].polys, 256, 256, 236, '#FFFFFF', 2.5, 0);
+  const t = new THREE.CanvasTexture(c); return (WZ.tex[k] = t); }
+// strokes for the network: resampled, 2 decimals, at most ~700 points
+function wzPack(strokes){ let step = .03, out; for (let tries = 0; tries < 4; tries++, step *= 1.6) { out = []; let n = 0; for (const st of strokes) { const q = wzSample([st], step).map(([x, y]) => [Math.round(x*100), Math.round(y*100)]); if (q.length > 1) { out.push(q); n += q.length; } } if (n <= 700) break; } return out; }
+function wzUnpack(a){ if (!Array.isArray(a)) return null; const out = []; let n = 0; for (const st of a.slice(0, 200)) { if (!Array.isArray(st)) continue; const pl = []; for (const q of st) { if (!Array.isArray(q) || n++ > 1500) break; pl.push([clamp(+q[0] || 0, -130, 130)/100, clamp(+q[1] || 0, -130, 130)/100]); } if (pl.length > 1) out.push(pl); } return out.length ? out : null; }
+// a glowing copy of the circle, flat (on the ground) or upright (facing yaw), that grows, spins and fades
+function wzGlyphFX(id, at, size, col, o){
+  o = o || {}; const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({map:wzTex(id, col, o.key), transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide}));
+  m.position.copy(at); m.renderOrder = 4; if (o.flat) m.rotation.x = -Math.PI/2; else m.rotation.y = o.yaw || 0; m.userData.noRay = true; roundGroup.add(m);
+  const life = o.life || .8; let t = 0;
+  fxAdd({update(dt){ t += dt; const k = t/life, e = Math.min(1, t/.15); m.scale.setScalar(size*(.4 + .6*e)*(1 + .08*Math.sin(t*20))); if (o.flat) m.rotation.z += dt*(o.spin || 1.2); else m.rotateZ(dt*(o.spin || 2)); m.material.opacity = k < .7 ? 1 : Math.max(0, 1 - (k - .7)/.3);
+    if (t >= life) { roundGroup.remove(m); m.material.dispose(); return false; } return true; }});
+  return m;
+}
+
+/* ---------- the paper ---------- */
+function wzPaperOpen(id){
+  const P = localP(); if (!P || P.alive === false || WZ.paper) return;
+  const d = WIZ_SK[id]; releaseLock(); G.targeting = null; marker.visible = false;
+  const el = document.createElement('div'); el.id = 'wzPaper';
+  el.style.cssText = 'position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:rgba(20,10,30,.28);pointer-events:auto';
+  const sz = Math.round(Math.min(560, innerWidth*.86, innerHeight*.66));
+  el.innerHTML = `<div style="background:linear-gradient(160deg,#F7EBCB,#EAD6A6);border:4px solid #5A3A1A;border-radius:10px;box-shadow:0 10px 0 #3A2410,0 0 0 9999px rgba(0,0,0,.0);padding:12px 14px 10px;font:800 15px Nunito,system-ui,sans-serif;color:#3A2410;max-width:94vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px"><span style="font-size:19px">${d.e} ${d.name} <small style="opacity:.7">· ${'★'.repeat(d.tier)}${'☆'.repeat(5 - d.tier)}</small></span><span id="wzHint" style="font-size:13px;opacity:.8">Drawn once, yours all match. Neater = stronger.</span></div>
+    <canvas id="wzCv" style="width:${sz}px;height:${sz}px;display:block;touch-action:none;cursor:crosshair;border-radius:6px;background:radial-gradient(#FBF3DC,#EFDDB0)"></canvas>
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;flex-wrap:wrap"><button class="btn primary" id="wzGo">✨ Activate (Enter)</button><button class="btn" id="wzClr">🧽 Clear (C)</button><button class="btn" id="wzGd"></button><button class="btn" id="wzX">✕ Close (Esc)</button></div></div>`;
+  document.body.appendChild(el);
+  const cv = el.querySelector('#wzCv'), dpr = Math.min(2, devicePixelRatio || 1); cv.width = cv.height = Math.round(sz*dpr);
+  WZ.paper = {id, el, cv, g:cv.getContext('2d'), sz, dpr, strokes:[], cur:null, blots:[], noGuide:!WZ.guide};
+  const Pp = WZ.paper, toN = e => { const r = cv.getBoundingClientRect(), S = r.width*.46; return [(e.clientX - r.left - r.width/2)/S, -(e.clientY - r.top - r.height/2)/S]; };
+  cv.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); cv.setPointerCapture(e.pointerId); Pp.cur = [toN(e)]; Pp.strokes.push(Pp.cur); wzPaperDraw(); });
+  cv.addEventListener('pointermove', e => { if (!Pp.cur) return; const q = toN(e), l = Pp.cur[Pp.cur.length - 1]; if (Math.hypot(q[0] - l[0], q[1] - l[1]) > .008) { Pp.cur.push(q); wzPaperDraw(); } });
+  const up = () => { Pp.cur = null; }; cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  el.addEventListener('pointerdown', e => e.stopPropagation()); el.addEventListener('contextmenu', e => { e.preventDefault(); });
+  el.querySelector('#wzGo').onclick = () => wzPaperActivate(); el.querySelector('#wzClr').onclick = () => { Pp.strokes = []; Pp.blots = []; wzPaperDraw(); };
+  el.querySelector('#wzX').onclick = () => wzPaperClose(true); el.querySelector('#wzGd').onclick = () => wzGuideToggle();
+  wzGuideToggle(true); wzPaperDraw(); localCast('z_draw', null, {on:1}); sfx('grab');
+}
+function wzGuideToggle(keep){
+  const Pp = WZ.paper; if (!Pp) return; if (!keep) { WZ.guide = !WZ.guide; try { localStorage.setItem('ca-wzguide', WZ.guide ? 'on' : 'off'); } catch (e) {} }
+  if (WZ.guide) Pp.noGuide = false;   // once you've seen the guide on this page, there's no bonus
+  const b = Pp.el.querySelector('#wzGd'); b.textContent = WZ.guide ? '👁 Guide: on (G)' : '🙈 Guide: off (G) · +15% power'; wzPaperDraw();
+}
+function wzPaperDraw(){
+  const Pp = WZ.paper; if (!Pp) return; const g = Pp.g, W = Pp.cv.width, S = W*.46, c = W/2;
+  g.clearRect(0, 0, W, W);
+  // the paper's own faint grain
+  g.strokeStyle = 'rgba(120,80,30,.08)'; g.lineWidth = 1; for (let i = 1; i < 12; i++) { g.beginPath(); g.moveTo(0, i*W/12); g.lineTo(W, i*W/12); g.stroke(); }
+  if (WZ.guide) wzDrawGlyph(g, WIZ_SK[Pp.id].polys, c, c, S, 'rgba(110,70,30,.24)', 9*Pp.dpr);
+  for (const b of Pp.blots) { g.fillStyle = 'rgba(40,20,10,.55)'; g.beginPath(); g.arc(c + b[0]*S, c - b[1]*S, b[2]*S, 0, Math.PI*2); g.fill(); }
+  wzDrawGlyph(g, Pp.strokes, c, c, S, '#2A160A', 4.2*Pp.dpr);
+}
+// hit while drawing: the hand jerks (a stray stroke) and ink splashes
+function wzSmudge(){
+  const Pp = WZ.paper; if (!Pp) return; const x0 = rr(-.7, .7), y0 = rr(-.7, .7), st = [[x0, y0]];
+  for (let i = 0; i < 8; i++) { const l = st[st.length - 1]; st.push([l[0] + rr(-.12, .12), l[1] + rr(-.12, .12)]); }
+  Pp.strokes.push(st); for (let i = 0; i < 4; i++) Pp.blots.push([x0 + rr(-.15, .15), y0 + rr(-.15, .15), rr(.02, .05)]);
+  wzPaperDraw(); const h = Pp.el.querySelector('#wzHint'); if (h) { h.textContent = '💥 Hit! Your hand slipped.'; h.style.color = '#B3191B'; }
+}
+function wzPaperClose(cancel){
+  const Pp = WZ.paper; if (!Pp) return; WZ.paper = null; Pp.el.remove(); localCast('z_draw', null, {on:0});
+  if (cancel) requestLock();
+}
+function wzPaperActivate(){
+  const Pp = WZ.paper; if (!Pp) return; const d = WIZ_SK[Pp.id], r = wzScore(d.polys, Pp.strokes), pct = Math.round(r.score*100);
+  const h = Pp.el.querySelector('#wzHint');
+  if (r.score < .35) { if (h) { h.textContent = `The circle didn't take (${pct}%). Keep tracing, or clear it.`; h.style.color = '#B3191B'; } sfx('crack'); return; }
+  const k = wzPower(r.score, Pp.noGuide), id = Pp.id;
+  WZ.ink[id] = {k, s:r.score, g:wzGrade(r.score), ng:Pp.noGuide};
+  const dr = wzPack(Pp.strokes);
+  wzPaperClose(false); requestLock();
+  localCast('z_ink', null, {sp:id, k:+k.toFixed(3), d:dr});
+  toast(`✨ ${d.e} ${d.name} inscribed: ${pct}% (${wzGrade(r.score)}) → ${Math.round(k*100)}% power${Pp.noGuide ? ' (drawn from memory!)' : ''}. It's yours for the match.`);
+  renderTray();
+}
+function wzPaperKey(e){
+  const k = keyName(e);
+  if (k === 'enter') wzPaperActivate(); else if (k === 'escape') wzPaperClose(true); else if (k === 'c') { WZ.paper.strokes = []; WZ.paper.blots = []; wzPaperDraw(); } else if (k === 'g') wzGuideToggle();
+  else if (k === 'z' && (e.ctrlKey || e.metaKey)) { WZ.paper.strokes.pop(); wzPaperDraw(); }
+}
+addEventListener('keydown', e => { if (!WZ.paper) return; if (e.target && e.target.tagName === 'INPUT') return; e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) wzPaperKey(e); }, true);
+addEventListener('keyup', e => { if (WZ.paper) e.stopImmediatePropagation(); }, true);
+
+/* ---------- using spells ---------- */
+function wzUse(id){
+  const P = localP(), d = WIZ_SK[id]; if (!d || !P || P.alive === false || P.stun > 0 || G.phase !== 'attack' || G.matchOver) return;
+  if (!WZ.ink[id]) { wzPaperOpen(id); return; }
+  if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
+  const k = WZ.ink[id].k, sd = Math.floor(Math.random()*1e9);
+  if (d.kind === 'area') { setTargeting(id); return; }
+  if (d.kind === 'self') { localCast(id, null, {k, sd}); return; }
+  localCast(id, aimPoint(140), {k, sd});
+}
+function wzCastAt(id){
+  if (!G.targetPoint) { toast(G.targetWhy || 'Aim at the ground.'); return; }
+  if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
+  localCast(id, G.targetPoint.clone(), {k:WZ.ink[id] ? WZ.ink[id].k : .5, sd:Math.floor(Math.random()*1e9)}); G.targeting = null; marker.visible = false; renderTray();
+}
+function wzKeyDown(k){ if (k === 'tab') return false; const id = WZ_KEYS[k]; if (!id) return false; if (G.targeting === id) { setTargeting(id); return true; } wzUse(id); return true; }
+function wzMouseDown(){
+  if (G.targeting && WIZ_SK[G.targeting]) { wzCastAt(G.targeting); return true; }
+  if ((G.cd.z_wand || 0) > 0 || G.spCd > 0) return true; G.spCd = .1; localCast('z_wand', aimPoint(120), {}); return true;
+}
+// the host: casts are only legal for circles that were activated, at most at their power
+function wzCastOK(m){
+  if (m.s === 'z_draw' || m.s === 'z_wand') return true;
+  if (m.s === 'z_ink') return typeof m.sp === 'string' && !!WIZ_SK[m.sp] && !!WIZ_SK[m.sp].tier;
+  const ink = WZ.hostInk[m.id] && WZ.hostInk[m.id][m.s]; if (!ink) return false;
+  m.k = Math.min(+m.k || 0, ink); return true;
+}
+/* ---------- every screen runs the casts ---------- */
+function runWiz(id, p, x){
+  x = x || {}; const ci = casterInfo(); if (!ci.C) return;
+  if (id === 'z_draw') { wzDrawState(ci.key, ci.C, !!x.on); return; }
+  if (id === 'z_ink') { const s = x.sp; if (!WIZ_SK[s] || (WZ.drawn[ci.key] && WZ.drawn[ci.key][s])) return; (WZ.hostInk[ci.key] = WZ.hostInk[ci.key] || {})[s] = clamp(+x.k || .45, .45, 1.44); wzDrawState(ci.key, ci.C, false);
+    const dr = wzUnpack(x.d); if (dr) (WZ.drawn[ci.key] = WZ.drawn[ci.key] || {})[s] = dr;
+    // the circle you drew lights up on the ground under you
+    const at = V3(ci.pos.x, groundH(ci.pos.x, ci.pos.z) + .12, ci.pos.z); wzGlyphFX(s, at, 5.5, 0xFFE9A8, {flat:true, life:2.2, spin:.8, key:ci.key}); sparkle(V3(at.x, at.y + 1, at.z), 0xFFE9A8); sfx('holy');
+    if (ci.key !== G.localKey) killFeedText(`✨ ${ci.C.name || 'A wizard'} inscribed ${WIZ_SK[s].e} ${WIZ_SK[s].name}`); return; }
+  const C = ci.C, f = V3(Math.sin(C.face), 0, Math.cos(C.face)), from = V3(ci.pos.x + f.x*.7, ci.pos.y + 1.45, ci.pos.z + f.z*.7);
+  C.castPose = .5;
+  wzEffect(id, {key:ci.key, team:ci.team, C, from, p, k:clamp(+x.k || 1, .3, 1.44), yaw:C.face, rng:mulberry32((+x.sd || 7) >>> 0)});
+}
+// someone opened (or closed) their paper: a floating page and a slowly turning circle under their feet
+function wzDrawState(key, C, on){
+  const old = WZ.drawFx[key]; if (old) { roundGroup.remove(old.g); delete WZ.drawFx[key]; }
+  if (!on || !C) return;
+  const g = new THREE.Group(), page = new THREE.Mesh(new THREE.PlaneGeometry(.9, 1.1), new THREE.MeshBasicMaterial({color:0xF2E2B8, side:THREE.DoubleSide})); page.position.set(0, 1.4, .7); page.rotation.x = -.5; g.add(page);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(1.1, 1.25, 48), new THREE.MeshBasicMaterial({color:0xFFE9A8, transparent:true, opacity:.7, side:THREE.DoubleSide})); ring.rotation.x = -Math.PI/2; ring.position.y = .06; g.add(ring);
+  noRayAll(g); roundGroup.add(g); WZ.drawFx[key] = {g, ring, page, C};
+}
+const WZ_FIRE = {ball:0xFF5A1F, core:0xFFE14D, ring:0xFF8A2E}, WZ_ICE = {ball:0x9FE6FF, core:0xFFFFFF, ring:0x5FC8FF}, WZ_ARC = {ball:0x9D6BFF, core:0xFFFFFF, ring:0xC9B8FF}, WZ_SKY = {ball:0x9FD8FF, core:0xFFFFFF, ring:0x5FA8FF};
+const wzOrb = (r, col, halo) => { const g = new THREE.Group(); g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), new THREE.MeshBasicMaterial({color:col}))); if (halo) { const h = new THREE.Mesh(new THREE.IcosahedronGeometry(r*1.7, 1), new THREE.MeshBasicMaterial({color:halo, transparent:true, opacity:.35, depthWrite:false})); g.add(h); } return noRayAll(g); };
+function wzShoot(o, speed, extra){ const p = o.p || o.from.clone().add(V3(Math.sin(o.yaw), 0, Math.cos(o.yaw)).multiplyScalar(40)); const v = p.clone().sub(o.from); v.normalize().multiplyScalar(speed); return addBomb(Object.assign({p:o.from.clone(), v, owner:o.key, team:o.team}, extra)); }
+// what a spell does (players' casts and the dark wizards' alike)
+function wzEffect(id, o){
+  const k = o.k, d = WIZ_SK[id], dir = o.p ? V3(o.p.x - o.from.x, 0, o.p.z - o.from.z).normalize() : V3(Math.sin(o.yaw), 0, Math.cos(o.yaw)), yaw = Math.atan2(dir.x, dir.z);
+  if (d && d.tier && id !== 'z_seal') { const area = d.kind === 'area' && o.p, q = area ? o.p : o.from, at = V3(q.x, groundH(q.x, q.z) + .12, q.z);
+    wzGlyphFX(id, at, area ? Math.max(4, d.r*2*(id === 'z_meteor' ? 1 : Math.sqrt(k))) : 2.4 + .4*d.tier, o.team === 'red' && !o.C ? 0xC08AFF : d.tier >= 4 ? 0xFFD84D : 0xFFE9A8, {flat:true, life:area ? (id === 'z_meteor' ? 3.6 : 1) : .9, spin:area ? .5 : 2, key:o.key}); }
+  switch (id) {
+    case 'z_wand': wzShoot(o, 62, {g:.02, r:.25, R:1.1, dmg:8, kb:2, m:wzOrb(.16, 0xE0C8FF, 0x9D6BFF), trail:0xC9B8FF, trailS:.12, fx:{size:.12, pal:WZ_ARC, snd:'zapHit'}}); sfx('zap'); return;
+    case 'z_spark': wzShoot(o, 78, {g:0, r:.3, R:1.5, dmg:16*k, kb:4, m:wzOrb(.2, 0xFFF3A0, 0xFFE14D), trail:0xFFF3A0, trailS:.14, fx:{size:.18, pal:WZ_SKY, snd:'zapHit'}}); sfx('zap'); return;
+    case 'z_fire': wzShoot(o, 36, {g:.15, r:.5, R:3.6*Math.sqrt(k), dmg:30*k, kb:10, m:wzOrb(.45, 0xFFB02E, 0xFF5A1F), trail:0xFF8A2E, trailS:.4, onHit:(b, at) => { bBoom(at, b.R, b.dmg, b.kb, b.owner, b.team, {pal:WZ_FIRE, size:.5}); igniteAt(at, 2.5); }}); sfx('fireball'); return;
+    case 'z_ice': { const m = new THREE.Group(); const sh = new THREE.Mesh(new THREE.OctahedronGeometry(.35, 0), new THREE.MeshBasicMaterial({color:0xBFF3FF})); sh.scale.set(.5, .5, 2.6); m.add(sh); noRayAll(m);
+      wzShoot(o, 62, {g:.08, r:.35, R:2.2, dmg:24*k, kb:6, m, trail:0xE6F8FF, trailS:.2, onHit:(b, at) => { bBoom(at, b.R, b.dmg, b.kb, b.owner, b.team, {pal:WZ_ICE, size:.3}); const P = victimFor(b.owner, b.team); if (P && P.body.position.distanceTo(at) < b.R + 1.2) { P.slowT = Math.max(P.slowT || 0, 2.5); toast('❄️ Frozen: slowed!'); } for (const z of WZ.bots) if (!z.dead && z.pos.distanceTo(at) < b.R + 1.2) z.slowT = 2.5; sparkle(at, 0xBFF3FF); }}); sfx('zap'); return; }
+    case 'z_rock': { const to = o.p || o.from.clone().addScaledVector(dir, 30), T = clamp(o.from.distanceTo(to)/28, .45, 1.4), m = new THREE.Mesh(PAIN_ROCK, M3(0x7A6E62)); m.scale.setScalar(.75); addOutline(m);
+      addBomb({p:o.from.clone(), v:lobVel(o.from, to, T), g:1, r:.75, R:3.2*Math.sqrt(k), dmg:34*k, kb:20, m, owner:o.key, team:o.team, face:false, tumble:6, fx:{size:.4, pal:{ball:0x8A7A6A, core:0xD9C7A3, ring:0x6E6672}, snd:'thud'}}); sfx('whoosh'); return; }
+    case 'z_ward': wzWard(o); return;
+    case 'z_heal': wzHeal(o); return;
+    case 'z_bolt': wzBolt(o); return;
+    case 'z_wind': wzWind(o, dir); return;
+    case 'z_meteor': wzMeteor(o); return;
+    case 'z_seal': wzSeal(o); return;
+  }
+}
+function wzWard(o){
+  const old = WZ.wards[o.key]; if (old) { roundGroup.remove(old.m); }
+  const mat = domeMaterial(); mat.uniforms.col.value.setHex(0xC9B8FF); const m = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), mat); m.userData.noRay = true; roundGroup.add(m);
+  WZ.wards[o.key] = {key:o.key, team:o.team, m, mat, t:0, life:5 + 3*o.k, R:2.6}; sfx('grav');
+}
+function wzHeal(o){
+  const at = o.from.clone(), amt = 35*o.k; let t = 0, done = 0;
+  shockRing(V3(at.x, at.y - 1.3, at.z), 9, .6, 0x7CFF9A);
+  const me = localP(), mine = me && me.alive !== false && (G.localKey === o.key || me.team === o.team) && hdist(me.body.position, at) < 9;
+  fxAdd({update(dt){ t += dt; if (Math.random() < .5) puff(V3(at.x + rr(-4, 4), at.y + rr(-1, 1), at.z + rr(-4, 4)), pick([0x7CFF9A, 0xF4A6C8]), .25);
+    if (mine && me.alive !== false) { const step = Math.min(amt - done, amt*dt/2); done += step; me.hp = Math.min(100, me.hp + step); updateHud(); }
+    return t < 2; }});
+  if (mine) toast(`🌸 Healed +${Math.round(amt)}`); sfx('holy');
+}
+function wzBolt(o){
+  const p = o.p; if (!p) return; const R = 3.5*Math.sqrt(o.k), ring = warnRing(p, R, 0x9FD8FF); let t = 0, hit = false;
+  fxAdd({update(dt){ t += dt; ring.material.opacity = .4 + Math.sin(t*30)*.3;
+    if (!hit && t > .45) { hit = true; roundGroup.remove(ring); const top = V3(p.x + rr(-3, 3), p.y + 45, p.z + rr(-3, 3)); arcBeam(top, p.clone(), 0xBFE9FF); arcBeam(top, p.clone(), 0xFFFFFF); flash(.18, .15); sfx('thunder');
+      bBoom(p.clone().setY(p.y + .5), R, 52*o.k, 10, o.key, o.team, {pal:WZ_SKY, size:.5});
+      // it jumps to the two nearest other enemies
+      const near = bEnemies(o.key, o.team).filter(e => hdist(e.pos, p) > R*.8 && hdist(e.pos, p) < 11).sort((a, b) => hdist(a.pos, p) - hdist(b.pos, p)).slice(0, 2);
+      let from = p.clone().setY(p.y + 1); for (const e of near) { const q = V3(e.pos.x, e.pos.y + 1, e.pos.z); arcBeam(from, q, 0xBFE9FF); bBoom(q, 1.6, 24*o.k, 5, o.key, o.team, {pal:WZ_SKY, size:.2, snd:'zapHit'}); from = q; } }
+    return t < .6; }});
+}
+function wzWind(o, dir){
+  const c = V3(o.from.x, groundH(o.from.x, o.from.z), o.from.z).addScaledVector(dir, 2), g = new THREE.Group(), rings = [];
+  for (let i = 0; i < 7; i++) { const r = new THREE.Mesh(new THREE.TorusGeometry(.5 + i*.32, .09, 6, 20), new THREE.MeshBasicMaterial({color:0xE6EEF5, transparent:true, opacity:.55, depthWrite:false})); r.rotation.x = Math.PI/2; r.position.y = .3 + i*.62; g.add(r); rings.push(r); }
+  noRayAll(g); g.position.copy(c); roundGroup.add(g); let t = 0, tick = 0; const life = 4 + o.k, hitAt = new Map(); sfx('whoosh');
+  fxAdd({update(dt){ t += dt; c.addScaledVector(dir, 8.5*dt); c.y = groundH(c.x, c.z); g.position.copy(c); rings.forEach((r, i) => { r.rotation.z += dt*(6 + i); r.position.x = Math.sin(t*5 + i*.7)*.25; });
+    if (Math.random() < .6) puff(V3(c.x + rr(-1.5, 1.5), c.y + rr(0, 4), c.z + rr(-1.5, 1.5)), 0xD9D2C3, .5);
+    tick -= dt; if (tick <= 0) { tick = .3; const mid = V3(c.x, c.y + 1.6, c.z);
+      const P = victimFor(o.key, o.team); if (P && hdist(P.body.position, c) < 3.2 && P.body.position.y - c.y < 6) { painHurt(P, 7*o.k, o.key); knock(P, dir.x*3, 9, dir.z*3, .5); }
+      summonsTakeArea(mid, 3.2, 7*o.k, o.key, o.team); forEachObject(b => { if (hdist(b.position, c) < 3 && b.mass < 400) { if (b.wakeUp) b.wakeUp(); b.velocity.y += 4; b.velocity.x += dir.x; b.velocity.z += dir.z; } });
+      for (const z of WZ.bots) if (!z.dead && hdist(z.pos, c) < 3.4) z.liftT = .6; }
+    if (t > life || Math.abs(c.x) > ISL || Math.abs(c.z) > ISL) { roundGroup.remove(g); return false; } return true; }});
+}
+function wzMeteor(o){
+  const p = o.p; if (!p) return; const R = 8, ring = warnRing(p, R, 0xFF5A1F), rng = o.rng; let t = 0, n = 0;
+  sfx('rumble');
+  fxAdd({update(dt){ t += dt; ring.material.opacity = .3 + Math.sin(t*10)*.2;
+    while (n < 7 && t > .35 + n*.38) { n++; const a = rng()*Math.PI*2, r = Math.sqrt(rng())*R, q = V3(p.x + Math.cos(a)*r, 0, p.z + Math.sin(a)*r); q.y = groundH(q.x, q.z);
+      const start = V3(q.x + 12, q.y + 50, q.z + 8), m = new THREE.Group(), rock = new THREE.Mesh(PAIN_ROCK, M3(0x4A3A30)); rock.scale.setScalar(.8); m.add(rock); m.add(wzOrb(.9, 0xFF8A2E, 0xFF5A1F)); m.children[1].children[0].material = new THREE.MeshBasicMaterial({color:0xFF8A2E, transparent:true, opacity:.5}); noRayAll(m);
+      addBomb({p:start, v:q.clone().sub(start).normalize().multiplyScalar(48), g:.3, r:.7, R:3.2, dmg:28*o.k, kb:12, m, owner:o.key, team:o.team, tumble:4, face:false, trail:0xFF8A2E, trailS:.6, fx:{size:.55, pal:WZ_FIRE}, onHit:(b, at) => { bBoom(at, b.R, b.dmg, b.kb, b.owner, b.team, b.fx); igniteAt(at, 2); }}); }
+    if (n >= 7 && t > 3.6) { roundGroup.remove(ring); return false; } return true; }});
+}
+function wzSeal(o){
+  const p = o.p; if (!p) return; const R = 10 + 3*o.k, at = V3(p.x, groundH(p.x, p.z) + .15, p.z);
+  const seal = wzGlyphFX('z_seal', at, R*2, 0xFFE9A8, {flat:true, life:3.4, spin:.6, key:o.key}); sfx('holy'); sfx('rumble'); let t = 0, hit = false;
+  if (victimFor(o.key, o.team) && hdist(localP().body.position, p) < R) toast('🔯 A Grand Seal under you! Get out!');
+  fxAdd({update(dt){ t += dt; if (Math.random() < .8) sparkle(V3(p.x + rr(-R, R)*.7, at.y + rr(0, 2), p.z + rr(-R, R)*.7), 0xFFE9A8);
+    if (!hit && t > 2.4) { hit = true; lightPillar(at, R*.5, true); flash(.6, .5); shakeAt(at, 1.6, 120); sfx('boom');
+      bBoom(V3(p.x, at.y + 1, p.z), R, 110*o.k, 26, o.key, o.team, {mush:true, size:1.5, pal:{ball:0xFFE9A8, core:0xFFFFFF, ring:0xC9B8FF}, up:14});
+      for (let i = 0; i < 8; i++) { const a = i/8*Math.PI*2; boomVisual(V3(p.x + Math.cos(a)*R*.8, at.y + .5, p.z + Math.sin(a)*R*.8), false, .35, {ball:0xC9B8FF, core:0xFFFFFF, ring:0xFFE9A8}); } }
+    return t < 2.6; }});
+}
+// every frame: drawing indicators, wards, the dark wizards, wizard hats
+function wzFrame(dt){
+  if (!wzOn()) { if (WZ.paper) wzPaperClose(false); if (WZ.bots.length) wzBotsClear(); return; }
+  const me = localP();
+  if (WZ.paper) { if (!me || me.alive === false || G.matchOver) wzPaperClose(false); else { me.lockT = Math.max(me.lockT || 0, .15); me.body.velocity.x *= .5; me.body.velocity.z *= .5; me.castPose = .3; } }
+  for (const k in WZ.drawFx) { const D = WZ.drawFx[k], C = chars[k]; if (!C || C.alive === false) { roundGroup.remove(D.g); delete WZ.drawFx[k]; continue; } D.g.position.copy(C.root.position); D.g.rotation.y = C.face; D.ring.rotation.z += dt; D.page.position.y = 1.4 + Math.sin(G.t*3)*.05; }
+  for (const k in WZ.wards) { const W = WZ.wards[k], C = chars[k]; W.t += dt;
+    if (!C || C.alive === false || W.t > W.life) { roundGroup.remove(W.m); delete WZ.wards[k]; continue; }
+    const c = V3(C.body.position.x, C.body.position.y + .4, C.body.position.z); W.m.position.copy(c); W.m.scale.setScalar(W.R*Math.min(1, W.t*4)); W.mat.uniforms.t.value += dt; W.mat.uniforms.hit.value = Math.max(0, W.mat.uniforms.hit.value - dt*2);
+    for (const b of BX.bombs) if (!b.dead && b.team !== W.team && b.owner !== W.key && b.p.distanceTo(c) < W.R + .3) { b.dead = true; roundGroup.remove(b.m); sparkle(b.p, 0xC9B8FF); W.mat.uniforms.hit.value = 1; sfx('zapHit'); } }
+  for (const k in chars) { const P = chars[k]; if (P && !P.wzHat) wzDress(P); }
+  wzBotsFrame(dt);
+}
+// every wizard gets a pointed hat and a staff
+function wzDress(P){
+  if (!P.head || !P.arms) return; P.wzHat = true; if (P.rig && P.rig.userData.wizard) return;   /* already a wizard (wizBody) */ const col = P.team === 'red' ? 0x8A1F2A : 0x23307A;
+  const hat = new THREE.Group(); hat.position.y = .18; P.head.add(hat);
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(.48, .48, .05, 16), M3(col)); hat.add(brim); const cone = new THREE.Mesh(new THREE.ConeGeometry(.3, .8, 12), M3(col)); cone.position.y = .4; cone.rotation.z = -.15; hat.add(cone);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(.29, .31, .08, 14), M3(0xFFD84D)); band.position.y = .07; hat.add(band);
+  const staff = new THREE.Group(); staff.position.set(0, -.62, .05); P.arms[1].add(staff); bx(.07, 1.7, .07, 0x6B4423, 0, .25, 0, staff);
+  const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(.13, 1), new THREE.MeshBasicMaterial({color:P.team === 'red' ? 0xFF8A8A : 0x9FD8FF})); orb.position.y = 1.15; staff.add(orb);
+  addOutline(hat); addOutline(staff); noRayAll(hat); noRayAll(staff);
+}
+
+/* ---------- the dark wizards (co-op): host-run, 12 waves, the Archmage last ---------- */
+const WZB_KINDS = [
+  {n:'Acolyte', hp:55, sp:5.5, cd:[1.7, 2.8], spell:'z_spark', col:0x4A2A6A, s:1, want:18},
+  {n:'Pyromancer', hp:75, sp:4.6, cd:[3, 4.2], spell:'z_fire', col:0x8A2A1A, s:1.05, want:20},
+  {n:'Stone Warden', hp:150, sp:3.4, cd:[4, 5.5], spell:'z_rock', col:0x55555E, s:1.3, want:14},
+  {n:'Stormcaller', hp:100, sp:4.8, cd:[4.5, 6], spell:'z_bolt', col:0x223A7A, s:1.1, want:24},
+  {n:'Archmage', hp:1100, sp:3.2, cd:[2.6, 3.4], spell:'z_meteor', col:0x14081F, s:1.9, want:20, boss:true}
+];
+const WZ_WAVES = 12;
+function wzStart(){
+  wzBotsClear(); for (const k in WZ.tex) if (k.includes('|')) { WZ.tex[k].dispose(); delete WZ.tex[k]; } Object.assign(WZ, {ink:{}, drawn:{}, hostInk:{}, wards:{}, wave:0, kills:0, seq:0, waveT:G.wzCoop ? 3 : 0});
+  for (const k in WZ.drawFx) roundGroup.remove(WZ.drawFx[k].g); WZ.drawFx = {};
+  document.querySelector('#top .score').style.display = G.wzCoop ? 'none' : '';
+  renderTray(); wzHud(true);
+  toast('🧙 Wizards! Press 1–0 to draw a spell circle on the paper: trace it, then Enter. Each circle is drawn once and kept all match: neater = stronger.');
+  setTimeout(() => toast(G.wzCoop ? '🌑 The dark coven is coming: 12 waves of dark wizards. Click = wand bolt.' : '⚔️ Team battle! Knock out the other team. Click = wand bolt.'), 2800);
+}
+function wzHud(force){
+  const ph = $('phase'); if (!ph) return; const t = G.wzCoop ? `🧙 Wizards<small>Wave ${Math.max(1, WZ.wave)}/${WZ_WAVES} · 💀 ${WZ.kills}</small>` : '🧙 Wizards<small>Team battle</small>';
+  if (force || ph.innerHTML !== t) ph.innerHTML = t;
+}
+function wzBotsClear(){ for (const z of WZ.bots) if (z.g && z.g.parent) z.g.parent.remove(z.g); WZ.bots = []; }
+function wzBotMesh(K){
+  // a dark wizard of the coven: a black robe, a hood, a shadowed face with burning eyes
+  const g = new THREE.Group(), rig = new THREE.Group(); g.add(rig);
+  wzaWizard(rig, {robe:K.col, dark:0x0E0A14, trim:K.boss ? 0xFFD84D : 0x6A2A8A, beard:K.boss ? 0x3A3A44 : null, face:0x0A080E, eyes:K.boss ? 0xFF5A1F : 0xFF2A2A, glow:true, hat:K.boss ? 'tall' : 'hood', crystal:K.boss ? 0xFF5A1F : 0xB48CFF});
+  noRayAll(g); g.scale.setScalar(K.s);
+  const mk = c => { const s0 = new THREE.Sprite(new THREE.SpriteMaterial({color:c, depthTest:false, depthWrite:false})); s0.center.set(0, .5); s0.renderOrder = 41; s0.userData.noRay = true; roundGroup.add(s0); return s0; };
+  return {g, bar:{bg:mk(0x1A1A1A), fill:mk(0xFF4B3E)}};
+}
+function wzBotMake(kind, x, z, hp){
+  const K = WZB_KINDS[kind], M = wzBotMesh(K), b = {id:++WZ.seq, kind, pos:V3(x, groundH(x, z), z), hp, max:hp, face:0, cd:rr(1, 3), t:rr(0, 6), g:M.g, bar:M.bar, slowT:0, liftT:0, flash:0, dead:false};
+  roundGroup.add(M.g); WZ.bots.push(b); puff(V3(x, b.pos.y + 1, z), 0x6A3FB8, 1.2); return b;
+}
+function wzSpawnWave(){
+  WZ.wave++; const w = WZ.wave, n = Math.min(10, 2 + w), players = Object.values(chars).filter(P => P.alive !== false), c = players.length ? players.reduce((a, P) => a.add(V3(P.body.position.x, 0, P.body.position.z)), V3(0, 0, 0)).multiplyScalar(1/players.length) : V3(0, 0, 0);
+  const pool = [0]; if (w >= 3) pool.push(1); if (w >= 5) pool.push(2); if (w >= 7) pool.push(3);
+  const hpK = 1 + .12*(w - 1);
+  for (let i = 0; i < n; i++) { const a = Math.random()*Math.PI*2, r = rr(45, 70); const x = clamp(c.x + Math.cos(a)*r, -ISL + 8, ISL - 8), z = clamp(c.z + Math.sin(a)*r, -ISL + 8, ISL - 8), kind = pool[Math.floor(Math.random()*pool.length)]; wzBotMake(kind, x, z, WZB_KINDS[kind].hp*hpK); }
+  if (w === WZ_WAVES) { const a = Math.random()*Math.PI*2; wzBotMake(4, clamp(c.x + Math.cos(a)*55, -ISL + 8, ISL - 8), clamp(c.z + Math.sin(a)*55, -ISL + 8, ISL - 8), WZB_KINDS[4].hp*(1 + .25*(players.length - 1))); }
+  const msg = w === WZ_WAVES ? `👑 Final wave: the ARCHMAGE comes with ${n} dark wizards!` : `🌑 Wave ${w}/${WZ_WAVES}: ${n} dark wizards!`;
+  toast(msg); netBroadcast({t:'zmsg', m:msg}); sfx('trumpet'); wzHud();
+}
+function wzBotsFrame(dt){
+  const host = wzHost();
+  if (G.wzCoop && host && !G.matchOver) {
+    if (!WZ.bots.some(z => !z.dead)) { WZ.waveT -= dt; if (WZ.waveT <= 0) { if (WZ.wave >= WZ_WAVES) { wzWin(); netBroadcast({t:'zend'}); return; } wzSpawnWave(); WZ.waveT = 5; } }
+    const players = Object.entries(chars).filter(([, P]) => P.alive !== false);
+    for (const z of WZ.bots) { if (z.dead) continue; const K = WZB_KINDS[z.kind]; z.t += dt; z.slowT = Math.max(0, z.slowT - dt);
+      let best = null, bd = 1e9; for (const [k, P] of players) { const d = hdist(P.body.position, z.pos); if (d < bd) { bd = d; best = [k, P]; } }
+      const sp = K.sp*(z.slowT > 0 ? .45 : 1);
+      if (best) { const tp = best[1].body.position, dx = tp.x - z.pos.x, dz = tp.z - z.pos.z, L = Math.hypot(dx, dz) || 1, fx = dx/L, fz = dz/L, sx = -fz, sz = fx;
+        const fwd = L > K.want + 3 ? 1 : L < K.want - 4 ? -.7 : 0, side = Math.sin(z.t*.7 + z.id)*.8;
+        z.pos.x += (fx*fwd + sx*side)*sp*dt; z.pos.z += (fz*fwd + sz*side)*sp*dt; z.face = Math.atan2(dx, dz);
+        z.cd -= dt; if (z.cd <= 0 && L < 55 && z.liftT <= 0) { z.cd = rr(K.cd[0], K.cd[1]); const lead = .25, aim = V3(tp.x + best[1].body.velocity.x*lead, tp.y + .6, tp.z + best[1].body.velocity.z*lead);
+          const m = {t:'zb', b:z.id, s:K.spell, f:[+z.pos.x.toFixed(2), +(z.pos.y + 1.6*K.s).toFixed(2), +z.pos.z.toFixed(2)], p:[+aim.x.toFixed(2), +aim.y.toFixed(2), +aim.z.toFixed(2)], k:+(.7 + .03*WZ.wave).toFixed(2), sd:Math.floor(Math.random()*1e9)};
+          netBroadcast(m); wzBotCast(m); } }
+      z.pos.x = clamp(z.pos.x, -ISL + 5, ISL - 5); z.pos.z = clamp(z.pos.z, -ISL + 5, ISL - 5); z.liftT = Math.max(0, z.liftT - dt); z.pos.y = groundH(z.pos.x, z.pos.z) + (z.liftT > 0 ? 3*Math.sin(z.liftT*5) + 2 : 0); }
+    WZ.sendT -= dt; if (WZ.sendT <= 0 && NET.peer) { WZ.sendT = .1; const b = []; for (const z of WZ.bots) if (!z.dead) b.push(z.id, z.kind, Math.round(z.pos.x*10), Math.round(z.pos.y*10), Math.round(z.pos.z*10), Math.round(z.hp), Math.round(z.face*100), Math.round(z.max)); netBroadcast({t:'zbs', w:WZ.wave, k:WZ.kills, b}); }
+  } else if (!host) for (const z of WZ.bots) { if (z.dead || !z.to) continue; z.pos.lerp(z.to, Math.min(1, dt*10)); }
+  for (const z of WZ.bots) { if (z.dead) continue; const K = WZB_KINDS[z.kind]; z.flash = Math.max(0, z.flash - dt);
+    z.g.position.copy(z.pos); z.g.position.y += Math.sin(G.t*3 + z.id)*.08; z.g.rotation.y = z.face; z.g.scale.setScalar(K.s*(z.flash > 0 ? 1.08 : 1));
+    const w = 1.6*K.s, f = clamp(z.hp/z.max, 0, 1), y = z.pos.y + 3.2*K.s; z.bar.bg.position.set(z.pos.x - w/2, y, z.pos.z); z.bar.bg.scale.set(w, .2, 1); z.bar.fill.position.set(z.pos.x - w/2, y, z.pos.z); z.bar.fill.scale.set(Math.max(.01, w*f), .14, 1); z.bar.fill.material.color.setHex(z.flash > 0 ? 0xFFFFFF : 0xFF4B3E); }
+  WZ.bots = WZ.bots.filter(z => !z.dead);
+  if ((G.fc || 0) % 15 === 0) wzHud();
+}
+// a dark wizard's spell (on every screen)
+function wzBotCast(m){
+  const z = WZ.bots.find(q => q.id === m.b), from = V3(m.f[0], m.f[1], m.f[2]), p = V3(m.p[0], m.p[1], m.p[2]);
+  if (z) z.face = Math.atan2(p.x - from.x, p.z - from.z);
+  wzEffect(m.s, {key:'Z' + m.b, team:'red', C:null, from, p, k:clamp(+m.k || .7, .3, 1.5), yaw:Math.atan2(p.x - from.x, p.z - from.z), rng:mulberry32((+m.sd || 3) >>> 0)});
+}
+function wzBotDie(z){ z.dead = true; if (z.g.parent) z.g.parent.remove(z.g); roundGroup.remove(z.bar.bg); roundGroup.remove(z.bar.fill); const at = V3(z.pos.x, z.pos.y + 1.2, z.pos.z); boomVisual(at, false, WZB_KINDS[z.kind].boss ? 1.2 : .35, WZ_ARC); puff(at, 0x3A2A4A, 1); sfx('pop'); }
+// players' attacks hurt them (the host counts it)
+function wzTakeArea(at, R, dmg, team){
+  if (!wzOn() || !WZ.bots.length || !wzHost() || team === 'red' || !(dmg > 0) || !at) return;
+  for (const z of WZ.bots) { if (z.dead) continue; const K = WZB_KINDS[z.kind], d = Math.hypot(z.pos.x - at.x, z.pos.y + 1.2*K.s - (at.y != null ? at.y : z.pos.y + 1.2), z.pos.z - at.z); if (d < R + .8*K.s) wzBotHurt(z, dmg*(d < R*.5 ? 1 : .7)); }
+}
+function wzTakeCone(from, yaw, range, arc, dmg, team){
+  if (!wzOn() || !WZ.bots.length || !wzHost() || team === 'red' || !(dmg > 0)) return; const fx = Math.sin(yaw), fz = Math.cos(yaw), cosA = Math.cos(arc/2);
+  for (const z of WZ.bots) { if (z.dead) continue; const dx = z.pos.x - from.x, dz = z.pos.z - from.z, d = Math.hypot(dx, dz); if (d > range + 1) continue; if (d < 1.5 || (dx*fx + dz*fz)/d > cosA) wzBotHurt(z, dmg); }
+}
+function wzBotHurt(z, dmg){ z.hp -= dmg; z.flash = .12; if (z.hp <= 0 && !z.dead) { WZ.kills++; wzBotDie(z); } }
+// a client: the host's report of the dark wizards
+function wzApply(m){
+  if (!wzOn() || wzHost()) return; WZ.wave = m.w | 0; WZ.kills = m.k | 0; const a = Array.isArray(m.b) ? m.b : [], seen = new Set();
+  for (let i = 0; i + 7 < a.length; i += 8) { const id = a[i], kind = a[i + 1] | 0; if (!WZB_KINDS[kind]) continue; seen.add(id);
+    let z = WZ.bots.find(q => q.id === id); const to = V3(a[i + 2]/10, a[i + 3]/10, a[i + 4]/10);
+    if (!z) { z = wzBotMake(kind, to.x, to.z, a[i + 7]); z.id = id; z.pos.copy(to); }
+    if (a[i + 5] < z.hp) z.flash = .12; z.hp = a[i + 5]; z.max = a[i + 7]; z.face = a[i + 6]/100; z.to = to; }
+  for (const z of WZ.bots) if (!seen.has(z.id) && !z.dead) wzBotDie(z);
+}
+function wzWin(){
+  if (G.matchOver) return; G.matchOver = true; releaseLock();
+  const e = $('matchEnd'); e.innerHTML = `<div class="panel sticker" style="background:linear-gradient(180deg,#F7EBCB,#E2C98E)"><div class="title" style="color:#5A2A8A">🏆 The dark coven is defeated!</div><p style="font-size:18px">All ${WZ_WAVES} waves beaten. 💀 ${WZ.kills} dark wizards.</p>${wzHost() ? '<div class="actions"><button class="btn primary" id="wzAgain">Play again</button></div>' : '<div class="actions"><button class="btn" onclick="location.reload()">Back to menu</button></div>'}</div>`;
+  e.style.display = 'flex'; const b = $('wzAgain'); if (b) b.onclick = () => { e.style.display = 'none'; if (NET.peer && NET.host) hostStart(); else { const me = myInfo(); me.id = 'me'; startMatch(Math.floor(Math.random()*90000) + 10000, [me], null, 'wiz', ME.cdOn); } };
+}
+// the Skills bar: every spell's circle; un-drawn ones say so
+function wzTray(t){
+  const items = WZ_IDS.map(id => { const d = WIZ_SK[id], ink = WZ.ink[id];
+    return `<button class="skill${ink ? '' : ' wzblank'}" data-sp="${id}" aria-pressed="${G.targeting === id}" title="${d.name}: ${d.d}${ink ? ` · inscribed ${Math.round(ink.s*100)}% (${ink.g}), ${Math.round(ink.k*100)}% power` : ' · press to draw its circle'}" aria-label="${d.name}" style="${ink ? '' : 'opacity:.62'}"><span class="si"><img src="${wzIcon(id)}" alt="" style="width:30px;height:30px;display:block;margin:auto;filter:${ink ? 'drop-shadow(0 0 4px #FFD84D)' : 'grayscale(.4)'}"></span><span class="sn">${d.e} ${d.name}</span><sup>${ink ? `${ink.g} ${Math.round(ink.k*100)}%` : '✍️'}</sup><kbd>${d.key}</kbd></button>`; }).join('');
+  t.innerHTML = `<div class="bar sticker"><div class="tl">Spellbook</div><div class="skills" style="--cols:5">${items}</div></div>`;
+  t.querySelectorAll('[data-sp]').forEach(b => b.onclick = e => { e.stopPropagation(); wzUse(b.dataset.sp); });
+}
+
+/* ---------- Wizards: the players are wizards (robe, pointed hat, beard, staff) ----------
+   wizBody replaces akaBody in Wizards mode (same contract: legs, arms, head pivots). The four looks of the look picker:
+   Grey Sage, Shadow Mage (a dark face with glowing eyes), White Archmage, Ember Wizard. The robe carries the team colour. */
+const WIZ_LOOKS = {
+  itachi:{beard:0x9A9AA2, hat:'bent', face:0xE8C8A8, eyes:0x1A1A22, trim:0xD9B04A, n:'Grey Sage'},
+  pain:{beard:0x2A2430, hat:'bent', face:0x141018, eyes:0xFFE14D, glow:true, trim:0x7CFF9A, n:'Shadow Mage'},
+  obito:{beard:0xF2F2F2, hat:'tall', face:0xF0D2B8, eyes:0x1A1A22, trim:0xFFD84D, star:true, n:'White Archmage'},
+  konan:{beard:0xB0522A, hat:'wide', face:0xE8C0A0, eyes:0x1A1A22, trim:0xFF8A2E, n:'Ember Wizard'}
+};
+const WIZ_ROBES = {blue:[[0x2A2F7A, 0x1A1E52], [0x1F5A5A, 0x123A3A], [0x3A2A7A, 0x221852], [0x24406A, 0x152842]], red:[[0x7A1F2A, 0x4A121A], [0x5A1A3A, 0x3A1026], [0x7A2A1A, 0x4A1A10], [0x6A1A4A, 0x401030]]};
+function wizBodyToon(team, cdef, rig){
+  const L = WIZ_LOOKS[cdef.aka] || WIZ_LOOKS.itachi, li = Math.max(0, ['itachi', 'pain', 'obito', 'konan'].indexOf(cdef.aka)), [robe, dark] = WIZ_ROBES[team === 'red' ? 'red' : 'blue'][li];
+  const cloth = (c, side) => new THREE.MeshToonMaterial({color:c, gradientMap:TOON, side:side || THREE.FrontSide});
+  rig.userData.wizard = true;
+  // boots under the hem
+  const legs = [-1, 1].map(s => { const p = new THREE.Group(); p.position.set(s*.13, .72, 0); bx(.17, .6, .19, dark, 0, -.32, 0, p); bx(.2, .1, .3, 0x2A1E18, 0, -.66, .05, p); rig.add(p); return p; });
+  // the robe: a long flared cone, a darker inner lining, a mantle round the shoulders, a belt and a satchel
+  const r = new THREE.Mesh(new THREE.CylinderGeometry(.27, .56, 1.24, 16, 1, true), cloth(robe, THREE.DoubleSide)); r.position.y = .74; r.castShadow = true; rig.add(r);
+  const hem = new THREE.Mesh(new THREE.TorusGeometry(.555, .035, 6, 24), M3(L.trim)); hem.rotation.x = Math.PI/2; hem.position.y = .13; rig.add(hem);
+  const mantle = new THREE.Mesh(new THREE.CylinderGeometry(.24, .4, .3, 14), cloth(dark)); mantle.position.y = 1.33; rig.add(mantle);
+  const belt = new THREE.Mesh(new THREE.TorusGeometry(.33, .035, 6, 20), M3(0x3A2414)); belt.rotation.x = Math.PI/2; belt.position.y = 1.0; rig.add(belt);
+  bx(.08, .07, .03, L.trim, 0, 1.0, .34, rig);
+  const strap = bx(.04, .9, .03, 0x5A3A1E, .02, 1.12, .27, rig); strap.rotation.z = .75; bx(.2, .2, .1, 0x7A5232, .3, .78, .2, rig);
+  const arms = [-1, 1].map(s => { const p = new THREE.Group(); p.position.set(s*.34, 1.32, 0);
+    const sl = new THREE.Mesh(new THREE.CylinderGeometry(.09, .17, .56, 10, 1, true), cloth(robe, THREE.DoubleSide)); sl.position.y = -.27; sl.castShadow = true; p.add(sl);
+    const cuff = new THREE.Mesh(new THREE.TorusGeometry(.16, .025, 5, 14), M3(L.trim)); cuff.rotation.x = Math.PI/2; cuff.position.y = -.55; p.add(cuff);
+    sp(.075, L.glow ? 0x2A2A3A : L.face, 0, -.6, 0, p, 0); rig.add(p); return p; });
+  // the staff in the right hand: gnarled wood, a glowing crystal in a claw
+  const staff = new THREE.Group(); staff.position.set(0, -.6, .06); arms[1].add(staff);
+  bx(.07, 1.9, .07, 0x5A3A1E, 0, .25, 0, staff); for (const [y, rz] of [[1.18, .5], [1.18, -.5], [1.2, 0]]) { const c = bx(.04, .3, .04, 0x5A3A1E, Math.sin(rz)*.08, y, rz ? 0 : .06, staff); c.rotation.z = rz; }
+  const cr = new THREE.Mesh(new THREE.OctahedronGeometry(.13, 0), new THREE.MeshBasicMaterial({color:team === 'red' ? 0xFF6A8A : 0x7CF0FF})); cr.position.y = 1.32; cr.userData.noOutline = true; staff.add(cr);
+  const head = new THREE.Group(); head.position.y = 1.66; rig.add(head);
+  sp(.22, L.face, 0, 0, 0, head, 1);
+  for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(L.glow ? .045 : .03, 8, 6), L.glow ? new THREE.MeshBasicMaterial({color:L.eyes}) : M3(L.eyes)); e.position.set(s*.08, .03, .19); e.userData.noOutline = true; head.add(e);
+    if (!L.glow) bx(.09, .025, .03, L.beard, s*.085, .1, .19, head).rotation.z = -s*.2; }   // bushy brows
+  if (!L.glow) { const nose = new THREE.Mesh(new THREE.ConeGeometry(.04, .11, 6), M3(L.face)); nose.rotation.x = Math.PI/2; nose.position.set(0, -.02, .23); head.add(nose); }
+  // the beard: a long cone, a moustache, side whiskers
+  const beard = new THREE.Mesh(new THREE.ConeGeometry(.19, L.glow ? .42 : .62, 10), M3(L.beard)); beard.rotation.x = Math.PI + .25; beard.position.set(0, L.glow ? -.25 : -.33, .12); head.add(beard);
+  for (const s of [-1, 1]) { const m = bx(.13, .04, .05, L.beard, s*.07, -.08, .21, head); m.rotation.z = s*.35; bx(.06, .2, .1, L.beard, s*.19, -.08, .06, head); }
+  // the hat: a brim, then a cone in three pieces that bends back
+  const hat = new THREE.Group(); hat.position.y = .14; head.add(hat);
+  const hc = cloth(dark), wide = L.hat === 'wide' ? .62 : .5, tall = L.hat === 'tall' ? 1.25 : 1;
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(wide, wide, .04, 20), hc); hat.add(brim);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(.28, .3, .09, 16), M3(L.trim)); band.position.y = .06; hat.add(band);
+  let y = .05, z = 0, rx = 0; const segs = [[.29, .2, .38], [.2, .12, .34], [.12, .02, .32]];
+  segs.forEach(([r0, r1, h], i) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, h*tall, 12), hc); const bend = L.hat === 'bent' ? -.32*i : -.08*i; rx += bend;
+    m.rotation.x = rx; m.position.set(0, y + Math.cos(rx)*h*tall/2, z + Math.sin(rx)*h*tall/2); hat.add(m); y += Math.cos(rx)*h*tall; z += Math.sin(rx)*h*tall; });
+  if (L.star) { const st = new THREE.Mesh(new THREE.OctahedronGeometry(.07, 0), new THREE.MeshBasicMaterial({color:0xFFE14D})); st.position.set(0, .3, .25); hat.add(st); }
+  if (L.glow) { const sc = new THREE.Mesh(new THREE.CylinderGeometry(.26, .3, .14, 14, 1, true), cloth(0x2E5A4A, THREE.DoubleSide)); sc.position.y = -.17; head.add(sc); }   // the scarf
+  return {legs, arms, head};
+}
+
+/* ---------- Wizards: the dark-fantasy night (sky, moon, stars, nebulae, fog, moonlight, glowing moss, castles, wisps,
+   runes on the ground). wzTheme(true) switches it on, wzTheme(false) puts the day back ---------- */
+const WZT = {on:false, sky:null, saved:null, wisps:null};
+function wzCanvasTex(w, h, draw){ const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); return t; }
+function wzSkyBuild(){
+  if (WZT.sky) return WZT.sky; const g = new THREE.Group(); g.renderOrder = -9;
+  // stars
+  const N = 2200, pos = new Float32Array(N*3), col = new Float32Array(N*3), cs = [[1, 1, 1], [.75, .85, 1], [1, .8, .95], [.85, .75, 1]];
+  for (let i = 0; i < N; i++) { const u = Math.random()*2 - 1, a = Math.random()*Math.PI*2, y = Math.abs(u)*.98 + .02, r = Math.sqrt(1 - y*y), R = 3000; pos[i*3] = Math.cos(a)*r*R; pos[i*3 + 1] = y*R; pos[i*3 + 2] = Math.sin(a)*r*R; const c = cs[i % 4], b = .5 + Math.random()*.5; col[i*3] = c[0]*b; col[i*3 + 1] = c[1]*b; col[i*3 + 2] = c[2]*b; }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const dot = wzCanvasTex(32, 32, (x, w) => { const gr = x.createRadialGradient(16, 16, 0, 16, 16, 16); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.35, 'rgba(255,255,255,.7)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = gr; x.fillRect(0, 0, 32, 32); });
+  g.add(new THREE.Points(geo, new THREE.PointsMaterial({size:3.4, sizeAttenuation:false, vertexColors:true, map:dot, transparent:true, depthWrite:false, fog:false})));
+  // a few big sparkling stars
+  const spark = wzCanvasTex(64, 64, x => { x.translate(32, 32); const gr = x.createRadialGradient(0, 0, 0, 0, 0, 30); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.2, 'rgba(200,220,255,.6)'); gr.addColorStop(1, 'rgba(160,140,255,0)'); x.fillStyle = gr; x.beginPath(); x.arc(0, 0, 30, 0, 7); x.fill(); x.fillStyle = 'rgba(255,255,255,.9)'; for (let i = 0; i < 4; i++) { x.rotate(Math.PI/2); x.beginPath(); x.moveTo(-2, 0); x.lineTo(0, -31); x.lineTo(2, 0); x.fill(); } });
+  WZT.twinkle = []; for (let i = 0; i < 46; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({map:spark, transparent:true, depthWrite:false, fog:false, blending:THREE.AdditiveBlending, color:[0xFFFFFF, 0xBFD8FF, 0xFFC8F0][i % 3]})); const a = Math.random()*Math.PI*2, y = .15 + Math.random()*.8, r = Math.sqrt(1 - y*y); s.position.set(Math.cos(a)*r*2900, y*2900, Math.sin(a)*r*2900); const k = 28 + Math.random()*40; s.scale.set(k, k, 1); s.userData.k = k; s.userData.ph = Math.random()*6; g.add(s); WZT.twinkle.push(s); }
+  // nebulae: soft purple, magenta and blue clouds of light across the sky
+  const neb = c => wzCanvasTex(256, 256, x => { for (let i = 0; i < 26; i++) { const px = 128 + (Math.random() - .5)*150, py = 128 + (Math.random() - .5)*110, r = 30 + Math.random()*70, gr = x.createRadialGradient(px, py, 0, px, py, r); gr.addColorStop(0, c.replace('A', String(.16 + Math.random()*.14))); gr.addColorStop(1, c.replace('A', '0')); x.fillStyle = gr; x.fillRect(0, 0, 256, 256); } });
+  const nebs = ['rgba(150,70,255,A)', 'rgba(255,60,190,A)', 'rgba(70,110,255,A)', 'rgba(170,90,255,A)', 'rgba(120,60,220,A)', 'rgba(230,80,220,A)', 'rgba(90,80,255,A)'];
+  nebs.forEach((c, i) => { const s = new THREE.Sprite(new THREE.SpriteMaterial({map:neb(c), transparent:true, depthWrite:false, fog:false, blending:THREE.AdditiveBlending, opacity:.9})); const a = i/nebs.length*Math.PI*2 + .4, y = .25 + (i % 3)*.18, r = Math.sqrt(1 - y*y); s.position.set(Math.cos(a)*r*2700, y*2700, Math.sin(a)*r*2700); const k = 1500 + Math.random()*900; s.scale.set(k*1.5, k, 1); s.material.rotation = Math.random()*3; g.add(s); });
+  // the crescent moon and its glow
+  const moonT = wzCanvasTex(256, 256, x => { const gr = x.createRadialGradient(128, 128, 40, 128, 128, 128); gr.addColorStop(0, 'rgba(220,230,255,.5)'); gr.addColorStop(1, 'rgba(160,150,255,0)'); x.fillStyle = gr; x.fillRect(0, 0, 256, 256); x.fillStyle = '#F4F6FF'; x.beginPath(); x.arc(128, 128, 56, 0, 7); x.fill(); x.globalCompositeOperation = 'destination-out'; x.beginPath(); x.arc(150, 112, 50, 0, 7); x.fill(); });
+  const moon = new THREE.Sprite(new THREE.SpriteMaterial({map:moonT, transparent:true, depthWrite:false, fog:false})); const md = V3(-.55, .42, -.72).normalize(); moon.position.copy(md.multiplyScalar(2600)); moon.scale.set(560, 560, 1); g.add(moon);
+  for (let i = 0; i < 14; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({map:WZT_TEX.cloud(), transparent:true, depthWrite:false, fog:false, opacity:.9})); const a = i/14*Math.PI*2 + Math.random(), y = .05 + Math.random()*.16, r = Math.sqrt(1 - y*y); s.position.set(Math.cos(a)*r*2400, y*2400, Math.sin(a)*r*2400); s.scale.set(900 + Math.random()*700, 380 + Math.random()*200, 1); g.add(s); }
+  g.traverse(o => { o.userData.noRay = true; o.frustumCulled = false; o.renderOrder = -9; }); g.visible = false; scene.add(g); return (WZT.sky = g);
+}
+function wzWispsBuild(){
+  if (WZT.wisps) return WZT.wisps; const N = 110, pos = new Float32Array(N*3), col = new Float32Array(N*3), d = [];
+  for (let i = 0; i < N; i++) { const c = i % 3 ? [.35, 1, .6] : [.55, .9, 1]; col[i*3] = c[0]; col[i*3 + 1] = c[1]; col[i*3 + 2] = c[2]; d.push({x:0, y:0, z:0, ph:Math.random()*6, sp:.3 + Math.random()*.6, set:false}); }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const tex = wzCanvasTex(32, 32, x => { const gr = x.createRadialGradient(16, 16, 0, 16, 16, 16); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.3, 'rgba(255,255,255,.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = gr; x.fillRect(0, 0, 32, 32); });
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({size:.45, map:tex, vertexColors:true, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending}));
+  pts.frustumCulled = false; pts.userData.noRay = true; pts.visible = false; scene.add(pts); return (WZT.wisps = {pts, d});
+}
+function wzTheme(on){
+  if (on === WZT.on) { if (on) wzThemeRound(); return; }
+  WZT.on = on; const sky = wzSkyBuild(), w = wzWispsBuild();
+  if (on) {
+    WZT.saved = {hs:hemi.color.getHex(), hg:hemi.groundColor.getHex(), hi:hemi.intensity, sc:sun.color.getHex(), si:sun.intensity, fn:scene.fog.near, ff:scene.fog.far, sea:seaMat.color.getHex(), nat:NAT_MAT.color.getHex(), vig:($('vignette') || {}).style && $('vignette').style.background};
+    hemi.color.setHex(0x7A70D8); hemi.groundColor.setHex(0x163A2E); hemi.intensity = .78; sun.color.setHex(0xB0BAFF); sun.intensity = .72;
+    scene.fog.near = 30; scene.fog.far = 330; seaMat.color.setHex(0x16203F); NAT_MAT.color.setHex(0x8A9AC0);
+    if ($('vignette')) $('vignette').style.background = 'radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(8,4,24,.62) 100%)';
+    OUTLINE_MAT.visible = false; islandTop.material = wzaMats().ground; for (const c of clouds) c.visible = false;
+    sky.visible = true; w.pts.visible = true; w.d.forEach(q => q.set = false); wzThemeRound();
+  } else if (WZT.saved) {
+    const S = WZT.saved; hemi.color.setHex(S.hs); hemi.groundColor.setHex(S.hg); hemi.intensity = S.hi; sun.color.setHex(S.sc); sun.intensity = S.si; scene.fog.near = S.fn; scene.fog.far = S.ff; seaMat.color.setHex(S.sea); NAT_MAT.color.setHex(S.nat);
+    if ($('vignette') && S.vig) $('vignette').style.background = S.vig; sky.visible = false; w.pts.visible = false;
+    OUTLINE_MAT.visible = true; islandTop.material = terrainMat; for (const c of clouds) c.visible = true;
+  }
+}
+// per round (roundGroup is rebuilt with every map): castles at the corners, runes on the ground
+function wzThemeRound(){
+  const rng = mulberry32(((G.seed || 1) ^ 0xCA57) >>> 0), spots = [[-104, -104, 0, 2.1], [104, -100, 1, 1.7], [-100, 106, 2, 1.8], [102, 104, 0, 1.5]];
+  wzaBuildMap();   /* the Wizards map (castles, village, church, roads, forest) */
+  WZT.runes = []; for (let i = 0; i < 7; i++) { const a = rng()*Math.PI*2, r = 25 + rng()*70, x = Math.cos(a)*r, z = Math.sin(a)*r, id = WZ_IDS[Math.floor(rng()*WZ_IDS.length)];
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({map:wzTex(id, i % 2 ? 0xB060FF : 0x40FFB0), transparent:true, opacity:.5, depthWrite:false, blending:THREE.AdditiveBlending})); m.rotation.x = -Math.PI/2; const k = 7 + rng()*6; m.scale.set(k, k, 1); m.position.set(x, groundH(x, z) + .1, z); m.userData.noRay = true; m.renderOrder = 3; roundGroup.add(m); WZT.runes.push(m); }
+}
+function wzCastle(cx, cz, style, s, rng){
+  const stone = [0x4A3A6A, 0x2E3446, 0x3A4A7A][style], roof = [0x2A1E52, 0x1C2030, 0x22306A][style], acc = [0x2E6A5E, 0x4A2A6A, 0x6A4AA8][style], g = new THREE.Group(), gy = groundH(cx, cz) - .3;
+  g.position.set(cx, gy, cz); g.rotation.y = Math.atan2(-cx, -cz); g.scale.setScalar(s);
+  const box = (w, h, d, c, x, y, z) => bx(w, h, d, c, x, y, z, g), cyl = (r0, r1, h, c, x, y, z, n) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r0, r1, h, n || 12), M3(c)); m.position.set(x, y, z); g.add(m); return m; }, cone = (r, h, c, x, y, z) => { const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 12), M3(c)); m.position.set(x, y, z); g.add(m); return m; };
+  box(14, 11, 10, stone, 0, 5.5, 0); for (let i = -6; i <= 6; i += 1.6) { box(.8, .9, .8, stone, i, 11.4, 4.6); box(.8, .9, .8, stone, i, 11.4, -4.6); }
+  for (const [x, z] of [[-7, 5], [7, 5], [-7, -5], [7, -5]]) { cyl(2.3, 2.6, 16, stone, x, 8, z); cyl(2.8, 2.8, .6, acc, x, 16.2, z); cone(3.2, 7, roof, x, 19.8, z); }
+  cyl(2, 2.2, 26, stone, 0, 13, -3); cone(2.7, 10, roof, 0, 31, -3); cyl(2.5, 2.5, .5, acc, 0, 26.2, -3);
+  for (const x of [-3.5, 3.5]) { cyl(1.1, 1.2, 5, stone, x, 13.5, 2); cone(1.5, 3.6, roof, x, 17.8, 2); }
+  box(3.4, 5, 1, 0x0E0A14, 0, 2.5, 5.05); cyl(1.7, 1.7, 1, 0x0E0A14, 0, 5, 5.05, 16).rotation.x = Math.PI/2;
+  mergeToon(g); addOutline(g);
+  // lit windows (one instanced mesh)
+  const wins = []; for (let i = 0; i < 26; i++) { const side = i % 3; if (side === 0) wins.push([rr(-5.5, 5.5), 3 + Math.floor(rng()*3)*2.6, 5.06, 0]); else if (side === 1) { const tx = [-7, 7][i % 2]; wins.push([tx, 4 + Math.floor(rng()*4)*3, 5 + 2.62 - .5, 0]); } else wins.push([0, 8 + Math.floor(rng()*5)*3.4, -3 + 2.1, 0]); }
+  const wi = new THREE.InstancedMesh(new THREE.BoxGeometry(.7, 1.2, .12), new THREE.MeshBasicMaterial({color:0xFFC86A}), wins.length), mtx = new THREE.Matrix4();
+  wins.forEach(([x, y, z], i) => { mtx.makeTranslation(x, y, z); wi.setMatrixAt(i, mtx); }); wi.userData.noRay = true; g.add(wi);
+  noRayAll(g); roundGroup.add(g);
+  // solid, and nothing else stands inside it
+  const R = 11*s; for (const pr of props) if (!pr.dead && Math.hypot(pr.x - cx, pr.z - cz) < R + 2) { pr.dead = true; if (pr.body && pr.body.world) world.removeBody(pr.body); if (pr.mesh) roundGroup.remove(pr.mesh); if (pr.cap) roundGroup.remove(pr.cap); }
+  const b = new CANNON.Body({mass:0, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(9*s, 12*s, 7*s))); b.position.set(cx, gy + 10*s, cz); b.quaternion.setFromEuler(0, g.rotation.y, 0); world.addBody(b);
+}
+function wzThemeFrame(dt){
+  const c = camera.position, sky = WZT.sky; sky.position.copy(c);
+  skyMat.uniforms.top.value.setHex(0x05061C); skyMat.uniforms.mid.value.setHex(0x2A1656); skyMat.uniforms.bot.value.setHex(0x0C0820); scene.fog.color.setHex(0x1C1238);
+  sunDisk.visible = sunGlow.visible = false; cloudMat.color.setHex(0x2A2650);
+  tufts.material.color.setHex(0x1E5A44);
+  for (const s of WZT.twinkle) { const k = s.userData.k*(.75 + .35*Math.sin(G.t*2.2 + s.userData.ph)); s.scale.set(k, k, 1); }
+  // wisps drift round the player
+  const W = WZT.wisps, me = localP(), cx = me ? me.body.position.x : c.x, cz = me ? me.body.position.z : c.z, a = W.pts.geometry.attributes.position;
+  W.d.forEach((q, i) => { if (!q.set || Math.hypot(q.x - cx, q.z - cz) > 45) { const an = Math.random()*Math.PI*2, r = 6 + Math.random()*38; q.x = cx + Math.cos(an)*r; q.z = cz + Math.sin(an)*r; q.y = groundH(q.x, q.z) + .6 + Math.random()*4; q.set = true; }
+    q.ph += dt*q.sp; q.x += Math.sin(q.ph*1.3)*dt*.6; q.z += Math.cos(q.ph)*dt*.6; q.y += Math.sin(q.ph*2)*dt*.3; a.setXYZ(i, q.x, q.y, q.z); });
+  a.needsUpdate = true; W.pts.material.size = .35 + Math.sin(G.t*3)*.08;
+  if (WZT.runes) for (const m of WZT.runes) { m.rotation.z += dt*.1; m.material.opacity = .35 + Math.sin(G.t*1.5 + m.position.x)*.15; }
+}
+
+/* ---------- Wizards: background music (music/wizards.mp3), 20% volume, looping; quiet when the game is muted ---------- */
+const WZM = {a:null, want:false};
+function wzMusic(on){
+  WZM.want = on;
+  if (on && !WZM.a) { WZM.a = new Audio('music/wizards.mp3'); WZM.a.loop = true; WZM.a.volume = .2; WZM.a.preload = 'auto'; WZM.a.addEventListener('error', () => { WZM.a = null; WZM.want = false; }); }
+  wzMusicSync();
+}
+function wzMusicSync(){ const a = WZM.a; if (!a) return; if (WZM.want && !muted && !document.hidden) { if (a.paused) a.play().catch(() => {}); } else if (!a.paused) a.pause(); }
+// browsers only allow sound after a click or key: try again on the next one
+addEventListener('pointerdown', () => { if (WZM.want) wzMusicSync(); }, true); addEventListener('keydown', () => { if (WZM.want) wzMusicSync(); }, true);
+document.addEventListener('visibilitychange', wzMusicSync);
+// the ground at night: dark teal grass with patches of glowing moss
+const _wzMoss = new THREE.Color(0x3AFFA0), _wzTint = new THREE.Color(.4, .62, .58);
+function wzGround(c, x, z){ c.multiply(_wzTint); const n = Math.sin(x*.9 + Math.sin(z*.37)*3)*Math.cos(z*.8 + Math.sin(x*.29)*3); if (n > .8) c.lerp(_wzMoss, Math.min(.55, (n - .8)*2.4)); return c; }
+
+const WIZ_MAP = {name:'Moonlit Vale', e:'🌙', d:'A cold night. Something watches from the castles.'};
+
+/* ---------- Wizards art: an early-2000s look. Low-poly shapes with clear silhouettes, painted textures (drawn here on
+   canvases: grass, cobblestone, castle stone, shingles, bark, pine needles, rock, robes with gold trim, faces, beards, timber
+   and plaster, glowing windows, a clock), smooth per-vertex lighting (Lambert), no cartoon outlines. The Wizards map is its
+   own: a ritual plaza in the middle, glowing cobblestone roads, castles at the corners, a lamp-lit village, a clock-tower
+   church with a graveyard, a dark pine forest. Scenery is merged per material (a dozen draw calls) and gets simple colliders. */
+const WZA = {tex:{}, mat:{}, cloth:{}, batch:null};
+const wzaRng = key => { let h = 7; for (const ch of key) h = (h*31 + ch.charCodeAt(0)) >>> 0; return mulberry32(h); };
+function wzaTex(key, W, H, draw){
+  if (WZA.tex[key]) return WZA.tex[key]; const c = document.createElement('canvas'); c.width = W; c.height = H || W; const g = c.getContext('2d');
+  draw(g, W, H || W, wzaRng(key)); const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; return (WZA.tex[key] = t);
+}
+const hsl = (h, s, l, a) => `hsla(${h},${s}%,${l}%,${a == null ? 1 : a})`;
+const wrap9 = (S, fn) => { for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) fn(ox, oy); };
+function blotches(g, S, r, n, col, rad){ for (let i = 0; i < n; i++) { const x = r()*S, y = r()*S, R = rad*(.5 + r()); wrap9(S, (ox, oy) => { const gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, R); gr.addColorStop(0, col(r)); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x + ox - R, y + oy - R, R*2, R*2); }); } }
+const WZT_TEX = {
+  grass:() => wzaTex('grass', 256, 256, (g, S, _, r) => { g.fillStyle = hsl(150, 28, 34); g.fillRect(0, 0, S, S); blotches(g, S, r, 30, r => hsl(140 + r()*30, 30, 20 + r()*25, .35), 40);
+    for (let i = 0; i < 7000; i++) { const x = r()*S, y = r()*S, l = 3 + r()*6, a = -Math.PI/2 + (r() - .5)*.9; g.strokeStyle = hsl(125 + r()*45, 25 + r()*25, 16 + r()*36, .8); g.lineWidth = 1; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a)*l, y + Math.sin(a)*l); g.stroke(); } }),
+  cobble:() => wzaTex('cobble', 256, 256, (g, S, _, r) => { g.fillStyle = hsl(225, 18, 12); g.fillRect(0, 0, S, S); const N = 7, cell = S/N;
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const cx = (i + .5 + (r() - .5)*.35)*cell, cy = (j + .5 + (r() - .5)*.35)*cell, rad = cell*.43, l = 30 + r()*22, h = 205 + r()*30, pts = []; for (let k = 0; k < 8; k++) { const a = k/8*Math.PI*2 + r()*.3; pts.push([Math.cos(a)*rad*(.78 + r()*.25), Math.sin(a)*rad*(.78 + r()*.25)]); }
+      wrap9(S, (ox, oy) => { g.beginPath(); pts.forEach(([x, y], k) => k ? g.lineTo(cx + ox + x, cy + oy + y) : g.moveTo(cx + ox + x, cy + oy + y)); g.closePath(); const gr = g.createRadialGradient(cx + ox - rad*.3, cy + oy - rad*.3, 1, cx + ox, cy + oy, rad*1.1); gr.addColorStop(0, hsl(h, 14, l + 14)); gr.addColorStop(1, hsl(h, 16, l - 8)); g.fillStyle = gr; g.fill(); }); }
+    blotches(g, S, r, 14, r => hsl(150, 50, 30, .25), 22); }),
+  brick:hue => wzaTex('brick' + hue, 256, 256, (g, S, _, r) => { g.fillStyle = hsl(hue, 12, 12); g.fillRect(0, 0, S, S); const rows = 8, h = S/rows;
+    for (let j = 0; j < rows; j++) { const n = 4, w = S/n, off = j % 2 ? w/2 : 0; for (let i = -1; i < n; i++) { const x = i*w + off + 2, y = j*h + 2, l = 22 + r()*16; const gr = g.createLinearGradient(x, y, x, y + h); gr.addColorStop(0, hsl(hue, 14 + r()*8, l + 8)); gr.addColorStop(1, hsl(hue, 14, l - 6)); g.fillStyle = gr; g.fillRect(x, y, w - 4, h - 4);
+      for (let k = 0; k < 18; k++) { g.fillStyle = hsl(hue, 10, l + (r() - .5)*20, .5); g.fillRect(x + r()*(w - 6), y + r()*(h - 6), 2, 2); } } }
+    blotches(g, S, r, 8, r => hsl(140, 45, 22, .4), 30); }),
+  roof:hue => wzaTex('roof' + hue, 128, 128, (g, S, _, r) => { g.fillStyle = hsl(hue, 22, 10); g.fillRect(0, 0, S, S); const rows = 8, h = S/rows;
+    for (let j = rows; j >= -1; j--) { const n = 6, w = S/n, off = j % 2 ? w/2 : 0; for (let i = -1; i <= n; i++) { const x = i*w + off, y = j*h; g.fillStyle = hsl(hue, 20 + r()*10, 18 + r()*12); g.beginPath(); g.moveTo(x + 1, y); g.lineTo(x + w - 1, y); g.lineTo(x + w - 1, y + h*.9); g.quadraticCurveTo(x + w/2, y + h*1.35, x + 1, y + h*.9); g.closePath(); g.fill(); g.strokeStyle = hsl(hue, 25, 6, .8); g.stroke(); } } }),
+  bark:() => wzaTex('bark', 128, 128, (g, S, _, r) => { g.fillStyle = hsl(25, 22, 18); g.fillRect(0, 0, S, S); for (let i = 0; i < 140; i++) { const x = r()*S, w = 1 + r()*4; g.fillStyle = hsl(22 + r()*12, 18 + r()*12, 8 + r()*22, .8); g.fillRect(x, 0, w, S); } for (let i = 0; i < 40; i++) { g.fillStyle = hsl(25, 20, 6, .7); g.fillRect(r()*S, r()*S, 2 + r()*6, 1); } }),
+  needles:hue => wzaTex('needles' + hue, 128, 128, (g, S, _, r) => { g.fillStyle = hsl(hue, 40, 13); g.fillRect(0, 0, S, S); for (let i = 0; i < 2600; i++) { const x = r()*S, y = r()*S, a = (r() < .5 ? -1 : 1)*(.5 + r()*.5) + Math.PI/2, l = 3 + r()*5; g.strokeStyle = hsl(hue - 15 + r()*30, 35 + r()*20, 8 + r()*26, .9); g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a)*l, y + Math.sin(a)*l); g.stroke(); } }),
+  rock:() => wzaTex('rock', 128, 128, (g, S, _, r) => { g.fillStyle = hsl(225, 10, 32); g.fillRect(0, 0, S, S); blotches(g, S, r, 40, r => hsl(220 + r()*20, 8 + r()*8, 18 + r()*30, .5), 18);
+    for (let i = 0; i < 12; i++) { let x = r()*S, y = r()*S; g.strokeStyle = hsl(225, 15, 10, .8); g.lineWidth = 1; g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 5; k++) { x += (r() - .5)*20; y += r()*14; g.lineTo(x, y); } g.stroke(); }
+    blotches(g, S, r, 8, r => hsl(145, 45, 26, .55), 14); }),
+  wood:() => wzaTex('wood', 128, 128, (g, S, _, r) => { g.fillStyle = hsl(25, 30, 18); g.fillRect(0, 0, S, S); for (let i = 0; i < 4; i++) { g.fillStyle = hsl(25, 30, 14 + r()*10); g.fillRect(i*S/4 + 1, 0, S/4 - 2, S); } for (let i = 0; i < 80; i++) { g.fillStyle = hsl(25, 25, 8 + r()*10, .6); g.fillRect(r()*S, r()*S, 1, 6 + r()*20); } }),
+  timber:() => wzaTex('timber', 256, 256, (g, S, _, r) => { g.fillStyle = hsl(40, 25, 62); g.fillRect(0, 0, S, S); blotches(g, S, r, 24, r => hsl(40, 20, 45 + r()*20, .4), 30); g.fillStyle = hsl(22, 35, 13);
+    g.fillRect(0, 0, S, 16); g.fillRect(0, S - 16, S, 16); for (const x of [0, S/2 - 8, S - 16]) g.fillRect(x, 0, 16, S);
+    g.lineWidth = 12; g.strokeStyle = hsl(22, 35, 13); g.beginPath(); g.moveTo(16, S - 16); g.lineTo(S/2 - 8, 16); g.moveTo(S/2 + 8, 16); g.lineTo(S - 16, S - 16); g.stroke(); }),
+  iron:() => wzaTex('iron', 64, 64, (g, S, _, r) => { g.fillStyle = hsl(230, 10, 14); g.fillRect(0, 0, S, S); for (let i = 0; i < 200; i++) { g.fillStyle = hsl(230, 8, 8 + r()*16, .6); g.fillRect(r()*S, r()*S, 2, 2); } }),
+  window:() => wzaTex('window', 64, 128, (g, W, H) => { g.clearRect(0, 0, W, H); g.beginPath(); g.moveTo(4, H - 4); g.lineTo(4, 30); g.quadraticCurveTo(W/2, -8, W - 4, 30); g.lineTo(W - 4, H - 4); g.closePath();
+    const gr = g.createRadialGradient(W/2, H*.6, 4, W/2, H*.6, H*.6); gr.addColorStop(0, '#FFE6A0'); gr.addColorStop(1, '#E08A30'); g.fillStyle = gr; g.fill(); g.lineWidth = 6; g.strokeStyle = '#2A1A10'; g.stroke();
+    g.lineWidth = 4; g.beginPath(); g.moveTo(W/2, 14); g.lineTo(W/2, H - 4); g.moveTo(4, H*.55); g.lineTo(W - 4, H*.55); g.stroke(); }),
+  clock:() => wzaTex('clock', 128, 128, (g, S) => { g.fillStyle = '#20180E'; g.fillRect(0, 0, S, S); g.beginPath(); g.arc(64, 64, 56, 0, 7); const gr = g.createRadialGradient(64, 64, 4, 64, 64, 56); gr.addColorStop(0, '#FFF4C0'); gr.addColorStop(1, '#D9B860'); g.fillStyle = gr; g.fill(); g.lineWidth = 5; g.strokeStyle = '#3A2A14'; g.stroke();
+    g.fillStyle = '#3A2A14'; for (let i = 0; i < 12; i++) { const a = i/12*Math.PI*2; g.fillRect(64 + Math.cos(a)*46 - 3, 64 + Math.sin(a)*46 - 3, 6, 6); } g.lineWidth = 5; g.beginPath(); g.moveTo(64, 64); g.lineTo(64, 28); g.moveTo(64, 64); g.lineTo(90, 72); g.stroke(); }),
+  skin:(hex, glow) => wzaTex('face' + hex + (glow ? 'g' : ''), 256, 128, (g, W, H) => { const c = '#' + hex.toString(16).padStart(6, '0'); g.fillStyle = c; g.fillRect(0, 0, W, H); if (glow) { g.fillStyle = 'rgba(0,0,0,.4)'; g.fillRect(0, 0, W, H); return; }
+    const fx = W*.25, ey = H*.46; g.fillStyle = 'rgba(120,40,30,.18)'; for (const s of [-1, 1]) { g.beginPath(); g.ellipse(fx + s*18, ey + 14, 10, 7, 0, 0, 7); g.fill(); }
+    g.fillStyle = 'rgba(60,30,20,.35)'; for (const s of [-1, 1]) { g.beginPath(); g.ellipse(fx + s*11, ey, 8, 5, 0, 0, 7); g.fill(); }
+    for (const s of [-1, 1]) { g.fillStyle = '#F4EEE4'; g.beginPath(); g.ellipse(fx + s*11, ey, 5, 3, 0, 0, 7); g.fill(); g.fillStyle = '#2A3A5A'; g.beginPath(); g.arc(fx + s*11, ey, 2.3, 0, 7); g.fill(); }
+    g.strokeStyle = 'rgba(70,40,30,.5)'; g.lineWidth = 2; g.beginPath(); g.moveTo(fx, ey + 2); g.lineTo(fx - 2, ey + 14); g.lineTo(fx + 3, ey + 15); g.stroke();
+    g.strokeStyle = 'rgba(70,40,30,.3)'; g.lineWidth = 1; for (let i = 0; i < 3; i++) { g.beginPath(); g.moveTo(fx - 10, ey - 12 - i*4); g.lineTo(fx + 10, ey - 12 - i*4); g.stroke(); } }),
+  hair:hex => wzaTex('hair' + hex, 64, 128, (g, W, H, r) => { const c = new THREE.Color(hex); g.fillStyle = '#' + hex.toString(16).padStart(6, '0'); g.fillRect(0, 0, W, H);
+    for (let i = 0; i < 260; i++) { const x = r()*W, l = .7 + r()*.6; g.strokeStyle = `rgba(${Math.min(255, c.r*255*l)|0},${Math.min(255, c.g*255*l)|0},${Math.min(255, c.b*255*l)|0},.8)`; g.lineWidth = 1 + r(); g.beginPath(); g.moveTo(x, 0); g.quadraticCurveTo(x + (r() - .5)*10, H/2, x + (r() - .5)*6, H); g.stroke(); } }),
+  // cloth: a weave, folds, and a gold-trimmed hem (v = 0 is the bottom of the canvas)
+  cloth:(hex, trim, band) => wzaTex('cloth' + hex + '_' + trim + (band || ''), 256, 256, (g, S, _, r) => { const c = new THREE.Color(hex), t = new THREE.Color(trim), rgb = (q, k, a) => `rgba(${Math.min(255, q.r*255*k)|0},${Math.min(255, q.g*255*k)|0},${Math.min(255, q.b*255*k)|0},${a == null ? 1 : a})`;
+    g.fillStyle = rgb(c, 1); g.fillRect(0, 0, S, S); for (let i = 0; i < 16; i++) { const x = i*S/16; const gr = g.createLinearGradient(x, 0, x + S/16, 0); gr.addColorStop(0, rgb(c, .7, .5)); gr.addColorStop(.5, rgb(c, 1.25, .35)); gr.addColorStop(1, rgb(c, .7, .5)); g.fillStyle = gr; g.fillRect(x, 0, S/16, S); }
+    for (let i = 0; i < 3000; i++) { g.fillStyle = rgb(c, .6 + r()*.7, .25); g.fillRect(r()*S, r()*S, 2, 1); }
+    const hem = band === 'hat' ? [S*.8, S*.86] : [S - 22, S - 8]; g.fillStyle = rgb(t, 1); g.fillRect(0, hem[0], S, hem[1] - hem[0]); g.fillStyle = rgb(t, .55); for (let x = 0; x < S; x += 16) { g.beginPath(); g.arc(x + 8, (hem[0] + hem[1])/2, 3, 0, 7); g.fill(); }
+    if (band !== 'hat') { g.fillStyle = rgb(t, .9); g.fillRect(0, 2, S, 6); } }),
+  cloud:() => wzaTex('cloud', 256, 128, (g, W, H, r) => { for (let i = 0; i < 30; i++) { const x = W*.15 + r()*W*.7, y = H*.4 + r()*H*.3, R = 18 + r()*30, gr = g.createRadialGradient(x, y - R*.3, 0, x, y, R); gr.addColorStop(0, 'rgba(120,100,190,.5)'); gr.addColorStop(.6, 'rgba(40,30,80,.45)'); gr.addColorStop(1, 'rgba(20,15,45,0)'); g.fillStyle = gr; g.fillRect(x - R, y - R, R*2, R*2); } })
+};
+function wzaMat(key, make){ return WZA.mat[key] || (WZA.mat[key] = make()); }
+const wzaLam = (map, o) => new THREE.MeshLambertMaterial(Object.assign({map, color:0xFFFFFF}, o || {}));
+// geometry with world-sized UVs (one texture repeat per `tile` metres)
+function uvScale(geo, su, sv){ const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i)*su, uv.getY(i)*sv); return geo; }
+function boxUV(w, h, d, tile){ const g = new THREE.BoxGeometry(w, h, d), uv = g.attributes.uv, dims = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]]; for (let f = 0; f < 6; f++) for (let k = 0; k < 4; k++) { const i = f*4 + k; uv.setXY(i, uv.getX(i)*dims[f][0]/tile, uv.getY(i)*dims[f][1]/tile); } return g; }
+const cylUV = (r0, r1, h, n, tile, open) => uvScale(new THREE.CylinderGeometry(r0, r1, h, n, 1, !!open), Math.PI*2*Math.max(r0, r1)/tile, h/tile);
+const coneUV = (r, h, n, tile) => uvScale(new THREE.ConeGeometry(r, h, n), Math.PI*2*r/tile, Math.hypot(r, h)/tile);
+// collect scenery by material, then merge each into one mesh
+const _wzaM = new THREE.Matrix4(), _wzaQ = new THREE.Quaternion(), _wzaE = new THREE.Euler(), _wzaP = new THREE.Vector3(), _wzaS = new THREE.Vector3();
+function wzaPut(geo, key, x, y, z, ry, rx, rz, sx, sy, sz){
+  _wzaE.set(rx || 0, ry || 0, rz || 0); _wzaQ.setFromEuler(_wzaE); _wzaM.compose(_wzaP.set(x, y, z), _wzaQ, _wzaS.set(sx || 1, sy || sx || 1, sz || sx || 1));
+  const g = (geo.index ? geo.toNonIndexed() : geo.clone()).applyMatrix4(_wzaM); (WZA.batch[key] = WZA.batch[key] || []).push(g);
+}
+function wzaPutIn(geo, key, parentM, x, y, z, ry, rx, rz, sx, sy, sz){ _wzaE.set(rx || 0, ry || 0, rz || 0); _wzaQ.setFromEuler(_wzaE); const m = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), _wzaQ.clone(), new THREE.Vector3(sx || 1, sy || sx || 1, sz || sx || 1)); const g = (geo.index ? geo.toNonIndexed() : geo.clone()).applyMatrix4(parentM.clone().multiply(m)); (WZA.batch[key] = WZA.batch[key] || []).push(g); }
+function wzaMerge(list){
+  let n = 0; for (const g of list) n += g.attributes.position.count;
+  const pos = new Float32Array(n*3), nor = new Float32Array(n*3), uv = new Float32Array(n*2); let o = 0;
+  for (const g of list) { const c = g.attributes.position.count; pos.set(g.attributes.position.array, o*3); if (g.attributes.normal) nor.set(g.attributes.normal.array, o*3); if (g.attributes.uv) uv.set(g.attributes.uv.array, o*2); o += c; g.dispose(); }
+  const m = new THREE.BufferGeometry(); m.setAttribute('position', new THREE.BufferAttribute(pos, 3)); m.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); m.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); m.computeBoundingSphere(); return m;
+}
+function wzaMats(){
+  const T = WZT_TEX;
+  return {
+    cobble: wzaMat('cobble', () => wzaLam(T.cobble(), {emissive:0x1A8070, emissiveMap:T.cobble(), emissiveIntensity:.55})),
+    plaza: wzaMat('plaza', () => wzaLam(T.cobble(), {color:0xB0A8D0, emissive:0x40308A, emissiveMap:T.cobble(), emissiveIntensity:.45})),
+    brickP: wzaMat('brickP', () => wzaLam(T.brick(262))), brickS: wzaMat('brickS', () => wzaLam(T.brick(220))), brickB: wzaMat('brickB', () => wzaLam(T.brick(235))),
+    roofP: wzaMat('roofP', () => wzaLam(T.roof(265))), roofS: wzaMat('roofS', () => wzaLam(T.roof(215))), roofG: wzaMat('roofG', () => wzaLam(T.roof(170))),
+    bark: wzaMat('bark', () => wzaLam(T.bark())), pineA: wzaMat('pineA', () => wzaLam(T.needles(165))), pineB: wzaMat('pineB', () => wzaLam(T.needles(140))),
+    rock: wzaMat('rock', () => wzaLam(T.rock())), wood: wzaMat('wood', () => wzaLam(T.wood())), timber: wzaMat('timber', () => wzaLam(T.timber())), iron: wzaMat('iron', () => wzaLam(T.iron())),
+    window: wzaMat('window', () => new THREE.MeshBasicMaterial({map:T.window(), transparent:true, alphaTest:.5, side:THREE.DoubleSide})),
+    clock: wzaMat('clock', () => new THREE.MeshBasicMaterial({map:T.clock()})),
+    ground: wzaMat('ground', () => { const t = T.grass().clone(); t.needsUpdate = true; t.repeat.set(ISL*2/5, ISL*2/5); return new THREE.MeshLambertMaterial({map:t, vertexColors:true}); })
+  };
+}
+/* ---------- the pieces ---------- */
+function wzaPine(x, z, s, r){
+  const gy = groundH(x, z), k = r() < .5 ? 'pineA' : 'pineB', lean = (r() - .5)*.08;
+  wzaPut(cylUV(.16*s, .3*s, 2.4*s, 7, 1.2), 'bark', x, gy + 1.2*s, z, r()*6, lean, 0);
+  let y = gy + 1.4*s, R = 1.9*s; for (let i = 0; i < 4; i++) { const h = 2.3*s - i*.25*s, cone = new THREE.ConeGeometry(R, h, 9, 1); const p = cone.attributes.position;
+    for (let v = 0; v < p.count; v++) if (p.getY(v) < -h/2 + .01) { const a = Math.atan2(p.getZ(v), p.getX(v)), j = 1 + (Math.sin(a*9 + i)*.12) + (r() - .5)*.1; p.setX(v, p.getX(v)*j); p.setZ(v, p.getZ(v)*j); p.setY(v, p.getY(v) - r()*.25*s); }
+    cone.computeVertexNormals(); uvScale(cone, 3, 2); wzaPut(cone, k, x, y + h/2, z, r()*6, lean); y += h*.55; R *= .74; }
+  wzaBody(x, gy + 1.5*s, z, [.3*s, 1.5*s, .3*s]);
+}
+function wzaDeadTree(x, z, s, r){
+  const gy = groundH(x, z), m = new THREE.Matrix4().compose(new THREE.Vector3(x, gy, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, r()*6, 0)), new THREE.Vector3(s, s, s));
+  wzaPutIn(cylUV(.12, .3, 4, 6, 1), 'bark', m, 0, 2, 0, 0, 0, .05);
+  for (let i = 0; i < 5; i++) { const a = i/5*Math.PI*2 + r(), h = 2.4 + i*.3, L = 1.2 + r()*1.4; wzaPutIn(cylUV(.04, .1, L, 5, 1), 'bark', m, Math.cos(a)*L*.35, h + L*.3, Math.sin(a)*L*.35, -a, 0, .9 + r()*.4); }
+  wzaBody(x, gy + 2*s, z, [.3*s, 2*s, .3*s]);
+}
+function wzaRock(x, z, s, r, tall){
+  const gy = groundH(x, z), g = new THREE.SphereGeometry(1, 8, 6), p = g.attributes.position, sd = r()*10;
+  for (let v = 0; v < p.count; v++) { const X = p.getX(v), Y = p.getY(v), Z = p.getZ(v), f = 1 + .22*Math.sin(X*3.1 + sd)*Math.cos(Z*2.7 + sd) + .14*Math.sin(Y*4.3 + sd*2); p.setXYZ(v, X*f, Y*f, Z*f); }
+  g.computeVertexNormals(); uvScale(g, 2, 1);
+  const sy = tall ? 2.4 + r() : .55 + r()*.3; wzaPut(g, 'rock', x, gy + sy*s*.45, z, r()*6, 0, 0, s*(tall ? .6 : 1), s*sy, s*(tall ? .5 : .85));
+  const b = new CANNON.Body({mass:0, material:PM.def}); b.addShape(tall ? new CANNON.Box(new CANNON.Vec3(.55*s, sy*s, .5*s)) : new CANNON.Sphere(.8*s)); b.position.set(x, gy + (tall ? sy*s*.45 : .3*s), z); world.addBody(b);
+}
+function wzaBody(x, y, z, half, ry){ const b = new CANNON.Body({mass:0, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(half[0], half[1], half[2]))); b.position.set(x, y, z); if (ry) b.quaternion.setFromEuler(0, ry, 0); world.addBody(b); return b; }
+function wzaWindowAt(m, x, y, z, ry, s){ wzaPutIn(new THREE.PlaneGeometry(.9*(s || 1), 1.7*(s || 1)), 'window', m, x, y, z, ry); }
+function wzaCastle(cx, cz, style, s){
+  const brick = ['brickP', 'brickS', 'brickB'][style], roof = ['roofP', 'roofS', 'roofG'][style], gy = groundH(cx, cz) - .5, ry = Math.atan2(-cx, -cz);
+  const m = new THREE.Matrix4().compose(new THREE.Vector3(cx, gy, cz), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new THREE.Vector3(s, s, s)), P = (geo, key, x, y, z, a, b, c) => wzaPutIn(geo, key, m, x, y, z, a, b, c);
+  P(boxUV(14, 11, 10, 3), brick, 0, 5.5, 0); for (let i = -6.2; i <= 6.3; i += 1.55) { P(boxUV(.9, 1, .9, 3), brick, i, 11.5, 4.6); P(boxUV(.9, 1, .9, 3), brick, i, 11.5, -4.6); }
+  for (const [x, z] of [[-7, 5], [7, 5], [-7, -5], [7, -5]]) { P(cylUV(2.3, 2.6, 16, 12, 3), brick, x, 8, z); P(cylUV(2.85, 2.85, .9, 12, 3), brick, x, 16.4, z); P(coneUV(3.2, 7.5, 12, 2), roof, x, 20.6, z); for (let k = 0; k < 3; k++) { const a = Math.atan2(x, z) + (k - 1)*.6; wzaWindowAt(m, x + Math.sin(a)*2.42, 6 + k*3.5, z + Math.cos(a)*2.42, a); } }
+  P(cylUV(2, 2.2, 26, 12, 3), brick, 0, 13, -3); P(cylUV(2.5, 2.5, .8, 12, 3), brick, 0, 26.3, -3); P(coneUV(2.8, 11, 12, 2), roof, 0, 32.2, -3); for (let k = 0; k < 4; k++) wzaWindowAt(m, 0, 15 + k*2.6, -3 + 2.12, 0, .8);
+  for (const x of [-3.6, 3.6]) { P(cylUV(1.1, 1.2, 5, 10, 3), brick, x, 13.5, 2); P(coneUV(1.5, 4, 10, 2), roof, x, 17.9, 2); }
+  for (let i = 0; i < 5; i++) for (let j = 0; j < 2; j++) wzaWindowAt(m, -5 + i*2.5, 3.8 + j*3.6, 5.05, 0);
+  P(boxUV(3.6, 5.2, .6, 2), 'wood', 0, 2.6, 5.05); P(cylUV(1.8, 1.8, .7, 12, 2), brick, 0, 5.2, 5.1, 0, Math.PI/2);
+  wzaBody(cx, gy + 10*s, cz, [9*s, 12*s, 7*s], ry);
+}
+function wzaHouse(x, z, ry, r){
+  const gy = groundH(x, z) - .3, w = 6 + r()*1.5, d = 5 + r(), m = new THREE.Matrix4().compose(new THREE.Vector3(x, gy, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new THREE.Vector3(1, 1, 1)), P = (geo, key, a, b, c, e, f, g2) => wzaPutIn(geo, key, m, a, b, c, e, f, g2);
+  P(boxUV(w, 3.2, d, 2.5), 'brickS', 0, 1.6, 0); P(boxUV(w + .5, 3, d + .5, 3), 'timber', 0, 4.6, 0);
+  P(boxUV(.9, 3, .9, 2), 'brickS', w*.3, 8, -d*.2); P(boxUV(1.3, 2.4, .2, 2), 'wood', 0, 1.2, d/2 + .05);
+  for (const sx of [-1, 1]) { wzaWindowAt(m, sx*w*.3, 1.9, d/2 + .06, 0, .8); wzaWindowAt(m, sx*w*.28, 4.7, d/2 + .3, 0, .9); } wzaWindowAt(m, 0, 4.7, d/2 + .3, 0, .9);
+  wzaBody(x, gy + 4, z, [w/2 + .3, 4, d/2 + .3], ry);
+  return {w, d};
+}
+function wzaRoofOf(x, z, ry, w, d, key){ const gy = groundH(x, z) - .3, g = new THREE.ConeGeometry(1, 1, 4); uvScale(g, 4, 2.5); const m = new THREE.Matrix4().compose(new THREE.Vector3(x, gy + 7.3, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry + Math.PI/4, 0)), new THREE.Vector3((w + 1.4)*.72, 2.8, (d + 1.4)*.72)); (WZA.batch[key] = WZA.batch[key] || []).push(g.toNonIndexed().applyMatrix4(m)); }
+function wzaLamp(x, z){
+  const gy = groundH(x, z); wzaPut(cylUV(.07, .1, 3.2, 6, 1), 'iron', x, gy + 1.6, z); wzaPut(boxUV(.4, .5, .4, 1), 'iron', x, gy + 3.35, z); wzaPut(new THREE.PlaneGeometry(.3, .38), 'window', x, gy + 3.35, z + .21); wzaPut(new THREE.PlaneGeometry(.3, .38), 'window', x, gy + 3.35, z - .21);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:WZT_TEX.glow(), color:0xFFC870, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending})); sp.position.set(x, gy + 3.35, z); sp.scale.set(3.2, 3.2, 1); sp.userData.noRay = true; roundGroup.add(sp);
+}
+WZT_TEX.glow = () => wzaTex('glow', 64, 64, (g, S) => { const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.25, 'rgba(255,255,255,.5)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, S, S); });
+function wzaChurch(x, z, ry){
+  const gy = groundH(x, z) - .4, m = new THREE.Matrix4().compose(new THREE.Vector3(x, gy, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new THREE.Vector3(1, 1, 1)), P = (geo, key, a, b, c, e, f, g2) => wzaPutIn(geo, key, m, a, b, c, e, f, g2);
+  P(boxUV(9, 8, 17, 3), 'brickS', 0, 4, -2);
+  P(boxUV(4.4, 19, 4.4, 3), 'brickS', 0, 9.5, 7.6); P(coneUV(3.4, 9, 4, 2), 'roofS', 0, 23.5, 7.6, Math.PI/4);
+  for (const [a, px, pz] of [[0, 0, 9.82], [Math.PI, 0, 5.38], [Math.PI/2, 2.22, 7.6], [-Math.PI/2, -2.22, 7.6]]) P(new THREE.CircleGeometry(1.4, 20), 'clock', px, 15.5, pz, a);
+  P(boxUV(2, 3.4, .3, 2), 'wood', 0, 1.7, 9.85); for (const sx of [-1, 1]) for (let k = 0; k < 3; k++) wzaWindowAt(m, sx*4.55, 4.5, -7 + k*4.5, sx*Math.PI/2, 1.3);
+  wzaBody(x, gy + 6, z, [5, 6, 9.5], ry);
+  // the nave roof: a long ridge (a squashed pyramid stretched along the nave)
+  const g = new THREE.ConeGeometry(1, 1, 4); uvScale(g, 6, 3); (WZA.batch.roofS = WZA.batch.roofS || []).push(g.toNonIndexed().applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(0, 0, 0), new THREE.Quaternion(), new THREE.Vector3(1, 1, 1))).applyMatrix4(m.clone().multiply(new THREE.Matrix4().compose(new THREE.Vector3(0, 10.2, -2), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI/4, 0)), new THREE.Vector3(6.6, 4.4, 12.4)))));
+}
+function wzaGrave(x, z, r){ const gy = groundH(x, z), ry = (r() - .5)*.4, tilt = (r() - .5)*.2;
+  if (r() < .3) { wzaPut(boxUV(.25, 1.6, .2, 1), 'rock', x, gy + .7, z, ry, tilt); wzaPut(boxUV(.9, .25, .2, 1), 'rock', x, gy + 1.1, z, ry, tilt); }
+  else { wzaPut(boxUV(.9, 1, .22, 1), 'rock', x, gy + .45, z, ry, tilt); wzaPut(uvScale(new THREE.CylinderGeometry(.45, .45, .22, 10, 1, false, 0, Math.PI), 1, 1), 'rock', x, gy + .95, z, ry + Math.PI/2, tilt, Math.PI/2); } }
+// a cobblestone road along points (a strip that hugs the ground)
+function wzaRoad(pts, w, key){
+  const curve = new THREE.CatmullRomCurve3(pts.map(([x, z]) => new THREE.Vector3(x, 0, z))), L = curve.getLength(), N = Math.ceil(L/1.5), sp = curve.getSpacedPoints(N);
+  const pos = [], uv = [], idx = []; let acc = 0;
+  for (let i = 0; i <= N; i++) { const a = sp[Math.max(0, i - 1)], b = sp[Math.min(N, i + 1)], dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz) || 1, nx = -dz/l, nz = dx/l; if (i) acc += sp[i].distanceTo(sp[i - 1]);
+    for (const s of [-1, 1]) { const x = sp[i].x + nx*w/2*s, z = sp[i].z + nz*w/2*s; pos.push(x, groundH(x, z) + .07, z); uv.push((s + 1)/2*w/2.5, acc/2.5); }
+    if (i < N) { const k = i*2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); } }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+  (WZA.batch[key] = WZA.batch[key] || []).push(g.toNonIndexed());
+  return sp;
+}
+/* ---------- the map ---------- */
+function wzaBuildMap(){
+  WZA.batch = {}; const r = mulberry32(((G.seed || 1) ^ 0xA77E) >>> 0), keep = [], near = (x, z, R) => keep.some(k => Math.hypot(k[0] - x, k[1] - z) < k[2] + R);
+  // the plaza and its standing stones
+  const pg = new THREE.CircleGeometry(15, 40); pg.rotateX(-Math.PI/2); uvScale(pg, 12, 12); wzaPut(pg, 'plaza', 0, groundH(0, 0) + .06, 0);
+  for (let i = 0; i < 9; i++) { const a = i/9*Math.PI*2; wzaRock(Math.cos(a)*16.5, Math.sin(a)*16.5, 1.1, r, true); } keep.push([0, 0, 20]);
+  // spawn grounds stay open
+  for (const sx of [-1, 1]) for (let z = -44; z <= 44; z += 11) keep.push([sx*ISL*.48, z, 9]);
+  // roads: to both spawns, the village, the church and every castle
+  const roads = [[[0, 0], [-30, 6], [-67, 0]], [[0, 0], [30, -6], [67, 0]], [[0, 0], [8, 40], [-4, 74], [0, 92]], [[0, 0], [-6, -40], [4, -72], [0, -80]], [[0, 0], [-40, -38], [-80, -84]], [[0, 0], [40, -35], [80, -80]], [[0, 0], [-38, 42], [-80, 86]], [[0, 0], [42, 40], [82, 84]]];
+  for (const rd of roads) { const sp = wzaRoad(rd, 3.6, 'cobble'); for (let i = 0; i < sp.length; i += 2) keep.push([sp[i].x, sp[i].z, 3]); }
+  // the castles
+  for (const [x, z, st, s] of [[-104, -104, 0, 1.9], [104, -100, 1, 1.6], [-100, 106, 2, 1.7], [102, 104, 0, 1.5]]) { wzaCastle(x, z, st, s); keep.push([x, z, 24*s]); }
+  // the village: a street of houses with lamps
+  for (let i = 0; i < 5; i++) { const x = -40 + i*20; for (const side of [-1, 1]) { const hz = 92 + side*9, ry = side < 0 ? 0 : Math.PI, h = wzaHouse(x, hz, ry, r); wzaRoofOf(x, hz, ry, h.w, h.d, r() < .5 ? 'roofP' : 'roofS'); keep.push([x, hz, 7]); } }
+  wzaRoad([[-52, 92], [0, 93], [52, 92]], 5, 'cobble'); for (let i = 0; i < 6; i++) wzaLamp(-45 + i*18, 92 + (i % 2 ? 3 : -3)); keep.push([0, 92, 10]);
+  // the church and its graveyard
+  wzaChurch(0, -96, 0); keep.push([0, -96, 16]); for (let i = 0; i < 22; i++) { const gx = (i % 2 ? 1 : -1)*(10 + (i % 4)*2.2) + r(), gz = -84 - Math.floor(i/4)*2.6; wzaGrave(gx, gz, r); } keep.push([0, -88, 14]);
+  for (let i = 0; i < 4; i++) wzaLamp(i < 2 ? -3 : 3, -60 + (i % 2)*-12);
+  // the forest
+  let trees = 0, dead = 0, rocks = 0;
+  for (let k = 0; k < 2600 && trees < 190; k++) { const x = (r()*2 - 1)*(ISL - 10), z = (r()*2 - 1)*(ISL - 10), cl = Math.sin(x*.035 + 1.3)*Math.cos(z*.03 - .7); if (cl < -.1 || near(x, z, 2.5)) continue; const s = .85 + r()*.6;
+    if (r() < .1 && dead < 26) { wzaDeadTree(x, z, s, r); dead++; } else { wzaPine(x, z, s, r); trees++; } keep.push([x, z, 2.2*s]); }
+  for (let k = 0; k < 600 && rocks < 55; k++) { const x = (r()*2 - 1)*(ISL - 8), z = (r()*2 - 1)*(ISL - 8); if (near(x, z, 2)) continue; wzaRock(x, z, .6 + r()*1.3, r, false); keep.push([x, z, 2]); rocks++; }
+  // merge and show
+  const M = wzaMats(); WZA.meshes = [];
+  for (const key in WZA.batch) { const list = WZA.batch[key]; if (!list.length || !M[key]) continue; const mesh = new THREE.Mesh(wzaMerge(list), M[key]); mesh.castShadow = key !== 'window' && key !== 'cobble' && key !== 'plaza' && key !== 'clock'; mesh.receiveShadow = true; mesh.userData.noRay = key === 'window' || key === 'clock'; roundGroup.add(mesh); WZA.meshes.push(mesh); }
+  WZA.batch = null;
+}
+
+/* ---------- wizards, sculpted: lathe-turned robes and hats, painted faces and beards ---------- */
+const wzaV = pts => pts.map(([r, y]) => new THREE.Vector2(r, y));
+function wzaCloth(hex, trim, band, side){ const k = hex + '_' + trim + (band || '') + (side || 0); return WZA.cloth[k] || (WZA.cloth[k] = new THREE.MeshLambertMaterial({map:WZT_TEX.cloth(hex, trim, band), side:side || THREE.FrontSide})); }
+function wzaLathe(pts, n){ const g = new THREE.LatheGeometry(wzaV(pts), n || 16); g.computeVertexNormals(); return g; }
+function wzaSkinMat(hex, glow){ return wzaMat('skin' + hex + (glow ? 'g' : ''), () => new THREE.MeshLambertMaterial({map:WZT_TEX.skin(hex, glow)})); }
+// build a wizard into `rig` (players: their rig; the dark coven: a group). o: robe, dark, trim, beard, face, eyes, glow, hat ('bent' 'tall' 'wide' 'hood')
+function wzaWizard(rig, o){
+  const robeM = wzaCloth(o.robe, o.trim, '', THREE.DoubleSide), darkM = wzaCloth(o.dark, o.trim, '', THREE.DoubleSide), lam = c => new THREE.MeshLambertMaterial({color:c}), add = (geo, mat, par, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x || 0, y || 0, z || 0); m.castShadow = true; (par || rig).add(m); return m; };
+  const legs = [-1, 1].map(s => { const p = new THREE.Group(); p.position.set(s*.13, .72, 0); add(new THREE.CylinderGeometry(.08, .09, .6, 8), lam(o.dark), p, 0, -.32, 0); const boot = add(new THREE.BoxGeometry(.18, .12, .3), lam(0x2A1A12), p, 0, -.64, .05); boot.geometry.translate(0, 0, 0); rig.add(p); return p; });
+  add(wzaLathe([[.6, .03], [.58, .1], [.52, .36], [.43, .64], [.34, .9], [.3, 1.0], [.33, 1.12], [.34, 1.24], [.3, 1.34], [.2, 1.43], [.12, 1.47]], 18), robeM, rig);
+  add(wzaLathe([[.44, 1.14], [.43, 1.2], [.38, 1.32], [.27, 1.43], [.15, 1.49]], 16), darkM, rig);   // the shoulder cape
+  const belt = add(new THREE.TorusGeometry(.31, .035, 6, 22), lam(0x3A2414), rig, 0, 1.0, 0); belt.rotation.x = Math.PI/2; add(new THREE.BoxGeometry(.1, .09, .04), lam(o.trim), rig, 0, 1.0, .32);
+  const strap = add(new THREE.BoxGeometry(.04, .95, .03), lam(0x5A3A1E), rig, .03, 1.12, .27); strap.rotation.z = .72; add(new THREE.BoxGeometry(.2, .22, .1), lam(0x6A4628), rig, .32, .8, .2);
+  const arms = [-1, 1].map(s => { const p = new THREE.Group(); p.position.set(s*.33, 1.33, 0);
+    add(wzaLathe([[.19, -.6], [.17, -.5], [.13, -.28], [.1, -.06], [.08, .02]], 12), robeM, p);
+    add(new THREE.SphereGeometry(.075, 10, 8), wzaSkinMat(o.glow ? 0x2A2430 : o.face), p, 0, -.62, 0); rig.add(p); return p; });
+  // the staff: a gnarled branch with a crystal held in a claw
+  const staff = new THREE.Group(); staff.position.set(0, -.62, .07); arms[1].add(staff);
+  const bark = new THREE.MeshLambertMaterial({map:WZT_TEX.bark()}); add(new THREE.CylinderGeometry(.035, .05, 1.95, 6), bark, staff, 0, .26, 0);
+  for (const a of [0, 2.1, 4.2]) { const c = add(new THREE.CylinderGeometry(.015, .03, .32, 5), bark, staff, Math.cos(a)*.06, 1.3, Math.sin(a)*.06); c.rotation.set(Math.sin(a)*.5, 0, -Math.cos(a)*.5); }
+  const cr = add(new THREE.OctahedronGeometry(.12, 0), new THREE.MeshBasicMaterial({color:o.crystal || 0x7CF0FF}), staff, 0, 1.42, 0); cr.scale.y = 1.5;
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({map:WZT_TEX.glow(), color:o.crystal || 0x7CF0FF, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending})); halo.position.y = 1.42; halo.scale.set(.75, .75, 1); halo.userData.noRay = true; staff.add(halo);
+  const head = new THREE.Group(); head.position.y = 1.67; rig.add(head);
+  const face = add(new THREE.SphereGeometry(.21, 18, 14), wzaSkinMat(o.face, o.glow), head); face.rotation.y = 0;
+  if (o.glow) for (const s of [-1, 1]) { const e = add(new THREE.SphereGeometry(.04, 8, 6), new THREE.MeshBasicMaterial({color:o.eyes}), head, s*.075, .03, .18); const gl = new THREE.Sprite(new THREE.SpriteMaterial({map:WZT_TEX.glow(), color:o.eyes, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending})); gl.scale.set(.22, .22, 1); e.add(gl); }
+  else { const nose = add(new THREE.ConeGeometry(.045, .13, 7), wzaSkinMat(o.face), head, 0, -.01, .22); nose.rotation.x = Math.PI/2 + .3; for (const s of [-1, 1]) { const br = add(new THREE.BoxGeometry(.1, .03, .04), lam(o.beard), head, s*.08, .09, .19); br.rotation.z = -s*.25; } }
+  if (o.beard != null && !o.glow) { const hm = new THREE.MeshLambertMaterial({map:WZT_TEX.hair(o.beard)}); add(new THREE.SphereGeometry(.225, 14, 10, Math.PI*.55, Math.PI*.9, 0, Math.PI*.62), hm, head, 0, -.01, 0); add(wzaLathe([[.2, -.3], [.23, -.12], [.22, .02]], 12), hm, head, 0, 0, -.06).scale.z = .8; }   /* hair at the back of the head */
+  if (o.beard != null) { const hairM = new THREE.MeshLambertMaterial({map:WZT_TEX.hair(o.beard)}); const L = o.glow ? .4 : .62;
+    const bd = add(wzaLathe([[0, -L], [.05, -L*.85], [.13, -L*.55], [.19, -L*.22], [.2, -.06], [.17, .02]], 12), hairM, head, 0, -.04, .07); bd.rotation.x = .22; bd.scale.z = .7;
+    for (const s of [-1, 1]) { const mu = add(new THREE.CylinderGeometry(.025, .015, .16, 6), hairM, head, s*.07, -.07, .19); mu.rotation.z = s*1.1; } }
+  // the hat (or a hood)
+  if (o.hat === 'hood') { add(wzaLathe([[.3, -.32], [.32, -.1], [.3, .1], [.24, .25], [.12, .34], [0, .36]], 14), darkM, head, 0, 0, -.04); }
+  else { const wide = o.hat === 'wide' ? .66 : .52, tall = o.hat === 'tall' ? 1.25 : 1, bend = o.hat === 'bent' ? .45 : o.hat === 'tall' ? .12 : .2;
+    const g = wzaLathe([[wide, .1], [wide + .02, .13], [.3, .16], [.27, .3], [.21, .5*tall + .1], [.13, .75*tall + .1], [.05, .95*tall + .1], [0, 1.05*tall + .1]], 16), p = g.attributes.position;
+    for (let v = 0; v < p.count; v++) { const y = p.getY(v); if (y > .3) { const t = (y - .3)/(1.05*tall - .2); p.setZ(v, p.getZ(v) - t*t*bend); p.setY(v, y - t*t*bend*.3); } }
+    g.computeVertexNormals(); add(g, wzaCloth(o.dark, o.trim, 'hat', THREE.DoubleSide), head, 0, .02, 0);
+    if (o.star) { const st = add(new THREE.OctahedronGeometry(.07, 0), new THREE.MeshBasicMaterial({color:0xFFE14D}), head, 0, .45, .25); st.scale.z = .4; } }
+  if (o.glow) add(wzaLathe([[.27, -.26], [.29, -.16], [.25, -.08]], 14), wzaCloth(0x2E5A4A, o.trim, '', THREE.DoubleSide), head);   // the scarf
+  rig.traverse(q => { q.userData.noOutline = true; });
+  return {legs, arms, head};
+}
+
+// the four looks of the look picker, robes in the team's colours
+const WZA_LOOKS = {itachi:{beard:0x9A9AA2, hat:'bent', face:0xE0BFA0, trim:0xD9B04A}, pain:{beard:0x2A2430, hat:'bent', face:0x141018, eyes:0xFFE14D, glow:true, trim:0x7CFF9A},
+  obito:{beard:0xEEEEF2, hat:'tall', face:0xEACBB0, trim:0xFFD84D, star:true}, konan:{beard:0xA0482A, hat:'wide', face:0xE0B898, trim:0xFF8A2E}};
+function wizBody(team, cdef, rig){
+  const L = WZA_LOOKS[cdef.aka] || WZA_LOOKS.itachi, li = Math.max(0, ['itachi', 'pain', 'obito', 'konan'].indexOf(cdef.aka)), [robe, dark] = WIZ_ROBES[team === 'red' ? 'red' : 'blue'][li];
+  rig.userData.wizard = true; return wzaWizard(rig, Object.assign({robe, dark, crystal:team === 'red' ? 0xFF6A8A : 0x7CF0FF}, L));
+}
+
 /* ===================================== WORLD: rain, nature, an unbreakable ground =====================================
    The ground never changes shape any more: craterAt() only scorches it (colour), World Severance leaves a glowing
    scar instead of an abyss and the Nine Circles are painted on the ground. Props still break, fly and burn: trees
@@ -15730,6 +16568,7 @@ function runSkill(id, p, x){
   if (id === 'w_grab') { runGrab(x); return; }
   if (id === 'w_drop') { runDrop(x); return; }
   if (id === 'ki') { kiBlast(p); return; }
+  if (typeof WIZ_SK !== 'undefined' && WIZ_SK[id]) { runWiz(id, p, x); return; }
   if (id === 'd_use' || id === 'd_place') { runDefense(id, p, x); return; }
   if (BOMBER[id]) { runBomber(id, p, x); return; }
   if (SWORD[id]) { runSword(id, p, x); return; }
@@ -15870,8 +16709,8 @@ const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').s
 function netSend(m){ if (!NET.peer) return; if (NET.host) netBroadcast(m); else if (NET.hostConn && NET.hostConn.open) NET.hostConn.send(m); }
 function netBroadcast(m, except){ NET.conns.forEach(c => { if (c.open && c !== except) c.send(m); }); }
 function lobbyList(){ return Object.values(NET.players); }
-const normMode = m => m === 'siege' || m === 'tennis' ? 'siege' : m === 'td' || m === 'chaos' ? 'td' : 'egg';   // Pain Tennis was replaced by Fortress Siege (2026-10-12)   // Chaos left the menu (2026-10-08); Balloon Defense took its place   // Pain and Swarm modes were removed (2026-10-06); 'egg' is shown as Alpha Mode
-const MODE_NAME = {egg:'🥚 Alpha Mode', td:'🎈 Balloon Defense', siege:'🏰 Fortress Siege'};
+const normMode = m => m === 'wiz' ? 'wiz' : m === 'siege' || m === 'tennis' ? 'siege' : m === 'td' || m === 'chaos' ? 'td' : 'egg';   // Pain Tennis was replaced by Fortress Siege (2026-10-12)   // Chaos left the menu (2026-10-08); Balloon Defense took its place   // Pain and Swarm modes were removed (2026-10-06); 'egg' is shown as Alpha Mode
+const MODE_NAME = {egg:'🥚 Alpha Mode', td:'🎈 Balloon Defense', siege:'🏰 Fortress Siege', wiz:'🧙 Wizards'};
 function broadcastLobby(){ netBroadcast({t:'lobby', players:lobbyList(), host:NET.myId, mode:NET.mode, cd:NET.cdOn ? 1 : 0}); renderLobby(); }
 /* STUN lets two browsers find a direct route to each other. On strict networks (mobile data, school/work Wi-Fi,
    some VPNs) there is none. PeerJS's free TURN relays are gone (their hostnames no longer resolve), so when the
@@ -16120,6 +16959,10 @@ function clientHandle(m){
     case 'eg': if (Array.isArray(m.p) && Array.isArray(m.q)) eggNetState(m); break;
     case 'eover': if (eggOn()) eggShowOver(m); break;
     case 'td': if (tdOn()) tdApply(m); break;
+    case 'zbs': wzApply(m); break;
+    case 'zb': if (wzOn() && Array.isArray(m.f) && Array.isArray(m.p) && WIZ_SK[m.s]) wzBotCast(m); break;
+    case 'zend': wzWin(); break;
+    case 'zmsg': if (wzOn() && typeof m.m === 'string') toast(m.m.slice(0, 120)); break;
     case 'sgp': if (siegeOn()) siegeSetPaths(m.n | 0); break;
     case 'fortlog': if (siegeOn()) siegeReplay(m); break;
     case 'tn': if (tnOn()) tnApply(m); break;
@@ -16139,7 +16982,8 @@ function clientHandle(m){
 function onDeath(m){
   const victim = NET.players[m.id]; if (!victim || G.matchOver) return;
   if (G.mode === 'td') { const kf = {t:'kf', v:m.id, by:null}; netBroadcast(kf); killFeed(kf); return; }
-  if (G.mode === 'egg') { const kf = {t:'kf', v:m.id, by:m.by}; netBroadcast(kf); killFeed(kf); return; }   // Egg mode scores eggs, not knockouts
+  if (G.mode === 'egg') { const kf = {t:'kf', v:m.id, by:m.by}; netBroadcast(kf); killFeed(kf); return; }
+  if (G.mode === 'wiz' && G.wzCoop) { const kf = {t:'kf', v:m.id, by:null}; netBroadcast(kf); killFeed(kf); return; }   // co-op: no score for the dark coven   // Egg mode scores eggs, not knockouts
   const other = victim.team === 'blue' ? 'red' : 'blue';
   G.score[other]++; renderScore();
   const kf = {t:'kf', v:m.id, by:m.by}; netBroadcast(kf); killFeed(kf);
@@ -16176,7 +17020,7 @@ function showPvPTitle(){
       <label style="grid-column:1/-1;text-align:left;font-size:14px">Your name<br><input id="nameIn" maxlength="14" value="${clean(saved) === 'Player' && !saved ? '' : clean(saved)}" placeholder="Player" style="width:100%;margin-top:4px;padding:10px 12px;border:3px solid var(--edge);border-radius:12px;font:inherit;background:var(--panel);color:var(--text)"></label>
       <div id="lookRow" style="grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;justify-content:center">${CHARS.map((c, i) => `<button class="btn" data-look="${i}" style="background:#17171F;color:#fff;border-color:#D3121D">${c.e} ${c.name}</button>`).join('')}</div>
       <button class="btn" id="tBlue" style="background:var(--blue);color:#fff">Blue team</button><button class="btn" id="tRed" style="background:var(--red);color:#fff">Red team</button>
-      <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="btn" id="mEgg" style="background:#FFF3DC;color:#3B2A1A">🥚 Alpha Mode</button><button class="btn" id="mTD" style="background:linear-gradient(180deg,#FFE14D,#FF9A2E);color:#4A2A00">🎈 Balloon Defense</button><button class="btn" id="mSiege" style="background:linear-gradient(180deg,#D8C2FF,#9A6BFF);color:#22104A">🏰 Fortress Siege</button></div>
+      <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="btn" id="mEgg" style="background:#FFF3DC;color:#3B2A1A">🥚 Alpha Mode</button><button class="btn" id="mTD" style="background:linear-gradient(180deg,#FFE14D,#FF9A2E);color:#4A2A00">🎈 Balloon Defense</button><button class="btn" id="mSiege" style="background:linear-gradient(180deg,#D8C2FF,#9A6BFF);color:#22104A">🏰 Fortress Siege</button><button class="btn" id="mWiz" style="background:linear-gradient(180deg,#F7EBCB,#D9B870);color:#3A2410">🧙 Wizards</button></div>
       <p class="muted" id="modeDesc" style="grid-column:1/-1;margin:0;font-size:14px"></p>
       <button class="btn" id="cdB"></button><button class="btn" id="pixB"></button><button class="btn" id="infB" style="grid-column:1/-1"></button>
     </div>
@@ -16197,10 +17041,11 @@ function showPvPTitle(){
   $('tBlue').onclick = () => setTeam('blue'); $('tRed').onclick = () => setTeam('red');
   // game mode: the host's choice is used for the match; practice uses yours
   const setMode = m => { ME.mode = m; try { localStorage.setItem('ca-mode2', m); } catch (e) {}
-    if (m !== 'egg' && m !== 'siege') m = ME.mode = 'td';
-    for (const [id, k] of [['mEgg','egg'],['mTD','td'],['mSiege','siege']]) $(id).style.outline = m === k ? '4px solid var(--yolk)' : 'none';
+    if (m !== 'egg' && m !== 'siege' && m !== 'wiz') m = ME.mode = 'td';
+    for (const [id, k] of [['mEgg','egg'],['mTD','td'],['mSiege','siege'],['mWiz','wiz']]) $(id).style.outline = m === k ? '4px solid var(--yolk)' : 'none';
     $('hostB').disabled = m === 'swarm' || !online; $('hostB').title = m === 'swarm' ? 'Swarm mode is single-player: use Practice alone' : '';
     $('modeDesc').textContent = m === 'egg' ? `Alpha Mode: one player defends the egg with 20 protection powers and builds for as long as they like, then presses Ready. Everyone else attacks until the egg breaks or they give up. Everyone takes a turn defending.`
+      : m === 'wiz' ? 'Wizards: every spell is a magic circle you draw with the mouse, once, and keep for the whole match. Trace it neatly and it is strong, sloppily and it is weak; while you draw you stand still and can be hit. Bigger spells have harder circles. Everyone on the same colour: fight 12 waves of dark wizards together. Two colours: team battle.'
       : m === 'siege' ? 'Fortress Siege (co-op): everyone defends the egg together. Balloons come down one long, winding path per player. Build walls, domes, lava, drones and spirits (free, refilled every round) and buy turrets with the money you earn, inside the area or along the paths. 100 rounds of fewer but tougher balloons, a boss every third round. Between rounds: rebuild, upgrade, and press Ready.'
       : m === 'swarm' ? 'Swarm (single-player): spawn 5 to 100 enemies that chase you, then try every class’s powers on them. Use Practice alone.'
       : 'Balloon Defense: balloons float along a winding path to crack the egg. Pop them with Pain, Bomber and Swordsman powers. 100 rounds, each one harder: more balloons, bigger, tougher, faster. Play alone or together.';
@@ -16210,7 +17055,7 @@ function showPvPTitle(){
   $('infB').onclick = () => setInf(!ME.tdInf);
   function setCd(on){ ME.cdOn = on; try { localStorage.setItem('ca-cd', on ? 'on' : 'off'); } catch (e) {} $('cdB').disabled = false; $('cdB').textContent = on ? '⏱️ Cooldowns: on' : '⏱️ Cooldowns: off (spam everything)'; }
   setMode(ME.mode); setCd(ME.cdOn); $('cdB').onclick = () => setCd(!ME.cdOn);
-  $('mEgg').onclick = () => setMode('egg'); $('mTD').onclick = () => setMode('td'); $('mSiege').onclick = () => setMode('siege');
+  $('mEgg').onclick = () => setMode('egg'); $('mTD').onclick = () => setMode('td'); $('mSiege').onclick = () => setMode('siege'); $('mWiz').onclick = () => setMode('wiz');
   $('pixB').textContent = PIXEL.on ? '🟪 Pixel look: on' : '🟪 Pixel look: off'; $('pixB').title = 'Switching reloads the game';
   $('pixB').onclick = () => { try { localStorage.setItem('ca-pixel2', PIXEL.on ? 'off' : 'on'); } catch (e) {} location.reload(); };
   $('hostB').onclick = () => { if (ME.mode === 'swarm') return; ensureAudio(); hostGame($('codeIn').value); };
@@ -16227,6 +17072,7 @@ function renderLobby(){
     <div class="title" style="font-size:clamp(34px,8vw,56px)">Room ${NET.code}</div>
     <p>${NET.host ? 'Send your friends this page’s link and tell them the code <b>' + NET.code + '</b>.' : 'You’re in! Waiting for the host to start.'}</p>
     <p>Mode: <b>${MODE_NAME[NET.mode]}</b> ${NET.host ? Object.keys(MODE_NAME).filter(k => k !== NET.mode).map(k => `<button class="btn" data-mode="${k}" style="padding:4px 12px;font-size:14px;margin-left:6px">${MODE_NAME[k]}</button>`).join('') : ''}</p>
+    ${NET.mode === 'wiz' ? '<p class="muted">🧙 Everyone on the same colour: co-op against the dark coven. Both colours: team battle.</p>' : ''}
     ${NET.mode === 'egg' ? `<p class="muted">Each round one player defends the egg (builds, then presses Ready), everyone else attacks until it breaks or they all give up. Everyone defends once. Teams don’t matter here.</p>` : ''}
     ${`<p>Cooldowns: <b>${NET.cdOn ? 'on' : 'off'}</b> ${NET.host ? `<button class="btn" id="cdLB" style="padding:4px 12px;font-size:14px;margin-left:6px">Turn ${NET.cdOn ? 'off' : 'on'}</button>` : ''}</p>`}
     <div class="rows" style="grid-template-columns:1fr 1fr">
@@ -16268,7 +17114,7 @@ function pvpFrame(rdt){
   for (const k in G.cd) G.cd[k] = Math.max(0, G.cd[k] - rdt);
   G.kiCd = Math.max(0, (G.kiCd || 0) - rdt); G.spawnShield = Math.max(0, (G.spawnShield || 0) - rdt);
   G.cdUiT = (G.cdUiT || 0) - rdt; if (G.cdUiT <= 0) { G.cdUiT = .1; updateCooldownUI(); }
-  updateRemotes(rdt); remoteChargeFX(); netTick(rdt); updateEnemyFinder(); eggFrame(rdt); tdFrame(rdt); tnFrame(rdt);
+  updateRemotes(rdt); remoteChargeFX(); netTick(rdt); updateEnemyFinder(); eggFrame(rdt); tdFrame(rdt); tnFrame(rdt); wzFrame(rdt);
   const P = localP();
   if (P && P.alive === false && G.phase === 'attack') { P.deadT -= rdt; $('respawnT').textContent = Math.max(1, Math.ceil(P.deadT)); if (P.deadT <= 0) respawn(P); }
   if (P && P.alive && P.hp < 100 && G.phase === 'attack') { P.regenWait = (P.regenWait || 0) + rdt; }
@@ -16292,6 +17138,7 @@ function renderPhase(){
   const map = {title:'Egg Defense', intro:`Round ${G.round}`, build:`${teamName(G.defender)} builds`, handoff:'Swap players', attack: G.pvp ? (G.mode === 'pain' ? 'Pain' : 'Chaos Arena') : `${teamName(attacker())} attacks`, end:'Round over'};
   if (eggOn()) { eggHud(true); eggHelp(); $('tAct').textContent = G.phase === 'build' && amDefender() ? 'Place' : 'Shoot'; return; }
   if (G.pvp && G.mode === 'tennis') { const help = $('help'); help.style.display = 'block'; help.innerHTML = painHelp() + '<br>🎾 Fling everything over the net: when the clock runs out, the side with fewer things wins. Knocked off the court, it drops back on your side.'; $('phase').innerHTML = '🎾 Pain Tennis<small>Fewer things on your side wins</small>'; $('tAct').textContent = 'Cast'; return; }
+  if (wzOn()) { wzHud(true); const help = $('help'); help.style.display = 'block'; help.innerHTML = '<b>WASD</b> move · <b>Space</b> jump · <b>Shift</b> run<br><b>1–0</b> a spell: the first time, <b>draw its circle</b> on the paper (trace the guide, <b>Enter</b> activates, <b>C</b> clears, <b>G</b> hides the guide for +15%). Drawn once, kept all match: neater = stronger. You stand still while drawing!<br>After that: <b>1–0</b> casts (aimed ones: then <b>Click</b> the marker)<br><b>Click</b> wand bolt'; return; }
   if (G.pvp && G.mode === 'td') { tdHud(); const help = $('help'); help.style.display = 'block'; help.innerHTML = (G.cls === 'bomber' ? bomberHelp() : G.cls === 'sword' ? swordHelp() : G.cls === 'avatar' ? avatarHelp() : G.cls === 'wood' ? woodHelp() : painHelp()) + '<br><b>Enter</b> start the next round · <b>Y</b> turrets (1-5 pick, Click place; aim at one: <b>U</b> upgrade, <b>K</b> sell) · <b>Tab</b> switch class'; $('tAct').textContent = 'Cast'; return; }
   $('phase').innerHTML = map[G.phase] + (G.phase==='build' ? `<small>Place your protection</small>` : G.phase==='attack' ? (G.mode === 'swarm' ? '<small>Swarm mode</small>' : G.pvp ? `<small>First team to ${WIN_SCORE}</small>` : `<small>Break the egg!</small>`) : '');
   const help = $('help');
@@ -16365,6 +17212,7 @@ function renderTray(){
     renderSide();
     $('rotB').onclick = () => { G.ghostRot += Math.PI/4; };
     $('doneB').onclick = finishBuild;
+  } else if (G.phase === 'attack' && wzOn()) { wzTray(t); renderSide();
   } else if (G.phase === 'attack' || guardActive()) {
     const keyRank = k => { k = String(k || ''); if (k === '-') return 200; if (k.length !== 1 || !/[0-9A-Za-z]/.test(k)) return -1; if (k === '0') return 10; if (/[1-9]/.test(k)) return +k; return 20 + k.toUpperCase().charCodeAt(0); };
     const shown = Object.entries(skillTable()).filter(([, sp]) => !sp.hide).sort((a, b) => (a[1].ult ? 1000 : 0) + keyRank(a[1].key) - (b[1].ult ? 1000 : 0) - keyRank(b[1].key));   // ultimates last
@@ -16458,6 +17306,7 @@ function actionDown(){
   const P = activeChar(); if (!P || P.stun > 0) return;
   if (ttClick()) { G.skipUp = true; return; }   // placing a turret (Balloon Defense)
   if (P.carry) { dropCarry(P, true); G.skipUp = true; return; }
+  if (G.phase === 'attack' && wzOn()) { wzMouseDown(); G.skipUp = true; return; }   // Wizards: the aimed spell, or the wand
   if (G.phase === 'attack' && painKit() && PAIN.circBuild && !G.targeting && circuitClick()) { G.skipUp = true; return; }   // placing the Falling Circuit
   if (G.phase === 'attack' && painKit() && G.targeting && PAIN_SKILLS[G.targeting] && PAIN_SKILLS[G.targeting].kind === 'aimcharge') { chargeStart(G.targeting, 'mouse'); return; }   // hold to charge the selected gravity ring
   if (G.phase === 'attack' && G.cls === 'wood' && G.pvp && woodMouseDown()) return;   // Wood Sage: the left mouse charges / fires the selected power, or punches in a giant form
@@ -16556,6 +17405,7 @@ addEventListener('keydown', e => {
   if (k === 'y' && !e.repeat && eggOn() && (G.phase === 'attack' || G.phase === 'build')) { eggSwitchRole(); return; }
   if (k === 'enter' && !e.repeat && tdOn() && (TD.state === 'build' || TD.state === 'wave')) { tdAskWave(); return; }   // anyone: switch sides
   if ((G.phase === 'attack' || G.phase === 'build') && guardActive()) { if (e.repeat) return; if (guardKeyDown(k)) return; if (G.phase === 'build' && (k === 'f' || k === 'enter')) finishBuild(); return; }
+  if (G.phase === 'attack' && wzOn()) { if (!e.repeat) wzKeyDown(k); return; }   // Wizards: the spellbook keys only
   if (G.phase === 'attack' && !e.repeat && G.cls === 'bomber') { bomberKeyDown(k); return; }
   if (G.phase === 'attack' && !e.repeat && G.cls === 'wood' && woodKeyDown(k)) return;
   if (G.phase === 'attack' && !e.repeat && G.cls === 'avatar') { avatarKeyDown(k); return; }

@@ -716,3 +716,21 @@ Reconnect: a guest whose host link closes mid-game runs netRejoin(code, n): dest
 banner (Leave = reload), joinGame again (fail() retries up to 8 times, then the end screen). The host remembers dropped players by
 name (NET.gone) and netRegain moves their wallet and turrets to the new id. End screens always have "Back to menu" for guests.
 Tests: t84 (solo), t86 (online: late joiner paths + fortlog, path growth, drop + rejoin), prof.mjs (perf).
+
+## Wizards (2026-10-14.1)
+Mode 'wiz' (#mWiz). Modules (before "WORLD: rain, nature"): WIZARDS (WZ, WIZ_SK spells z_*, glyphs GL.*, paper, scoring, casts,
+dark coven bots), the theme (WZT: night sky dome group with stars/nebulae/moon/clouds, wisps, wzTheme(on) swaps lights, fog, sea,
+islandTop.material (textured), OUTLINE_MAT.visible, toon clouds; wzMusic), and the art pass (WZA: canvas textures WZT_TEX.*,
+Lambert materials, wzaBuildMap = plaza + roads + castles + village + church/graveyard + pine forest + rocks, merged per material via
+wzaPut/wzaMerge (~17 meshes) with static box colliders; wzaWizard = lathe robes/hats, painted faces, beards, staff; wizBody(team,
+cdef, rig) replaces akaBody when G.mode is 'wiz'). Generic props are off in wiz (place() returns null).
+Spells: press the key the first time -> the paper (#wzPaper) opens; the player stands still (lockT) and a hit adds a stray stroke
+(wzSmudge from hurt()). wzScore = F1 of precision (ink near the circle) and per-part coverage (each polyline weighted len^.3, so details
+matter); < .35 doesn't activate; power wzPower .45..1.25 (x1.15 with the guide hidden). Drawn ONCE per match: WZ.ink[id], the strokes
+go to everyone in 'z_ink' {sp, k, d:wzPack(strokes)} (careful: cast extras are spread into the message, so never use a field named
+s/t/id/p). Every cast shows the caster's own drawing glowing on the ground where the power starts (wzTex(id, col, key)).
+Host: WZ.hostInk[id][spell] from z_ink; castOK -> wzCastOK refuses undrawn spells and caps x.k. Cast extras: k (power), sd (seed).
+Teams: G.wzCoop = everyone on one colour (or solo) -> co-op vs 12 waves of dark wizards (host-run WZ.bots, 'zbs' snapshots,
+'zb' bot casts, 'zend' win); bots are in bEnemies (team 'red') and take damage via summonsTakeArea/Cone -> wzTakeArea/Cone (host).
+Two colours = team battle (normal knockouts). Music: music/wizards.mp3 (NOT committed yet: needs the user's OK on the rights),
+20% volume, loop, follows mute. Tests: t87 (solo, real mouse drawing), t88 (online co-op + team battle), wizlook.mjs, wizperf.mjs.
