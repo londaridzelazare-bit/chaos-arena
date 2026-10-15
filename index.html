@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-15.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-15.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -14754,7 +14754,7 @@ function wzSmudge(){
 }
 function wzPaperKey(e){
   const k = keyName(e);
-  if (k === 'enter') wzPaperActivate(); else if (k === 'escape') wzPaperClose(true); else if (k === 'c' && !WZ.paper.glow) { WZ.paper.strokes = []; WZ.paper.blots = []; WZ.paper.splats = []; } else if (k === 'g') wzGuideToggle();
+  if (k === 'enter') wzPaperActivate(); else if (k === 'escape') wzPaperClose(true); else if (k === 'c' && !WZ.paper.glow) { WZ.paper.strokes = []; WZ.paper.blots = []; WZ.paper.splats = []; } else if (k === 'g') wzGuideToggle(); else if (k === 'a') wzAssistToggle();
   else if (k === 'z' && (e.ctrlKey || e.metaKey)) { WZ.paper.strokes.pop(); wzPaperDraw(); }
 }
 addEventListener('keydown', e => { if (!WZ.paper) return; if (e.target && e.target.tagName === 'INPUT') return; e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) wzPaperKey(e); }, true);
@@ -14827,19 +14827,19 @@ function wzPaperOpen(id){
   const cv = el.querySelector('#wzCv'), dpr = Math.min(2, devicePixelRatio || 1); cv.width = cv.height = Math.round(sz*dpr);
   WZ.paper = {id, el, cv, g:cv.getContext('2d'), sz, dpr, strokes:[], cur:null, blots:[], splats:[], noGuide:!WZ.guide, bg:wzPaperBg(cv.width), last:null, raf:0, glow:null};
   const Pp = WZ.paper, toN = e => { const r = cv.getBoundingClientRect(), S = r.width*.46; return [(e.clientX - r.left - r.width/2)/S, -(e.clientY - r.top - r.height/2)/S]; };
-  cv.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); if (Pp.glow) return; cv.setPointerCapture(e.pointerId); const q = toN(e), now = performance.now(); Pp.cur = [[q[0], q[1], .02, now]]; Pp.strokes.push(Pp.cur); Pp.last = {x:e.clientX, y:e.clientY, t:now};
+  cv.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); if (Pp.glow) return; cv.setPointerCapture(e.pointerId); const q = wzAssist(Pp, toN(e), null), now = performance.now(); Pp.cur = [[q[0], q[1], .02, now]]; Pp.strokes.push(Pp.cur); Pp.last = {x:e.clientX, y:e.clientY, t:now};
     Pp.blots.push([q[0], q[1], .012 + Math.random()*.008]); if (actx && !muted) WZ_SFX.dab(); });
-  cv.addEventListener('pointermove', e => { if (!Pp.cur || Pp.glow) return; const q = toN(e), l = Pp.cur[Pp.cur.length - 1]; if (Math.hypot(q[0] - l[0], q[1] - l[1]) < .006) return;
+  cv.addEventListener('pointermove', e => { if (!Pp.cur || Pp.glow) return; const l = Pp.cur[Pp.cur.length - 1], q = wzAssist(Pp, toN(e), l); if (Math.hypot(q[0] - l[0], q[1] - l[1]) < .006) return;
     const now = performance.now(), L = Pp.last, sp = Math.hypot(e.clientX - L.x, e.clientY - L.y)/Math.max(1, now - L.t); Pp.last = {x:e.clientX, y:e.clientY, t:now};
     const w = clamp(.024 - sp*.0055, .008, .024), wl = l[2] + (w - l[2])*.35; Pp.cur.push([q[0], q[1], wl, now]);
     if (sp > 2.2 && Math.random() < .5) for (let i = 0; i < 3; i++) Pp.splats.push([q[0] + (Math.random() - .5)*.12, q[1] + (Math.random() - .5)*.12, .003 + Math.random()*.006]);
     if (actx && !muted && now - (Pp.scrT || 0) > 70) { Pp.scrT = now; WZ_SFX.scratch(Math.min(1, sp/2)); } });
-  const up = () => { if (Pp.cur && Pp.cur.length > 2) { const l = Pp.cur[Pp.cur.length - 1]; Pp.blots.push([l[0], l[1], .006 + Math.random()*.006]); } Pp.cur = null; }; cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  const up = () => { if (Pp.cur && WZ.assist && Pp.asRaw) { const l = Pp.cur[Pp.cur.length - 1]; Pp.cur.push([Pp.asRaw[0], Pp.asRaw[1], l[2], performance.now()]); Pp.asRaw = null; } if (Pp.cur && Pp.cur.length > 2) { const l = Pp.cur[Pp.cur.length - 1]; Pp.blots.push([l[0], l[1], .006 + Math.random()*.006]); } Pp.cur = null; }; cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
   el.addEventListener('pointerdown', e => e.stopPropagation()); el.addEventListener('contextmenu', e => { e.preventDefault(); });
   el.querySelector('#wzGo').onclick = () => wzPaperActivate(); el.querySelector('#wzClr').onclick = () => { if (Pp.glow) return; Pp.strokes = []; Pp.blots = []; Pp.splats = []; };
   el.querySelector('#wzX').onclick = () => wzPaperClose(true); el.querySelector('#wzGd').onclick = () => wzGuideToggle();
   wzQuillAttach(cv, el); if (d.custom) { el.querySelector('#wzGd').style.display = 'none'; const gb = document.createElement('button'); gb.className = 'btn'; gb.textContent = '📖 Grimoire'; gb.onclick = e => { e.stopPropagation(); wzGrimoire(Pp); }; el.querySelector('#wzX').before(gb); }
-  wzGuideToggle(true); const tick = () => { if (WZ.paper !== Pp) return; wzPaperDraw(); Pp.raf = requestAnimationFrame(tick); }; tick();
+  wzAssistBtn(Pp); wzGuideToggle(true); const tick = () => { if (WZ.paper !== Pp) return; wzPaperDraw(); Pp.raf = requestAnimationFrame(tick); }; tick();
   localCast('z_draw', null, {on:1}); sfx('grab');
 }
 function wzPaperDraw(){
@@ -14890,7 +14890,8 @@ function wzUse(id){
   if (!WZ.ink[id]) { wzPaperOpen(id); return; }
   if ((G.cd[id] || 0) > 0) { cdToast(id); return; }
   const k = WZ.ink[id].k, sd = Math.floor(Math.random()*1e9);
-  if (d.kind === 'self') { localCast(id, null, {k, sd}); return; }
+  const md = id === 'z_custom' ? (wzCustomSpecFor(G.localKey) || {}).mode : null;
+  if (d.kind === 'self' || md === 'self' || md === 'hand') { localCast(id, md === 'hand' ? aimPoint(80) : null, {k, sd}); if (id === 'z_custom') { G.cd.z_custom = wzCdOf('z_custom'); renderTray(); } return; }
   setTargeting(id);   /* the preview circle follows your aim; Click places it */
 }
 // how big a spell's circle is where it lands
@@ -14973,7 +14974,7 @@ function wzEffect(id, o){
   if (d && d.tier && !o.noCircle) { const col = d.col || 0xFFE9A8, foot = V3(o.from.x, groundH(o.from.x, o.from.z), o.from.z);
     wzGlyphFX(id, foot, d.kind === 'self' ? 8 + d.tier : 5 + d.tier, col, {life:d.kind === 'self' ? 1.8 : 1.1, key:o.key, rot:yaw, rayH:d.kind === 'self' ? 3 : 1.3, rayOp:d.kind === 'self' ? .7 : .4});   /* the caster's circle (low rays: it mustn't blind you) */
     if (o.p && ['z_spark', 'z_rock', 'z_bolt', 'z_meteor', 'z_seal'].includes(id)) wzGlyphFX(id, V3(o.p.x, groundH(o.p.x, o.p.z) + (id === 'z_meteor' ? 30 : id === 'z_seal' ? 26 : 18), o.p.z), wzCircleSize(id, k, o.key)*(id === 'z_meteor' ? .9 : .8), d.col || 0xFFE9A8, {life:id === 'z_meteor' ? 3.8 : 1.6, key:o.key, rot:yaw, sky:true, rayH:6, open:.3});   /* the sky circle it falls from */
-    if (d.kind !== 'self' && o.p && id !== 'z_seal') { const area = d.kind === 'area'; wzGlyphFX(id, V3(o.p.x, groundH(o.p.x, o.p.z), o.p.z), area ? wzCircleSize(id, k, o.key) : wzCircleSize(id, k, o.key), col, {life:area ? (id === 'z_meteor' ? 3.8 : 1.8) : 1.7, key:o.key, rot:yaw}); } }
+    if (d.kind !== 'self' && o.p && id !== 'z_seal' && !(id === 'z_custom' && (wzCustomSpecFor(o.key) || {}).mode === 'hand')) { const area = d.kind === 'area'; wzGlyphFX(id, V3(o.p.x, groundH(o.p.x, o.p.z), o.p.z), area ? wzCircleSize(id, k, o.key) : wzCircleSize(id, k, o.key), col, {life:area ? (id === 'z_meteor' ? 3.8 : 1.8) : 1.7, key:o.key, rot:yaw}); } }
   if (id === 'z_custom') { wzCustomEffect(o); return; }
   if (d && d.secret) { wzSecretEffect(id, o); return; }
   switch (id) {
@@ -16544,7 +16545,7 @@ function wzCustomSpec(polys){
   let el = 'light', best = -1; for (const k in sc) { const v = sc[k] + rng()*.18; if (v > best) { best = v; el = k; } }
   const triDown = loops.filter(l => big(l) && l.c === 3 && l.down).length, starDown = loops.filter(l => big(l) && l.c >= 5 && l.circ < .7 && l.down).length;
   const F = {X, O, P:Pw, sym, rings, order, tri, triUp, triDown, starDown, upStars, quad, petals, rad, spirals:spirals.length, waves:waves.length, zig, lines:lines.length, loops:loops.length, circles:circles.length, downs, crossD, density, cross, L};
-  return wzWildSpec({tier, el, F, seed:h, rng, chaos});
+  return wzWildSpec({tier, el, F, seed:h, rng, chaos, polys});
 }
 // a player's wild page as everyone sees it (cached until they redraw)
 function wzCustomSpecFor(key){ if (!key) return null; if (WZ.cspec[key] !== undefined) return WZ.cspec[key]; const dr = WZ.drawn[key] && WZ.drawn[key].z_custom; return (WZ.cspec[key] = dr ? wzCustomSpec(dr) : null); }
@@ -16594,6 +16595,7 @@ function wzSummon(sp, o, q, n, dmg, R, harmless){
 }
 function wzCustomEffect(o){
   const sp = wzCustomSpecFor(o.key); if (!sp) return; const q = gqOf(o, 0), k = o.k || 1, R = sp.R*Math.sqrt(k), dmg = sp.dmg*k, E = WZ_EL[sp.el], yaw = Math.atan2(q.x - o.from.x, q.z - o.from.z);
+  if (sp.ab && WZ_AB[sp.ab]) { WZ_AB[sp.ab].fx(o, q, sp, k); return; }
   if (sp.pw && WZ_POW[sp.pw]) { WZ_POW[sp.pw].fx(o, q, sp, k); return; }
   if (sp.whim) { wzWhimsy(sp, o, q); return; }
   if (sp.legend) { wzLegend(sp, o, q, k); return; }
@@ -17053,8 +17055,9 @@ function wzMotif(F){
 }
 // the reading -> the spell
 function wzWildSpec(b){
-  const F = b.F, rng = b.rng; let tier = b.tier, el = b.el, legend = null, lucky = false, pw = null, whim = null, name, desc, e;
-  if (F.rings >= 2 && F.X >= .55 && F.O >= .62) legend = wzMotif(F);
+  const cm = wzClassMatch(b.polys); if (cm && cm.cls !== 'legend') return wzClassSpec(cm, b);   /* a circle from the Grimoire, traced: that class ability */
+  const F = b.F, rng = b.rng; let tier = b.tier, el = b.el, legend = cm ? cm.ab : null, lucky = false, pw = null, whim = null, name, desc, e;   /* (or that legend) */
+  if (!legend && F.rings >= 2 && F.X >= .55 && F.O >= .62) legend = wzMotif(F);
   if (!legend && tier >= 2 && tier < 6 && rng() < .12) { tier++; lucky = true; }
   if (legend) { tier = 7; const L = WZ_LEGS[legend]; e = L[0]; name = L[1]; el = L[2]; desc = L[3]; }
   else if (tier === 1) { if (rng() < .3) { whim = pick2(Object.keys(WZ_WHIM2), rng); name = WZ_WHIM2[whim][0]; desc = WZ_WHIM2[whim][1]; } else { whim = el; name = WZ_WHIM[el][0]; desc = WZ_WHIM[el][1]; } e = WZ_EL[el].e; }
@@ -17084,20 +17087,201 @@ const WZ_RECIPES = [
   {id:'leviathan', h:'two or three wavy lines across', polys:() => [...wzRim(), ...GL.wave(-.6, .6, .3, .1, 2), ...GL.wave(-.66, .66, 0, .1, 2), ...GL.wave(-.6, .6, -.3, .1, 2)]},
   {id:'moon', h:'three rings round a full circle, nothing else', polys:() => [...GL.circ(0, 0, .95), ...GL.circ(0, 0, .83), ...GL.circ(0, 0, .71), ...GL.circ(0, 0, .32)]}
 ];
-function wzGrimoire(Pp){
-  const old = Pp.el.querySelector('#wzGrim'); if (old) { old.remove(); return; }
+
+/* ---------- Wizards: CLASSES in the Grimoire. Every ability of a class has its own circle; draw it on the wild page (the page
+   matches your drawing against every class circle, like tracing a spell) and that ability is yours. Three ways a power comes out:
+   'hand' (a circle opens in your palm facing where you aim, and the power leaves from it; cast at once, no ground marker),
+   'ground' (the circle opens where you aim, or in the sky over it), 'self' (round you, at once). First class: Pain. ---------- */
+const PAIN_COL = 0xB07CFF, PAIN_PAL = {ball:0x6A3AAA, core:0xFFFFFF, ring:0xC9A8FF};
+let _wzRockM = null; const wzRockMat = () => _wzRockM || (_wzRockM = new THREE.MeshLambertMaterial({color:0x9A8E82, map:WZT_TEX.rock()}));
+function wzDirOf(o){ const t = o.p ? V3(o.p.x, o.p.y + 1, o.p.z) : o.from.clone().add(V3(Math.sin(o.yaw), 0, Math.cos(o.yaw))); const d = t.sub(o.from); if (d.lengthSq() < 1e-4) d.set(Math.sin(o.yaw), 0, Math.cos(o.yaw)); return d.normalize(); }
+// your own drawn circle, upright in your palm, facing the way you aim
+function wzHandCircle(o, sp, dir, size, life){
+  const g = new THREE.Group(), m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({map:wzTex('z_custom', sp.col, o.key), transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide}));
+  g.add(m); const gl = wzGlowSprite(sp.col, 2); g.add(gl); g.position.copy(o.from).addScaledVector(dir, 1.1); g.lookAt(g.position.clone().add(dir)); noRayAll(g); roundGroup.add(g);
+  wzRun(life, t => { const s = size*Math.min(1, t/.25)*(t > life - .3 ? Math.max(.01, (life - t)/.3) : 1); g.scale.set(s, s, 1); m.rotation.z += .06; const C = chars[o.key]; if (C) { const f = V3(C.body.position.x, C.body.position.y + 1.45, C.body.position.z); g.position.copy(f).addScaledVector(dir, 1.1); } }, () => wzDel(g)); return g;
+}
+function wzPushWave(from, dir, len, col){ const m = wzMk(new THREE.TorusGeometry(1, .14, 6, 32), new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:.8, blending:THREE.AdditiveBlending, depthWrite:false})); m.position.copy(from); m.lookAt(from.clone().add(dir)); roundGroup.add(m);
+  wzRun(.5, t => { const u = t/.5; m.position.copy(from).addScaledVector(dir, len*u); m.scale.setScalar(1 + u*5); m.material.opacity = .8*(1 - u); }, () => wzDel(m)); }
+function wzPushSphere(c, R, col, dur){ const m = wzMk(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:.45, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide})); m.position.copy(c); roundGroup.add(m);
+  wzRun(dur, t => { const u = t/dur; m.scale.setScalar(.5 + R*u); m.material.opacity = .45*(1 - u); }, () => wzDel(m)); }
+function wzFling(p, n, up){ for (let i = 0; i < n; i++) { const m = wzMk(PAIN_ROCK, wzRockMat()), v = V3(rr(-4, 4), up*(.6 + Math.random()*.6), rr(-4, 4)), pos = p.clone().add(V3(rr(-1.5, 1.5), .3, rr(-1.5, 1.5))); m.scale.setScalar(.2 + Math.random()*.35); roundGroup.add(m);
+  wzRun(3, (t, dt) => { v.y -= 22*dt; pos.addScaledVector(v, dt); m.position.copy(pos); m.rotation.x += dt*5; if (t > .3 && pos.y < groundH(pos.x, pos.z)) return false; }, () => wzDel(m)); } }
+const wzDust = (c, R, n) => { for (let i = 0; i < n; i++) puff(wzGP(c.x + rr(-R, R), c.z + rr(-R, R), .3), 0x7A6A5A, .7); };
+// enemies: players are knocked (on their own screen), dark wizards are shoved (every screen; the host's count)
+function wzKnockFrom(o, c, R, pow, up, dmg, cone){ const P = victimFor(o.key, o.team); if (!P) return; const b = P.body.position, dx = b.x - c.x, dz = b.z - c.z, d = Math.hypot(dx, dz) || .01; if (d < R && (!cone || cone(dx, dz, d))) { knock(P, dx/d*pow, up, dz/d*pow, .6); if (dmg) painHurt(P, dmg, o.key); } }
+function wzShove(o, c, R, f){ for (const z of WZ.bots) { if (!wzFoeBot(z, o.team) || WZB_KINDS[z.kind].mesh === 'king') continue; const dx = z.pos.x - c.x, dz = z.pos.z - c.z, d = Math.hypot(dx, dz) || .01; if (d > R) continue; const mv = f(dx, dz, d); if (!mv[0] && !mv[1]) continue; const sx = z.pos.x, sz = z.pos.z;
+  z.liftT = Math.max(z.liftT || 0, .5); wzRun(.45, t => { const u = Math.min(1, t/.45), e = 1 - (1 - u)*(1 - u); z.pos.x = clamp(sx + mv[0]*e, -WZB_EDGE + 5, WZB_EDGE - 5); z.pos.z = clamp(sz + mv[1]*e, -WZB_EDGE + 5, WZB_EDGE - 5); }); } }
+const wzLiftBots = (o, q, R, t) => { for (const z of WZ.bots) if (wzFoeBot(z, o.team) && hdist(z.pos, q) < R) z.liftT = Math.max(z.liftT || 0, t); };
+const wzSelfRing = (o, sp, size, life) => wzGlyphFX('z_custom', wzGP(o.from.x, o.from.z), size, sp.col, {life, key:o.key, rayH:2.5});
+/* ---------- the abilities (mode, base tier, how to draw them, what they do) ---------- */
+const wzRin = () => [...GL.circ(0, 0, .1), ...GL.circ(0, 0, .2)];
+const WZ_AB = {
+  p_shinra:{n:'Shinra Tensei', e:'✋', mode:'hand', base:4, d:'a circle in your palm, then a wall of force that blasts everything in front of you away',
+    recipe:() => [...GL.circ(0, 0, .9), ...wzRin(), ...GL.arrow(0, .26, 0, .8, .18), ...GL.arc(0, 0, .52, 1.15, 1.99), ...GL.arc(0, 0, .68, 1.2, 1.94)],
+    fx(o, q, sp, k){ const dir = wzDirOf(o), yaw = Math.atan2(dir.x, dir.z), at = o.from.clone(); wzHandCircle(o, sp, dir, 3 + sp.tier*.4, 1.1); sfx('grav');
+      wzAfter(.35, () => { const C = chars[o.key], c = C ? V3(C.body.position.x, C.body.position.y + 1, C.body.position.z) : at; for (let i = 0; i < 3; i++) wzAfter(i*.07, () => wzPushWave(c.clone().addScaledVector(dir, 1.2), dir, 16, PAIN_COL));
+        const R = 10 + sp.tier*1.5, cone = (dx, dz, d) => d < 1.5 || (dx*Math.sin(yaw) + dz*Math.cos(yaw))/d > .55;
+        wzKnockFrom(o, c, R, 26 + sp.tier*2, 7, sp.dmg*k*.8, cone); wzTakeCone(c, yaw, R, 1.9, sp.dmg*k*.8, o.team); wzShove(o, c, R, (dx, dz, d) => cone(dx, dz, d) ? [dx/d*12, dz/d*12] : [0, 0]);
+        for (let i = 0; i < 14; i++) { const r = rr(2, R), a = yaw + rr(-.6, .6); puff(wzGP(c.x + Math.sin(a)*r, c.z + Math.cos(a)*r, .3), 0x8A7A6A, .6); } shakeAt(c, .7, 40); }); }},
+  p_shinra360:{n:'Shinra Tensei 360°', e:'💫', mode:'self', base:4, d:'a sphere of force bursts out from you in every direction',
+    recipe:() => { const g = [...GL.circ(0, 0, .9), ...wzRin()]; for (let i = 0; i < 8; i++) { const a = i*Math.PI/4; g.push(...GL.arrow(Math.cos(a)*.3, Math.sin(a)*.3, Math.cos(a)*.78, Math.sin(a)*.78, .1)); } return g; },
+    fx(o, q, sp, k){ const C = chars[o.key], at = C ? V3(C.body.position.x, C.body.position.y + 1, C.body.position.z) : o.from.clone(), R = 9 + sp.tier*1.5; wzSelfRing(o, sp, 10 + sp.tier, 1.4); sfx('grav');
+      wzAfter(.3, () => { wzPushSphere(at, R, PAIN_COL, .6); shockRing(wzGP(at.x, at.z, .3), R, .6, PAIN_COL); wzKnockFrom(o, at, R, 30, 8, sp.dmg*k); wzTakeArea(at, R, sp.dmg*k, o.team); wzShove(o, at, R, (dx, dz, d) => [dx/d*14, dz/d*14]); wzDust(at, R*.8, 18); shakeAt(at, 1, 60); }); }},
+  p_pull:{n:"Bansho Ten'in", e:'🧲', mode:'hand', base:4, d:'a circle in your palm drags every enemy in front of you to your feet',
+    recipe:() => { const g = [...GL.circ(0, 0, .9), ...wzRin()]; for (let i = 0; i < 4; i++) { const a = Math.PI/4 + i*Math.PI/2; g.push(...GL.arrow(Math.cos(a)*.8, Math.sin(a)*.8, Math.cos(a)*.3, Math.sin(a)*.3, .12)); } return g; },
+    fx(o, q, sp, k){ const dir = wzDirOf(o), yaw = Math.atan2(dir.x, dir.z); wzHandCircle(o, sp, dir, 3, 1.4); sfx('grav');
+      wzAfter(.35, () => { const C = chars[o.key], at = C ? V3(C.body.position.x, C.body.position.y + 1, C.body.position.z) : o.from.clone(), R = 26 + sp.tier*2, cone = (dx, dz, d) => (dx*Math.sin(yaw) + dz*Math.cos(yaw))/(d || 1) > .35;
+        for (const f of wzFoes(o.team, at, R)) { const dx = f.x - at.x, dz = f.z - at.z; if (cone(dx, dz, Math.hypot(dx, dz))) arcBeam(at.clone().addScaledVector(dir, 1.2), V3(f.x, f.y, f.z), PAIN_COL); }
+        const P = victimFor(o.key, o.team); if (P) { const b = P.body.position, dx = b.x - at.x, dz = b.z - at.z, d = Math.hypot(dx, dz) || .01; if (d < R && cone(dx, dz, d)) { knock(P, -dx/d*Math.min(28, d*1.6), 5, -dz/d*Math.min(28, d*1.6), .7); painHurt(P, sp.dmg*k*.4, o.key); } }
+        const caught = WZ.bots.filter(z => wzFoeBot(z, o.team) && WZB_KINDS[z.kind].mesh !== 'king' && hdist(z.pos, at) < R && cone(z.pos.x - at.x, z.pos.z - at.z, hdist(z.pos, at)));
+        wzShove(o, at, R, (dx, dz, d) => cone(dx, dz, d) ? [-dx/d*Math.max(0, d - 2.5), -dz/d*Math.max(0, d - 2.5)] : [0, 0]);
+        wzAfter(.55, () => { if (wzHost()) for (const z of caught) if (!z.dead) wzBotHurt(z, sp.dmg*k*.7); puff(at.clone(), PAIN_COL, .8); }); }); }},   /* everything dragged in is hurt as it lands */
+  p_boulder:{n:"Bansho Ten'in: Boulder", e:'🪨', mode:'ground', base:4, d:'a boulder tears out of the ground at the circle and is hurled at the nearest enemy',
+    recipe:() => [...GL.circ(0, 0, .9), ...wzRin(), ...GL.ngon(0, .55, .2, 4, Math.PI/4), ...GL.ngon(-.5, -.35, .13, 4, Math.PI/4), ...GL.ngon(.5, -.35, .13, 4, Math.PI/4)],
+    fx(o, q, sp, k){ const s = 1.4 + sp.tier*.15, m = wzMk(PAIN_ROCK, wzRockMat()); m.scale.setScalar(s); m.position.set(q.x, q.y - s, q.z); roundGroup.add(m); sfx('rumble'); wzDust(q, 2.5, 8); let from = null, to = null, hit = false;
+      wzRun(4, (t, dt) => { if (t < 1.1) { m.position.y = q.y - s + Math.min(1, t/.6)*(s + 4); m.rotation.y += dt*2; return; }
+        if (!from) { from = m.position.clone(); const f = wzNear(o, q, 40); to = f ? V3(f.x, f.y, f.z) : V3(q.x + Math.sin(o.yaw)*12, q.y, q.z + Math.cos(o.yaw)*12); to.y = Math.max(to.y, groundH(to.x, to.z) + .5); }
+        const u = Math.min(1, (t - 1.1)/.45); m.position.lerpVectors(from, to, u); m.rotation.x += dt*8; if (u >= 1 && !hit) { hit = true; wzHit(o, to, 3.5 + sp.tier*.3, sp.dmg*k*1.1, 20, PAIN_PAL, {size:.7, snd:'thud'}); wzDust(to, 2, 8); return false; } }, () => wzDel(m)); }},
+  p_below:{n:'Gravity From Below', e:'⏫', mode:'ground', base:4, d:'the ground under the circle hurls everything into the sky',
+    recipe:() => [...GL.circ(0, 0, .9), ...wzRin(), ...GL.arrow(-.42, -.78, -.42, -.3, .1), ...GL.arrow(0, -.8, 0, -.3, .1), ...GL.arrow(.42, -.78, .42, -.3, .1)],
+    fx(o, q, sp, k){ const R = 4.5 + sp.tier*.5; sfx('grav'); wzAfter(.6, () => { wzLiftBots(o, q, R, 2.2); const P = victimFor(o.key, o.team); if (P && hdist(P.body.position, q) < R) { knock(P, 0, 24, 0, .8); painHurt(P, sp.dmg*k*.6, o.key); }
+      wzTakeArea(V3(q.x, q.y + 1, q.z), R, sp.dmg*k*.6, o.team); wzColumn(q, 14, R*.8, PAIN_COL, .7); wzFling(q, 10, 16); shockRing(wzGP(q.x, q.z, .3), R, .5, PAIN_COL); });
+      wzAfter(2.5, () => wzTakeArea(V3(q.x, q.y + 1, q.z), R + 1, sp.dmg*k*.5, o.team)); }},
+  p_above:{n:'Gravity From Above', e:'⏬', mode:'ground', base:4, d:'a circle in the sky crushes everything under it into the ground',
+    recipe:() => [...GL.circ(0, 0, .9), ...wzRin(), ...GL.arrow(-.42, .78, -.42, .3, .1), ...GL.arrow(0, .8, 0, .3, .1), ...GL.arrow(.42, .78, .42, .3, .1)],
+    fx(o, q, sp, k){ const R = 5.5 + sp.tier*.6; wzSky(o, q, sp, 16); sfx('grav'); wzAfter(.9, () => { const P = victimFor(o.key, o.team); if (P && hdist(P.body.position, q) < R) { knock(P, 0, -28, 0, 1); painHurt(P, sp.dmg*k, o.key); }
+      wzTakeArea(V3(q.x, q.y + 1, q.z), R, sp.dmg*k, o.team); for (const z of WZ.bots) if (wzFoeBot(z, o.team) && hdist(z.pos, q) < R) z.liftT = 0; wzFreeze(o, q, R, 1.2);
+      shockRing(wzGP(q.x, q.z, .2), R, .5, PAIN_COL); wzSpikes(q, R*.6); wzDust(q, R, 14); wzColumn(q, 16, R*.9, 0x8A6ACC, .4); shakeAt(q, 1.2, 70); }); }},
+  p_slab:{n:'Rock Slab', e:'🧱', mode:'ground', base:4, d:'a huge slab of rock tears out of the earth and slams down on the circle',
+    recipe:() => [...GL.circ(0, 0, .9), ...wzRin(), [[-.72, -.32], [.72, -.32], [.72, .32], [-.72, .32], [-.72, -.32]]],
+    fx(o, q, sp, k){ const back = Math.atan2(q.x - o.from.x, q.z - o.from.z), s = 1 + sp.tier*.1, piv = wzW(new THREE.Group()); wzMk(new THREE.BoxGeometry(9*s, 9*s, 1.4*s), wzRockMat(), piv, 0, 4.5*s, 0);
+      const base = wzGP(q.x + Math.sin(back)*4.5*s, q.z + Math.cos(back)*4.5*s); piv.position.set(base.x, base.y - 9*s, base.z); piv.rotation.y = back; let hit = false; sfx('rumble'); wzDust(base, 4, 10);
+      wzRun(2.6, t => { if (t < .7) piv.position.y = base.y - 9*s + t/.7*9*s; else { piv.position.y = base.y - Math.max(0, t - 2)*6; const u = Math.min(1, Math.max(0, t - .9)/.35); piv.rotation.x = -u*Math.PI/2;
+        if (u >= 1 && !hit) { hit = true; wzHit(o, V3(q.x, q.y + 1, q.z), 5 + sp.tier*.5, sp.dmg*k*1.2, 18, PAIN_PAL, {size:.9, snd:'boom'}); shakeAt(q, 1.4, 90); wzDust(q, 5, 16); } } }, () => wzDel(piv)); }},
+  p_vortex:{n:'Gravity Vortex', e:'🌀', mode:'ground', base:5, d:'rocks torn from the ground whirl round the circle, shredding everything in it',
+    recipe:() => { const g = [...GL.circ(0, 0, .9), ...GL.spiral(0, 0, .05, .62, 2.2)]; for (let i = 0; i < 4; i++) { const a = Math.PI/4 + i*Math.PI/2; g.push(...GL.circ(Math.cos(a)*.76, Math.sin(a)*.76, .07)); } return g; },
+    fx(o, q, sp, k){ const R = 4 + sp.tier*.5, rocks = []; for (let i = 0; i < 16; i++) { const m = wzMk(PAIN_ROCK, wzRockMat()); m.scale.setScalar(.35 + o.rng()*.5); roundGroup.add(m); rocks.push({m, a:o.rng()*6.28, r:R*(.4 + o.rng()*.7), h:.5 + o.rng()*5, sp:2 + o.rng()*2}); }
+      let tick = 0; sfx('rumble'); wzFling(q, 6, 12);
+      wzRun(5.5, (t, dt) => { const up = Math.min(1, t*1.5); for (const r of rocks) { r.a += dt*r.sp*(1 + t*.3); r.m.position.set(q.x + Math.cos(r.a)*r.r, q.y + r.h*up, q.z + Math.sin(r.a)*r.r); r.m.rotation.x += dt*4; } if (Math.random() < .5) wzDust(q, R, 1);
+        tick -= dt; if (tick <= 0) { tick = .35; wzTakeArea(V3(q.x, q.y + 1.5, q.z), R + 1, sp.dmg*k*.12, o.team); const P = victimFor(o.key, o.team); if (P && hdist(P.body.position, q) < R + 1) { painHurt(P, sp.dmg*k*.12, o.key); const b = P.body; b.velocity.x += (q.x - b.position.x)*.8; b.velocity.z += (q.z - b.position.z)*.8; } } },
+        () => { for (const r of rocks) { const v = V3(Math.cos(r.a)*14, 6, Math.sin(r.a)*14), pos = r.m.position.clone(); wzRun(1.5, (t, dt) => { v.y -= 22*dt; pos.addScaledVector(v, dt); r.m.position.copy(pos); }, () => wzDel(r.m)); } wzHit(o, V3(q.x, q.y + 1, q.z), R + 2, sp.dmg*k*.4, 14, PAIN_PAL, {size:.6}); }); }},
+  p_almighty:{n:'Almighty Push', e:'💥', mode:'self', base:6, ult:true, d:'you rise into the sky and a sphere of force flattens everything around',
+    recipe:() => { const st = []; for (let i = 0; i <= 24; i++) { const a = i/24*Math.PI*2, r = i % 2 ? .78 : .42; st.push([Math.cos(a)*r, Math.sin(a)*r]); } return [...GL.circ(0, 0, .9), ...wzRin(), st]; },
+    fx(o, q, sp, k){ wzSelfRing(o, sp, 22, 2.5); if (o.key === G.localKey) { const me = localP(); if (me && me.alive !== false) { knock(me, 0, 16, 0, 0); me.floatT = 3; } } sfx('grav');
+      const orb = wzMk(new THREE.SphereGeometry(1, 20, 14), new THREE.MeshBasicMaterial({color:0xE8D8FF, transparent:true, opacity:.5, blending:THREE.AdditiveBlending, depthWrite:false})); roundGroup.add(orb);
+      const where = () => { const C = chars[o.key]; return C ? V3(C.body.position.x, C.body.position.y + 1, C.body.position.z) : o.from.clone(); };
+      wzRun(1.6, t => { orb.position.copy(where()); orb.scale.setScalar(1.2 + Math.sin(t*20)*.2 + t); }, () => { const c = where(), R = sp.tier >= 7 ? 30 : 22; wzDel(orb);
+        wzPushSphere(c, R, PAIN_COL, .9); shockRing(wzGP(c.x, c.z, .3), R, .9, PAIN_COL); wzKnockFrom(o, c, R, 40, 12, sp.dmg*k*1.2); wzTakeArea(c, R, sp.dmg*k*1.2, o.team); wzShove(o, c, R, (dx, dz, d) => [dx/d*20, dz/d*20]);
+        for (let i = 0; i < 16; i++) { const a = i/16*Math.PI*2; wzSpikes(wzGP(c.x + Math.cos(a)*R*.6, c.z + Math.sin(a)*R*.6), 2); } wzDust(c, R*.8, 30); if (o.key === G.localKey) flash(.6, .5); shakeAt(c, 3, 200); }); }},
+  p_cata:{n:'Chibaku Tensei', e:'🌕', mode:'ground', base:6, ult:true, d:'a black sphere in the sky drags up rocks and enemies into a new moon, then drops it',
+    recipe:() => { const g = [...GL.circ(0, 0, .9), ...GL.circ(0, .4, .25), ...GL.arrow(0, -.8, 0, .05, .1)]; for (let i = 0; i < 6; i++) { const a = i/6*Math.PI*2; g.push(...GL.circ(Math.cos(a)*.42, .4 + Math.sin(a)*.42, .06)); } return g; },
+    fx(o, q, sp, k){ const top = V3(q.x, q.y + 22, q.z), ctr = top.clone(), core = wzMk(new THREE.SphereGeometry(.8, 16, 12), wzMat(0x0A0612, true)), gl = wzGlowSprite(0x8A4AFF, 6), shell = [], R = sp.tier >= 7 ? 26 : 20; let grab = 0;
+      core.position.copy(o.from); roundGroup.add(core); roundGroup.add(gl); sfx('drone'); wzSky(o, q, sp, 22);
+      wzRun(7.2, (t, dt) => { if (t < .8) { core.position.lerpVectors(o.from, top, t/.8); gl.position.copy(core.position); return; }
+        const mr = 1 + Math.min(1, (t - .8)/3.5)*7; if (t > 5.4) { const u = Math.min(1, (t - 5.4)/1.3); ctr.y = top.y - u*u*(22 - mr*.6); } core.position.copy(ctr); gl.position.copy(ctr); gl.scale.set(mr*5, mr*5, 1);
+        grab -= dt; if (t < 4.5 && grab <= 0) { grab = .08; const a = Math.random()*Math.PI*2, r = 6 + Math.random()*R, from = wzGP(q.x + Math.cos(a)*r, q.z + Math.sin(a)*r), m = wzMk(PAIN_ROCK, wzRockMat()); m.scale.setScalar(.5 + Math.random()*1.2); roundGroup.add(m); puff(from, 0x7A6A5A, .7); shell.push({m, from, dv:V3(Math.random() - .5, Math.random() - .5, Math.random() - .5).normalize(), t0:t}); }
+        for (const s of shell) { const u = Math.min(1, (t - s.t0)/.9), dest = ctr.clone().addScaledVector(s.dv, mr*.9); s.m.position.lerpVectors(s.from, dest, u*u); }
+        if (t < 4.5) { const B = bodyFor(o.key, o.team); if (B && B.harm) { const b = B.P.body.position, d = V3(top.x - b.x, top.y - 2 - b.y, top.z - b.z), L = d.length() || 1; if (hdist(b, q) < R && L > mr + 1) B.P.body.velocity.set(d.x/L*10, d.y/L*10 + 2, d.z/L*10); }
+          wzLiftBots(o, q, R, 1); } },
+        () => { wzDel(core); wzDel(gl); shell.forEach(s => wzDel(s.m)); wzHit(o, V3(q.x, q.y + 2, q.z), sp.tier >= 7 ? 18 : 14, sp.dmg*k*1.3, 35, PAIN_PAL, {mush:true, size:1.3, snd:'boom'}); wzFling(q, 14, 16); if (o.key === G.localKey) flash(.6, .5); shakeAt(q, 3, 220); }); }},
+  p_zerog:{n:'Zero Gravity', e:'🌌', mode:'self', base:5, ult:true, d:'gravity switches off around you: your enemies float helplessly, then fall',
+    recipe:() => { const g = [...GL.circ(0, 0, .9), ...wzRin(), ...GL.line(-.35, .74, .35, .74), ...GL.line(-.35, -.74, .35, -.74)]; for (let i = 0; i < 6; i++) { const a = i/6*Math.PI*2; g.push(...GL.circ(Math.cos(a)*.56, Math.sin(a)*.56, .1)); } return g; },
+    fx(o, q, sp, k){ const at = o.from.clone(), R = sp.tier >= 7 ? 32 : 24; wzSelfRing(o, sp, 18, 2); sfx('grav');
+      const P = victimFor(o.key, o.team); if (P && hdist(P.body.position, at) < R) { P.floatT = 5; knock(P, 0, 6, 0, .3); toast('🌌 Zero gravity!'); } wzLiftBots(o, at, R, 5);
+      wzRun(5, () => { if (Math.random() < .7) sparkle(V3(at.x + rr(-R, R)*.7, at.y + rr(1, 8), at.z + rr(-R, R)*.7), pick([0xC080FF, 0xFFFFFF])); }, () => { wzTakeArea(V3(at.x, at.y + 1, at.z), R, sp.dmg*k*.7, o.team); const P2 = victimFor(o.key, o.team); if (P2 && hdist(P2.body.position, at) < R) painHurt(P2, sp.dmg*k*.5, o.key); }); }},
+  p_quake:{n:'Earth Shockwave', e:'🌋', mode:'self', base:5, ult:true, d:'the ground ripples out from you in a wave of shattering rock',
+    recipe:() => { const z = []; for (let i = 0; i <= 20; i++) { const a = i/20*Math.PI*2, r = i % 2 ? .66 : .5; z.push([Math.cos(a)*r, Math.sin(a)*r]); } return [...GL.circ(0, 0, .9), ...wzRin(), z]; },
+    fx(o, q, sp, k){ const at = o.from.clone(), R = sp.tier >= 7 ? 32 : 24; wzSelfRing(o, sp, 14, 1.6); sfx('rumble');
+      for (let s = 1; s <= 8; s++) wzAfter(s*.15, () => { const r = R*s/8, n = 6 + s*2; shockRing(wzGP(at.x, at.z, .3), r, .3, 0x8A7A6A); for (let i = 0; i < n; i++) { const a = i/n*Math.PI*2 + s, p = wzGP(at.x + Math.cos(a)*r, at.z + Math.sin(a)*r); if (i % 2 === 0) wzSpikes(p, 1.2); if (i % 3 === 0) wzHit(o, V3(p.x, p.y + .6, p.z), 2.6, sp.dmg*k*.25, 9, PAIN_PAL, {quiet:true}); } });
+      shakeAt(at, 2, 120); }},
+  p_levitate:{n:'Levitation', e:'🎈', mode:'self', base:3, d:'you float up into the air and drift for a while',
+    recipe:() => { const g = [...GL.circ(0, 0, .9), ...wzRin()]; for (const sx of [-1, 1]) g.push([[sx*.25, 0], [sx*.42, .26], [sx*.74, .38], [sx*.62, .12], [sx*.78, .04], [sx*.52, -.1], [sx*.25, 0]]); g.push([[-.2, -.56], [0, -.38], [.2, -.56]], [[-.2, -.74], [0, -.56], [.2, -.74]]); return g; },   /* wings, and lift */
+    fx(o, q, sp, k){ const C = chars[o.key], dur = 6 + sp.tier; if (o.key === G.localKey) { const me = localP(); if (me && me.alive !== false) { knock(me, 0, 12, 0, 0); me.floatT = dur; } }
+      const ring = wzMk(new THREE.RingGeometry(.6, .9, 32), new THREE.MeshBasicMaterial({color:PAIN_COL, transparent:true, opacity:.7, side:THREE.DoubleSide, depthWrite:false})); ring.rotation.x = -Math.PI/2; roundGroup.add(ring); sfx('grav');
+      wzRun(dur, () => { if (C) ring.position.set(C.body.position.x, C.body.position.y - .05, C.body.position.z); ring.rotation.z += .05; }, () => wzDel(ring)); }},
+  p_link:{n:'Gravity Link', e:'⛓️', mode:'hand', base:4, d:'a chain of gravity snaps to an enemy, lifts them, and smashes them down',
+    recipe:() => [...GL.circ(0, 0, .9), ...GL.circ(-.28, 0, .24), ...GL.circ(.28, 0, .24), ...GL.line(-.52, 0, -.84, 0), ...GL.line(.52, 0, .84, 0)],
+    fx(o, q, sp, k){ const dir = wzDirOf(o); wzHandCircle(o, sp, dir, 2.6, 2); const f = (o.p && wzNear(o, o.p, 12)) || wzNear(o, o.from, 35); sfx('grav'); if (!f) return;
+      const beam = wzMk(new THREE.CylinderGeometry(.08, .08, 1, 6), new THREE.MeshBasicMaterial({color:PAIN_COL, transparent:true, opacity:.85, blending:THREE.AdditiveBlending, depthWrite:false})); roundGroup.add(beam);
+      const tgt = () => f.P ? V3(f.P.body.position.x, f.P.body.position.y + 1, f.P.body.position.z) : f.bot ? V3(f.bot.pos.x, f.bot.pos.y + 1.2, f.bot.pos.z) : V3(f.x, f.y, f.z), P = victimFor(o.key, o.team), mine = P && f.P === P;
+      if (f.bot) f.bot.liftT = Math.max(f.bot.liftT || 0, 1.6); if (mine) knock(P, 0, 16, 0, 1.2);
+      wzRun(1.6, () => { const C = chars[o.key], a = C ? V3(C.body.position.x, C.body.position.y + 1.45, C.body.position.z).addScaledVector(dir, 1.2) : o.from.clone(), b = tgt(), d = b.clone().sub(a), L = d.length() || .01; beam.position.copy(a).addScaledVector(d, .5); beam.scale.set(1, L, 1); beam.quaternion.setFromUnitVectors(V3(0, 1, 0), d.normalize()); },
+        () => { wzDel(beam); const b = tgt(); if (mine) { knock(P, 0, -30, 0, .8); painHurt(P, sp.dmg*k, o.key); } wzHit(o, wzGP(b.x, b.z, .8), 2.6, sp.dmg*k, 8, PAIN_PAL, {size:.5, snd:'thud'}); shakeAt(b, .8, 40); }); }},
+  p_circ:{n:'Falling Circuit', e:'➰', mode:'ground', base:4, d:'six gravity points ring the circle; everything inside is slammed down again and again',
+    recipe:() => { const g = [...GL.circ(0, 0, .9), ...wzRin(), ...GL.ngon(0, 0, .58, 6, 0)]; for (let i = 0; i < 6; i++) { const a = i/6*Math.PI*2; g.push(...GL.circ(Math.cos(a)*.58, Math.sin(a)*.58, .07)); } return g; },
+    fx(o, q, sp, k){ const R = 5 + sp.tier*.6, pts = []; for (let i = 0; i < 6; i++) { const a = i/6*Math.PI*2, m = wzMk(new THREE.SphereGeometry(.4, 12, 8), wzMat(0x0A0612, true)); m.add(wzGlowSprite(PAIN_COL, 2)); m.position.copy(wzGP(q.x + Math.cos(a)*R, q.z + Math.sin(a)*R, 1.2)); roundGroup.add(m); pts.push(m); } sfx('grav');
+      for (let i = 0; i < 4; i++) wzAfter(.6 + i*.55, () => { wzFreeze(o, q, R, .4); const P = victimFor(o.key, o.team); if (P && hdist(P.body.position, q) < R) { knock(P, 0, -18, 0, .4); painHurt(P, sp.dmg*k*.3, o.key); }
+        wzTakeArea(V3(q.x, q.y + 1, q.z), R, sp.dmg*k*.3, o.team); shockRing(wzGP(q.x, q.z, .2), R, .35, PAIN_COL); for (let j = 0; j < 6; j++) arcBeam(pts[j].position.clone(), pts[(j + 1) % 6].position.clone(), PAIN_COL); });
+      wzRun(3.2, t => pts.forEach((m, i) => m.position.y = groundH(m.position.x, m.position.z) + 1.2 + Math.sin(t*4 + i)*.2), () => pts.forEach(wzDel)); }},
+  p_grab:{n:'Telekinesis', e:'🫳', mode:'hand', base:3, d:'your palm circle seizes an enemy, lifts them and hurls them',
+    recipe:() => { const g = [...GL.circ(0, 0, .9), ...GL.circ(0, -.28, .22)]; for (let i = 0; i < 5; i++) { const a = Math.PI/2 + (i - 2)*.38, c = Math.cos(a), s = Math.sin(a); g.push(...GL.line(c*.26, -.28 + s*.26, c*.82, -.28 + s*.82)); } return g; },
+    fx(o, q, sp, k){ const dir = wzDirOf(o); wzHandCircle(o, sp, dir, 2.4, 2.2); const f = (o.p && wzNear(o, o.p, 10)) || wzNear(o, o.from, 30); sfx('grav'); if (!f) return;
+      const P = victimFor(o.key, o.team), mine = P && f.P === P, aura = wzGlowSprite(PAIN_COL, 3); roundGroup.add(aura); if (mine) { knock(P, 0, 10, 0, 1.6); P.floatT = 1.4; } if (f.bot) f.bot.liftT = Math.max(f.bot.liftT || 0, 1.8);
+      wzRun(1.6, () => { const b = f.P ? f.P.body.position : f.bot ? f.bot.pos : V3(f.x, f.y, f.z); aura.position.set(b.x, b.y + 1.2, b.z); },
+        () => { wzDel(aura); if (mine) { knock(P, dir.x*30, 6, dir.z*30, 1); painHurt(P, sp.dmg*k, o.key); }
+          if (f.bot) { const z = f.bot, sx = z.pos.x, sz = z.pos.z; wzRun(.5, t => { const u = Math.min(1, t/.5); z.pos.x = clamp(sx + dir.x*14*u, -WZB_EDGE + 5, WZB_EDGE - 5); z.pos.z = clamp(sz + dir.z*14*u, -WZB_EDGE + 5, WZB_EDGE - 5); }, () => wzHit(o, V3(z.pos.x, z.pos.y + 1, z.pos.z), 2.4, sp.dmg*k, 6, PAIN_PAL, {size:.4, snd:'thud'})); } }); }}
+};
+const WZ_CLASSES = {pain:{n:'Pain', e:'🌀', col:PAIN_COL, d:'The Six Paths of Pain: gravity itself. Every circle carries a small Rinnegan (two rings) in the middle.', list:Object.keys(WZ_AB).filter(id => id.startsWith('p_'))}};
+// which class circle is this? (a tracing score against every class circle, like the spellbook's: precision x coverage)
+const WZCM = {sets:{}};
+function wzGridOf(pts){ const N = 128, g = new Uint8Array(N*N), toG = v => Math.round((v + 1.1)/2.2*(N - 1)), tol = Math.round(.068/2.2*(N - 1));
+  for (const [x, y] of pts) { const gi = toG(x), gj = toG(y); for (let dj = -tol; dj <= tol; dj++) for (let di = -tol; di <= tol; di++) { if (di*di + dj*dj > tol*tol) continue; const i = gi + di, j = gj + dj; if (i >= 0 && j >= 0 && i < N && j < N) g[i + j*N] = 1; } } return g; }
+const wzInG = (g, x, y) => { const N = 128, i = Math.round((x + 1.1)/2.2*(N - 1)), j = Math.round((y + 1.1)/2.2*(N - 1)); return i >= 0 && j >= 0 && i < N && j < N && g[i + j*N] === 1; };
+function wzClassMatch(polys){
+  if (!polys) return null; const D = wzSample(polys, .02); if (D.length < 40) return null; const gD = wzGridOf(D); let best = null, second = 0;
+  const all = [...WZ_RECIPES.map(r => ['legend', r.id, r.polys]), ...Object.keys(WZ_CLASSES).flatMap(cls => WZ_CLASSES[cls].list.map(ab => [cls, ab, WZ_AB[ab].recipe]))];   /* every circle in the Grimoire */
+  for (const [cls, ab, rec] of all) {
+    const R = WZCM.sets[cls + ab] || (WZCM.sets[cls + ab] = (() => { const ps = rec(); return {g:wzGridOf(wzSample(ps, .02)), parts:ps.map(pl => wzSample([pl], .02)).filter(q => q.length)}; })());
+    let a = 0; for (const [x, y] of D) if (wzInG(R.g, x, y)) a++; let cw = 0, cs = 0; for (const q of R.parts) { let h = 0; for (const [x, y] of q) if (wzInG(gD, x, y)) h++; const w = Math.pow(q.length, .3); cw += w; cs += w*h/q.length; }
+    const prec = a/D.length, cov = cw ? cs/cw : 0, s = prec + cov > 0 ? 2*prec*cov/(prec + cov) : 0;
+    if (!best || s > best.s) { second = best ? best.s : second; best = {cls, ab, s}; } else if (s > second) second = s; }
+  return best && best.s >= .72 && best.s - second >= .04 ? best : null;
+}
+function wzClassSpec(m, b){
+  const A = WZ_AB[m.ab], tier = clamp(A.base + (m.s >= .8 ? 1 : m.s < .66 ? -1 : 0), 2, A.ult ? 7 : 6), C = WZ_CLASSES[m.cls];
+  return {tier, el:'cosmic', form:m.ab, ab:m.ab, cls:m.cls, mode:A.mode, name:`${A.n}`, desc:A.d, e:A.e, col:C.col, pal:PAIN_PAL, legend:null, whim:null, pw:null, seed:b.seed, match:+m.s.toFixed(2),
+    R:[2.5, 3.5, 4.5, 6, 8, 11, 18][tier - 1], dmg:[2, 14, 24, 36, 52, 72, 120][tier - 1], cd:[3, 5, 8, 12, 18, 28, 60][tier - 1]*(A.ult ? 1.5 : 1), size:A.ult ? 22 : 8 + tier*2, f:b.F};
+}
+/* ---------- the Grimoire, by class ---------- */
+const WZ_MODE_TXT = {hand:'✋ from your palm', ground:'⭕ at the circle', self:'🧍 around you'};
+function wzGrimoire(Pp, tab){
+  const old = Pp.el.querySelector('#wzGrim'); if (old) old.remove(); if (tab === false) return; tab = tab || Pp.grimTab || 'legend'; Pp.grimTab = tab;
   const sheet = Pp.el.querySelector('#wzSheet'), box = document.createElement('div'); sheet.style.position = 'relative'; box.id = 'wzGrim';
   box.style.cssText = 'position:absolute;inset:0;background:rgba(28,16,8,.96);display:flex;flex-direction:column;padding:12px 14px;gap:8px;overflow:auto;border-radius:10px;z-index:3';
-  box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b style="font-size:18px;color:#FFE9A8">📖 The Grimoire: the twelve legends</b><button class="btn" id="wzGrX">✕</button></div>
-    <div style="font-size:13px;opacity:.9;line-height:1.35">Every legend is a <b>double ring</b> round the outside + its <b>sign</b> inside. Draw it big, neat and closed. Pick one to see it faintly on your page and trace it. (Below legends, anything you draw becomes one of ${Object.keys(WZ_POW).length - 1} powers: try shapes!)</div>
-    <div id="wzGrL" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:8px"></div>`;
+  const tabs = [['legend', '⭐ Legends'], ...Object.keys(WZ_CLASSES).map(c => [c, WZ_CLASSES[c].e + ' ' + WZ_CLASSES[c].n])];
+  const info = tab === 'legend' ? 'Every legend is a <b>double ring</b> round the outside + its <b>sign</b> inside. Draw it big, neat and closed.' : `${WZ_CLASSES[tab].d} Trace a circle closely and its ability is yours (neater = stronger).`;
+  box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b style="font-size:18px;color:#FFE9A8">📖 The Grimoire</b><button class="btn" id="wzGrX">✕</button></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${tabs.map(([id, n]) => `<button class="btn${id === tab ? ' primary' : ''}" data-tab="${id}">${n}</button>`).join('')}</div>
+    <div style="font-size:13px;opacity:.9;line-height:1.35">${info} Pick one to see it faintly on your page and trace it.</div><div id="wzGrL" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:8px"></div>`;
   sheet.appendChild(box); const L = box.querySelector('#wzGrL');
-  for (const R of WZ_RECIPES) { const Lg = WZ_LEGS[R.id], c = document.createElement('button'); c.className = 'btn'; c.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 6px;height:auto;white-space:normal;line-height:1.2;border-radius:12px';
+  const cards = tab === 'legend' ? WZ_RECIPES.map(R => ({t:WZ_LEGS[R.id][0] + ' ' + WZ_LEGS[R.id][1], h:R.h, polys:R.polys})) : WZ_CLASSES[tab].list.map(id => { const A = WZ_AB[id]; return {t:A.e + ' ' + A.n + (A.ult ? ' ★' : ''), h:WZ_MODE_TXT[A.mode] + ' · ' + A.d, polys:A.recipe}; });
+  for (const R of cards) { const c = document.createElement('button'); c.className = 'btn'; c.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 6px;height:auto;white-space:normal;line-height:1.2;border-radius:12px';
     const cv = document.createElement('canvas'); cv.width = cv.height = 120; cv.style.cssText = 'width:84px;height:84px;background:#F2E2B8;border-radius:6px'; wzDrawGlyph(cv.getContext('2d'), R.polys(), 60, 60, 54, '#2A1408', 2); c.appendChild(cv);
-    const t = document.createElement('div'); t.innerHTML = `<b style="font-size:13px">${Lg[0]} ${Lg[1]}</b><div style="font-size:11px;opacity:.8;font-weight:600;margin-top:2px">${R.h}</div>`; c.appendChild(t);
+    const t = document.createElement('div'); t.innerHTML = `<b style="font-size:13px">${R.t}</b><div style="font-size:11px;opacity:.8;font-weight:600;margin-top:2px">${R.h}</div>`; c.appendChild(t);
     c.onclick = e => { e.stopPropagation(); Pp.recipe = R.polys(); box.remove(); }; L.appendChild(c); }
+  box.querySelectorAll('[data-tab]').forEach(b => b.onclick = e => { e.stopPropagation(); wzGrimoire(Pp, b.dataset.tab); });
   box.querySelector('#wzGrX').onclick = e => { e.stopPropagation(); box.remove(); };
 }
+
+/* ---------- Wizards: the drawing assist (on by default; A or the 🧲 button toggles it). While a guide is on the page (a spell's
+   guide, or a Grimoire circle laid on to trace), the ink is pulled halfway onto the nearest guide line when the pen is near it;
+   on every page a steadying hand smooths the jitter. Drawing from memory (guide hidden) gets no magnet, so its bonus stays fair. ---------- */
+WZ.assist = (() => { try { return localStorage.getItem('ca-wzassist') !== 'off'; } catch (e) { return true; } })();
+function wzAssistGuide(Pp){
+  const polys = WZ.guide && !WIZ_SK[Pp.id].custom ? WIZ_SK[Pp.id].polys : Pp.recipe || null; if (!polys) return null;
+  if (Pp.asSrc !== polys) { Pp.asSrc = polys; Pp.asPts = wzSample(polys, .012); } return Pp.asPts;
+}
+function wzAssist(Pp, q, last){
+  if (!WZ.assist) return q; let x = q[0], y = q[1];
+  const G0 = wzAssistGuide(Pp); if (G0) { let b = 1e9, nx = 0, ny = 0; for (const p of G0) { const d = (p[0] - x)*(p[0] - x) + (p[1] - y)*(p[1] - y); if (d < b) { b = d; nx = p[0]; ny = p[1]; } }
+    const d = Math.sqrt(b); if (d < .14) { const k = .5 + .3*(1 - d/.14); x += (nx - x)*k; y += (ny - y)*k; } }   // the magnet: half the way (more when you're nearly on it)
+  Pp.asRaw = [x, y];   /* (where the pen really is: the stroke ends there) */
+  if (last) { x = last[0] + (x - last[0])*.75; y = last[1] + (y - last[1])*.75; }   // the steady hand
+  return [x, y];
+}
+function wzAssistToggle(){ WZ.assist = !WZ.assist; try { localStorage.setItem('ca-wzassist', WZ.assist ? 'on' : 'off'); } catch (e) {} const b = WZ.paper && WZ.paper.el.querySelector('#wzAs'); if (b) b.textContent = WZ.assist ? '🧲 Assist: on (A)' : '✍️ Assist: off (A)'; }
+function wzAssistBtn(Pp){ const b = document.createElement('button'); b.className = 'btn'; b.id = 'wzAs'; b.textContent = WZ.assist ? '🧲 Assist: on (A)' : '✍️ Assist: off (A)'; b.onclick = e => { e.stopPropagation(); wzAssistToggle(); }; const c = Pp.el.querySelector('#wzClr'); if (c) c.after(b); }
 
 /* ===================================== WORLD: rain, nature, an unbreakable ground =====================================
    The ground never changes shape any more: craterAt() only scorches it (colour), World Severance leaves a glowing

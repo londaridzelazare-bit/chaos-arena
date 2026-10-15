@@ -803,3 +803,14 @@ phoenix, golem, timestop, beam, volcano, legion, stormring, star, spring; 'surge
 shape affinity + luck. New legends in WZ_LEG2 (moon, dragon, seraph, hellgate, leviathan), new whimsies WZ_WHIM2. The
 Grimoire (📖 on the wild page, wzGrimoire/WZ_RECIPES) shows the 12 recipes and can lay one faintly on the page (Pp.recipe).
 Recipe reliability with a wobbly hand: recipes.mjs (all >= 5/6). Frozen bots: WZF / wzWildFrame.
+Wizards 2026-10-15.2: CLASSES in the Grimoire (wiz_pain module). WZ_CLASSES (first: pain) -> WZ_AB abilities, each {mode, base,
+recipe(), fx}. The wild page matches the drawing against EVERY Grimoire circle (legend recipes + class circles) with a tracing
+score (wzClassMatch: wzScore-style precision x coverage, cached grids WZCM; best >= .72 and 0.04 clear of the next): a class circle
+-> wzClassSpec (that ability; tier = base +-1 by the score), a legend recipe -> that legend; otherwise the shape reading as before.
+Modes: 'hand' = cast at once toward the crosshair (aimPoint), the caster's own drawn circle opens upright in the palm
+(wzHandCircle) and the power leaves from it, no ground circle; 'self' = at once, round the caster; 'ground' = the usual preview +
+click. All 16 of Pain's abilities are rebuilt as circle powers (they act on dark wizards too: wzShove/wzLiftBots/wzTakeArea/
+wzTakeCone; players via victimFor/knock/painHurt/floatT). Test t95; recognition test recipes.mjs (all 6/6 but one 5/6).
+DRAWING ASSIST (wiz_assist, WZ.assist, on by default, A / 🧲 button): with a guide (spell guide or Grimoire trace) the ink is
+pulled .5-.8 of the way onto the nearest guide line within .14; a steady hand (lag .75) everywhere; the stroke ends at the true pen
+point. Sloppy Fireball: B .75 -> S .95.
