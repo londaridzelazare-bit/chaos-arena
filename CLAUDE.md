@@ -792,3 +792,14 @@ drawing (same on every screen): complexity X x order O (chance-adjusted symmetry
 (burst/lance/eruption/nova/barrage/vortex/summon/wave/wild). Tier 1 = whimsy (butterflies, black cat...), tier 7 = legend (sun,
 death, hole, heavens, winter, titan, tree). Spec cached per player (WZ.cspec, wzCustomForget on redraw); size/cd from the spec.
 Calibration script cal.mjs; test t94.
+Wizards 2026-10-15.1 (wiz_wild module): the wild page's powers rebuilt. wzCustomSpec now only READS the drawing (features F:
+rings, triUp/triDown, starDown/upStars, quad, petals, rad, spirals, waves (wzWavy: coarse + smoothed, no sharp corners), zig
+(per stroke, not on waves), X/O...; small loops are never polygons) and hands it to wzWildSpec: tiers I-VI by might (+12% luck
+for +1), VII only by a LEGEND RECIPE = double ring (rings>=2) + X>=.55 + O>=.62 + a sign (wzMotif, first match: spiral hole,
+zigzags heavens, rays sun, inverted star death, hexagram winter, inverted triangle hellgate, star seraph, triangle dragon,
+square titan, petals tree, waves leviathan, 3+ rings moon). Tiers II-VI pick one of WZ_POW (26 hand-made powers: chain, icecage,
+serpent, hands, thorns, wolves, bubbles, totem, blades, blink, bees, crystals, gravity, hydra, dragonhead, godhand, kraken,
+phoenix, golem, timestop, beam, volcano, legion, stormring, star, spring; 'surge' for messy drawings) by element match +
+shape affinity + luck. New legends in WZ_LEG2 (moon, dragon, seraph, hellgate, leviathan), new whimsies WZ_WHIM2. The
+Grimoire (📖 on the wild page, wzGrimoire/WZ_RECIPES) shows the 12 recipes and can lay one faintly on the page (Pp.recipe).
+Recipe reliability with a wobbly hand: recipes.mjs (all >= 5/6). Frozen bots: WZF / wzWildFrame.

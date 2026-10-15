@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-14.9';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-15.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -14838,7 +14838,7 @@ function wzPaperOpen(id){
   el.addEventListener('pointerdown', e => e.stopPropagation()); el.addEventListener('contextmenu', e => { e.preventDefault(); });
   el.querySelector('#wzGo').onclick = () => wzPaperActivate(); el.querySelector('#wzClr').onclick = () => { if (Pp.glow) return; Pp.strokes = []; Pp.blots = []; Pp.splats = []; };
   el.querySelector('#wzX').onclick = () => wzPaperClose(true); el.querySelector('#wzGd').onclick = () => wzGuideToggle();
-  wzQuillAttach(cv, el); if (d.custom) el.querySelector('#wzGd').style.display = 'none';
+  wzQuillAttach(cv, el); if (d.custom) { el.querySelector('#wzGd').style.display = 'none'; const gb = document.createElement('button'); gb.className = 'btn'; gb.textContent = '📖 Grimoire'; gb.onclick = e => { e.stopPropagation(); wzGrimoire(Pp); }; el.querySelector('#wzX').before(gb); }
   wzGuideToggle(true); const tick = () => { if (WZ.paper !== Pp) return; wzPaperDraw(); Pp.raf = requestAnimationFrame(tick); }; tick();
   localCast('z_draw', null, {on:1}); sfx('grab');
 }
@@ -14846,6 +14846,7 @@ function wzPaperDraw(){
   const Pp = WZ.paper; if (!Pp) return; if (WIZ_SK[Pp.id].custom) wzCustomLive(Pp); const g = Pp.g, W = Pp.cv.width, S = W*.46, c = W/2, now = performance.now(), X = x => c + x*S, Y = y => c - y*S;
   g.clearRect(0, 0, W, W); g.drawImage(Pp.bg, 0, 0);
   if (WZ.guide && !WIZ_SK[Pp.id].custom) wzDrawGlyph(g, WIZ_SK[Pp.id].polys, c, c, S, 'rgba(110,70,30,.2)', 9*Pp.dpr);   /* (the wild page is blank) */
+  else if (Pp.recipe) wzDrawGlyph(g, Pp.recipe, c, c, S, 'rgba(110,70,30,.2)', 9*Pp.dpr);   /* a legend from the Grimoire, to trace */
   g.lineCap = g.lineJoin = 'round';
   // the ink bleeds a little into the paper
   for (const st of Pp.strokes) for (let i = 1; i < st.length; i++) { const a = st[i - 1], b = st[i]; g.strokeStyle = 'rgba(70,35,15,.16)'; g.lineWidth = (a[2] + b[2])*S*1.15 + 2*Pp.dpr; g.beginPath(); g.moveTo(X(a[0]), Y(a[1])); g.lineTo(X(b[0]), Y(b[1])); g.stroke(); }
@@ -15815,7 +15816,7 @@ function wzSecretsFrame(dt){
   if (WZW.surgeT > G.t) for (const k in G.cd) if (WIZ_SK[k] && G.cd[k] > 0) G.cd[k] = Math.max(0, G.cd[k] - dt);   // twice as fast
 }
 function wzWorldBuild(){ wzMistBuild(); wzCloudsBuild(); wzFrogsBuild(); wzSecretsBuild(); wzDiagramsBuild(); WZW.strikeT = 8; WZW.surgeT = 0; WZW.seen = {}; }
-function wzWorldFrame(dt){ if (!WZW.fog.length) return; wzMistFrame(dt); wzInteriorFrame(dt); wzRiverFrame(dt); wzDiagramsFrame(dt); wzCloudsFrame(dt); wzFrogsFrame(dt); wzSecretsFrame(dt); }
+function wzWorldFrame(dt){ if (!WZW.fog.length) return; wzMistFrame(dt); wzWildFrame(dt); wzInteriorFrame(dt); wzRiverFrame(dt); wzDiagramsFrame(dt); wzCloudsFrame(dt); wzFrogsFrame(dt); wzSecretsFrame(dt); }
 
 /* ---------- Wizards creatures, sculpted (no boxes): the wraith, the goblin shaman, the crowned frog, the night animals, bats ---------- */
 const wzSkinTex = (key, base, spot, dots) => wzaTex(key, 128, 128, (g, W, H, r) => { g.fillStyle = base; g.fillRect(0, 0, W, H);
@@ -16478,6 +16479,12 @@ const WZ_LEGEND = {fire:['sun', 'Death of a Sun', 'a sun falls from the sky and 
   cosmic:['hole', 'Black Hole', 'a black hole swallows the area, then collapses'], storm:['heavens', 'Wrath of the Heavens', 'the sky tears open in a storm of lightning'], frost:['winter', 'The Endless Winter', 'everything freezes under a killing blizzard'],
   earth:['titan', "Titan's Fall", 'a mountain falls out of the sky'], life:['tree', 'The World Tree', 'a colossal tree heals your side and crushes the rest']};
 /* ---------- reading a drawing ---------- */
+// a wavy line: read at a coarse scale (the packed drawing is jittery up close), it turns back and forth smoothly, with no sharp corner (a zigzag has them)
+function wzWavy(q){
+  const q0 = wzSample([q], .05), c = q0.map((p, i) => i && i < q0.length - 1 ? [(q0[i - 1][0] + p[0]*2 + q0[i + 1][0])/4, (q0[i - 1][1] + p[1]*2 + q0[i + 1][1])/4] : p); let abs = 0, net = 0, sharp = 0, mx = 0;
+  for (let i = 1; i < c.length - 1; i++) { const ux = c[i][0] - c[i - 1][0], uy = c[i][1] - c[i - 1][1], vx = c[i + 1][0] - c[i][0], vy = c[i + 1][1] - c[i][1], a = Math.atan2(ux*vy - uy*vx, ux*vx + uy*vy); abs += Math.abs(a); net += a; if (Math.abs(a) > .5) sharp += Math.abs(a); if (Math.abs(a) > mx) mx = Math.abs(a); }
+  return abs > Math.PI*1.5 && Math.abs(net) < Math.PI && mx < .8 && sharp/abs < .25;
+}
 function wzCustomSpec(polys){
   if (!polys || !polys.length) return null;
   const S = polys.map(pl => wzSample([pl], .025)).filter(q => q.length > 3), all = [].concat(...S); if (all.length < 16) return null;
@@ -16488,17 +16495,18 @@ function wzCustomSpec(polys){
   // the strokes: loops (circles, polygons, petals), lines (spokes), corners, zigzags, spirals, waves
   const loops = [], lines = [], spirals = [], waves = []; let nC = 0, zig = 0, closedLen = 0; const isCircle = [];
   S.forEach((q, si) => { let len = 0; for (let i = 1; i < q.length; i++) len += dst(q[i], q[i - 1]);
-    const gap = dst(q[0], q[q.length - 1]), closed = len > .3 && gap < Math.max(.1, len*.08), qq = closed ? q.concat(q.slice(1, 6)) : q; let lastC = -9, lastS = 0, net = 0, abs = 0, cs = 0;
-    for (let i = 1; i < q.length - 1; i++) { const ux = q[i][0] - q[i - 1][0], uy = q[i][1] - q[i - 1][1], vx = q[i + 1][0] - q[i][0], vy = q[i + 1][1] - q[i][1], a = Math.atan2(ux*vy - uy*vx, ux*vx + uy*vy); net += a; abs += Math.abs(a); }
+    const gap = dst(q[0], q[q.length - 1]), closed = len > .3 && gap < Math.max(.1, len*.08), qq = closed ? q.concat(q.slice(1, 6)) : q; let lastC = -9, lastS = 0, net = 0, abs = 0, cs = 0, zl = 0, st = 0;
+    for (let i = 1; i < q.length - 1; i++) { const ux = q[i][0] - q[i - 1][0], uy = q[i][1] - q[i - 1][1], vx = q[i + 1][0] - q[i][0], vy = q[i + 1][1] - q[i][1], a = Math.atan2(ux*vy - uy*vx, ux*vx + uy*vy); net += a; abs += Math.abs(a); if (Math.abs(a) > .5) st += Math.abs(a); }
     for (let i = 3; i < qq.length - 3; i++) { if (closed && i >= q.length + 2) break; const ux = qq[i][0] - qq[i - 3][0], uy = qq[i][1] - qq[i - 3][1], vx = qq[i + 3][0] - qq[i][0], vy = qq[i + 3][1] - qq[i][1], a = Math.atan2(ux*vy - uy*vx, ux*vx + uy*vy);
-      if (Math.abs(a) > 1.05 && i - lastC > 4) { cs++; const sg = Math.sign(a); if (lastS && sg !== lastS) zig++; lastS = sg; lastC = i; } }
+      if (Math.abs(a) > 1.05 && i - lastC > 4) { cs++; const sg = Math.sign(a); if (lastS && sg !== lastS) zl++; lastS = sg; lastC = i; } }
     nC += cs;
     if (closed) { closedLen += len; let mx = 0, my = 0; for (const p of q) { mx += p[0]; my += p[1]; } mx /= q.length; my /= q.length; const rs = q.map(p => Math.hypot(p[0] - mx, p[1] - my)), mr = rs.reduce((a, b) => a + b, 0)/rs.length, sd = Math.sqrt(rs.reduce((a, b) => a + (b - mr)*(b - mr), 0)/rs.length);
       let ly0 = 9, ly1 = -9; for (const p of q) { if (p[1] < ly0) ly0 = p[1]; if (p[1] > ly1) ly1 = p[1]; }
       const circ = 1 - sd/Math.max(.01, mr); loops.push({si, mx, my, r:mr, circ, c:cs, len, down:cs >= 3 && (my - (ly0 + ly1)/2)/Math.max(.01, ly1 - ly0) > .03}); isCircle[si] = circ > .8 && cs <= 1; }
     else if (len > .2 && gap/len > .93) lines.push({a:q[0], b:q[q.length - 1], len});
     else if (Math.abs(net) > Math.PI*3.2) spirals.push(si);
-    else if (len > .5 && abs > Math.PI*2.5 && Math.abs(net) < Math.PI && gap/len > .45) waves.push(si);
+    else if (len > .5 && gap/len > .45 && wzWavy(q)) waves.push(si);
+    if (waves[waves.length - 1] !== si) zig += zl;
   });
   // symmetry: does the drawing land on itself mirrored, or turned by 1/n? (circles fit any turn, so the turn test ignores them)
   const N = 48, grid = new Uint8Array(N*N), ij = (x, y) => [Math.floor(((x - cx)/(ext*1.12) + 1)/2*N), Math.floor(((y - cy)/(ext*1.12) + 1)/2*N)];
@@ -16517,32 +16525,26 @@ function wzCustomSpec(polys){
     if (own[c] === -1) { own[c] = si; seen[c] = i; } else if (own[c] === si && i - seen[c] <= 12) seen[c] = i; else if (own[c] !== -2) { cross++; own[c] = -2; } }));
   let occ = 0; for (let i = 0; i < N*N; i++) occ += grid[i]; const density = Math.min(1, occ/(N*N)*2.2);
   // shapes
-  const circles = loops.filter(l => l.circ > .8 && l.c <= 1), radii = []; for (const c of circles) if (Math.hypot(c.mx - cx, c.my - cy) < ext*.18 && !radii.some(r => Math.abs(r - c.r) < .07)) radii.push(c.r);
-  const rings = radii.length, tri = loops.filter(l => l.c === 3).length, quad = loops.filter(l => l.c === 4).length, stars = loops.filter(l => l.c >= 5 && l.circ < .7).length, petals = loops.filter(l => l.r < ext*.45 && Math.hypot(l.mx - cx, l.my - cy) > l.r*1.2).length, downs = loops.filter(l => l.down).length, upStars = loops.filter(l => l.c >= 5 && l.circ < .7 && !l.down).length;
+  const big = l => l.r > ext*.2, circles = loops.filter(l => l.circ > .75 && (l.c <= 2 || !big(l))), radii = []; for (const c of circles) if (Math.hypot(c.mx - cx, c.my - cy) < ext*.18 && !radii.some(r => Math.abs(r - c.r) < .07)) radii.push(c.r);
+  const rings = radii.length, tri = loops.filter(l => big(l) && l.c === 3).length, quad = loops.filter(l => big(l) && l.c === 4).length, stars = loops.filter(l => big(l) && l.c >= 5 && l.circ < .7).length, petals = loops.filter(l => l.r < ext*.45 && Math.hypot(l.mx - cx, l.my - cy) > l.r*1.2).length, downs = loops.filter(l => big(l) && l.down).length, upStars = loops.filter(l => big(l) && l.c >= 5 && l.circ < .7 && !l.down).length;
   const rad = lines.filter(l => { const dx = l.b[0] - l.a[0], dy = l.b[1] - l.a[1], ll = Math.hypot(dx, dy) || 1; return Math.abs(dx*(cy - l.a[1]) - dy*(cx - l.a[0]))/ll < ext*.16; }).length;
   // complexity x order = might
   const elems = loops.length + lines.length*.6 + nC*.2 + cross*.08 + S.length*.12 + spirals.length + waves.length*.6;
   const X = clamp(Math.log2(1 + L/1.6)/4.6*.55 + Math.min(1, elems/14)*.45, 0, 1) * clamp(ext/.45, .35, 1);   // tiny doodles stay small
   const mainC = loops.reduce((m, l) => l.r > ext*.5 ? Math.max(m, l.circ) : m, 0), closure = closedLen/Math.max(.01, L);
   const O = clamp(.65*sym + .2*closure + .15*mainC, 0, 1), Pw = X*(.15 + .85*Math.pow(O, 1.3)), chaos = X*(1 - O);
-  let tier = 1; for (const t of [.18, .32, .44, .56, .68, .8]) if (Pw >= t) tier++;
-  if (tier === 7 && !(O > .7 && X > .8 && (rings >= 2 || order >= 5))) tier = 6;
+  let tier = 1; for (const t of [.16, .28, .4, .5, .6]) if (Pw >= t) tier++;
   // a seed from the drawing itself (the same on every screen)
   let h = 2166136261 >>> 0; all.forEach((p, i) => { if (i % 4) return; h = Math.imul(h ^ (Math.round(p[0]*40) & 255), 16777619) >>> 0; h = Math.imul(h ^ (Math.round(p[1]*40) & 255), 16777619) >>> 0; });
   const rng = mulberry32(h), cd = nC/Math.max(1, L);
-  const crossD = cross/Math.max(1, L), triUp = loops.filter(l => l.c === 3 && !l.down).length;
+  const crossD = cross/Math.max(1, L), triUp = loops.filter(l => big(l) && l.c === 3 && !l.down).length;
   const sc = {fire:triUp*.6 + (order === 3 ? .5 : 0) + Math.min(.6, cd*.12), storm:zig*.2 + lines.length*.05, frost:(order === 6 ? .9 : 0) + Math.min(.6, rad*.08) + (lines.length >= 6 ? .2 : 0),
     earth:quad*.6 + (order === 4 ? .5 : 0) + density*.5, life:petals*.18 + (order === 5 && !stars ? .4 : 0) + (cd < .3 && closure > .6 ? .2 : 0),
     shadow:(1 - O)*1.1 + crossD*.15 + downs*.7 + (density > .45 ? .2 : 0), light:Math.max(0, rings - 1)*.28 + rad*.06 + (order >= 7 && rings >= 2 ? .3 : 0), cosmic:spirals.length*.7 + upStars*.7 + (order === 5 || order === 7 ? .35 : 0)};
   let el = 'light', best = -1; for (const k in sc) { const v = sc[k] + rng()*.18; if (v > best) { best = v; el = k; } }
-  const form = chaos > .4 && O < .45 ? 'wild' : spirals.length ? 'vortex' : petals >= 3 ? 'summon' : rad >= 4 ? 'barrage' : rings >= 2 ? 'nova' : waves.length ? 'wave' : (tri + quad + stars) ? 'eruption' : lines.length >= 2 ? 'lance' : 'burst';
-  const E = WZ_EL[el], adj = ['Faint', 'Lesser', '', 'Greater', 'Grand', 'Mythic', 'Apocalyptic'][tier - 1];
-  let name = `${adj ? adj + ' ' : ''}${E.w[tier - 1]} ${WZ_FORM[form]}`, desc = WZ_FORM_D[form], legend = null, whim = null;
-  if (tier === 1) { whim = el; name = WZ_WHIM[el][0]; desc = WZ_WHIM[el][1]; }
-  if (tier === 7) { legend = WZ_LEGEND[el][0]; name = WZ_LEGEND[el][1]; desc = WZ_LEGEND[el][2]; }
-  return {tier, el, form, name, desc, e:E.e, col:E.col, pal:E.pal, legend, whim, seed:h,
-    R:[2.5, 3.5, 4.5, 6, 8, 11, 18][tier - 1], dmg:[2, 14, 24, 36, 52, 72, 120][tier - 1], cd:[3, 5, 8, 12, 18, 28, 60][tier - 1], size:legend ? 30 : 6 + tier*2.6,
-    f:{L:+L.toFixed(2), X:+X.toFixed(2), O:+O.toFixed(2), P:+Pw.toFixed(2), sym:+sym.toFixed(2), order, rings, loops:loops.length, lines:lines.length, corners:nC, cross, spirals:spirals.length, petals, rad}};
+  const triDown = loops.filter(l => big(l) && l.c === 3 && l.down).length, starDown = loops.filter(l => big(l) && l.c >= 5 && l.circ < .7 && l.down).length;
+  const F = {X, O, P:Pw, sym, rings, order, tri, triUp, triDown, starDown, upStars, quad, petals, rad, spirals:spirals.length, waves:waves.length, zig, lines:lines.length, loops:loops.length, circles:circles.length, downs, crossD, density, cross, L};
+  return wzWildSpec({tier, el, F, seed:h, rng, chaos});
 }
 // a player's wild page as everyone sees it (cached until they redraw)
 function wzCustomSpecFor(key){ if (!key) return null; if (WZ.cspec[key] !== undefined) return WZ.cspec[key]; const dr = WZ.drawn[key] && WZ.drawn[key].z_custom; return (WZ.cspec[key] = dr ? wzCustomSpec(dr) : null); }
@@ -16592,6 +16594,7 @@ function wzSummon(sp, o, q, n, dmg, R, harmless){
 }
 function wzCustomEffect(o){
   const sp = wzCustomSpecFor(o.key); if (!sp) return; const q = gqOf(o, 0), k = o.k || 1, R = sp.R*Math.sqrt(k), dmg = sp.dmg*k, E = WZ_EL[sp.el], yaw = Math.atan2(q.x - o.from.x, q.z - o.from.z);
+  if (sp.pw && WZ_POW[sp.pw]) { WZ_POW[sp.pw].fx(o, q, sp, k); return; }
   if (sp.whim) { wzWhimsy(sp, o, q); return; }
   if (sp.legend) { wzLegend(sp, o, q, k); return; }
   const sky = h => wzGlyphFX('z_custom', V3(q.x, q.y + h, q.z), sp.size*.8, sp.col, {life:1.8, key:o.key, rot:yaw, sky:true, rayH:6, open:.3});
@@ -16627,7 +16630,7 @@ function wzCustomEffect(o){
 function wzCustomForm(sp, o){ const save = WZ.cspec[o.key]; WZ.cspec[o.key] = sp; try { wzCustomEffect(o); } finally { WZ.cspec[o.key] = save; } }
 // tier I: harmless and pretty
 function wzWhimsy(sp, o, q){
-  const el = sp.whim;
+  const el = sp.whim; if (WZ_WHIM2[el]) { WZ_WHIM2[el][2](o, q, sp); return; }
   if (el === 'life') { wzSummon(sp, o, q, 14, 0, 0, true); sfx('holy'); return; }
   if (el === 'fire' || el === 'light' || el === 'cosmic') { const n = el === 'light' ? 1 : 16, list = []; for (let i = 0; i < n; i++) { const s = wzGlowSprite(el === 'fire' ? pick([0xFFD84D, 0xFFA040]) : el === 'light' ? 0xFFF3C0 : pick([0xC080FF, 0xFF7AE0, 0xFFFFFF]), el === 'light' ? 1.6 : .45); s.position.set(q.x, q.y + 1, q.z); roundGroup.add(s); list.push({s, a:o.rng()*6, r:1 + o.rng()*3, h:.5 + o.rng()*2.5}); }
     let t = 0; fxAdd({update(dt){ t += dt; const C = chars[o.key]; for (const L of list) { L.a += dt*(el === 'light' ? 1.4 : .8); const c = el === 'light' && C ? C.body.position : q; L.s.position.set(c.x + Math.cos(L.a)*(el === 'light' ? 1.2 : L.r), (el === 'light' && C ? c.y + 2.2 : q.y + L.h + (el === 'cosmic' ? 3 - t*.4 : 0)) + Math.sin(t*3 + L.a)*.3, c.z + Math.sin(L.a)*(el === 'light' ? 1.2 : L.r)); L.s.material.opacity = Math.min(1, (8 - t)/1.5); }
@@ -16646,6 +16649,7 @@ function wzWhimsy(sp, o, q){
 // tier VII: the legendary ones
 function wzLegend(sp, o, q, k){
   const who = (chars[o.key] && chars[o.key].name) || 'A wizard'; if (o.key !== G.localKey) killFeedText(`${sp.e} ${who} cast ${sp.name}!`); else toast(`${sp.e} ${sp.name}!`);
+  if (WZ_LEG2[sp.legend]) { WZ_LEG2[sp.legend](o, q, sp, k); return; }
   const sky = h => wzGlyphFX('z_custom', V3(q.x, q.y + h, q.z), sp.size, sp.col, {life:4, key:o.key, sky:true, rayH:10, open:.8});
   if (sp.legend === 'sun') { sky(40); const sun = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshBasicMaterial({color:0xFFF3C0})), glow = wzGlowSprite(0xFFB040, 1); sun.userData.noRay = true; roundGroup.add(sun); roundGroup.add(glow); sfx('drone');
     let t = 0, boom = false; fxAdd({update(dt){ t += dt; const f = Math.min(1, t/3), y = q.y + 70 - 56*f, s = 1 + 7*f; sun.position.set(q.x, y, q.z); sun.scale.setScalar(s + Math.sin(t*20)*.2); glow.position.copy(sun.position); glow.scale.set(s*9, s*9, 1); if (t > 2.2 && Math.random() < .4) igniteAt(V3(q.x + rr(-12, 12), q.y, q.z + rr(-12, 12)), 2);
@@ -16762,6 +16766,338 @@ function wzIconFor(id){ if (id !== 'z_custom') return wzIcon(id); const own = WZ
   const c = document.createElement('canvas'); c.width = c.height = 96; wzDrawGlyph(c.getContext('2d'), own, 48, 48, 44, '#F6E7C1', 2.6); return (WZ.icons[k] = c.toDataURL()); }
 function wzTrayCustom(t){ const b = t.querySelector('[data-sp="z_custom"]'), sp = wzCustomSpecFor(G.localKey); if (!b || !sp || !WZ.ink.z_custom) return; const sn = b.querySelector('.sn'), su = b.querySelector('sup'); if (sn) sn.textContent = `${sp.e} ${sp.name}`; if (su) su.textContent = '★' + sp.tier + ' ↻'; b.title = `${sp.name} (tier ${sp.tier} of 7): ${sp.desc}. Keep it all match, or redraw to try your luck: Shift+C or right-click.`;
   b.oncontextmenu = e => { e.preventDefault(); e.stopPropagation(); if (!G.targeting) wzPaperOpen('z_custom'); }; }
+
+/* ---------- Wizards: the wild page's powers. What a drawing reads as (tier, element, its shapes) picks one of many hand-made
+   powers (a serpent of fire, an ice prison, a kraken, a golem, time stop...), with some luck in it, so a new drawing can roll something
+   new. Legends (tier VII) come from a recipe: a DOUBLE RING round the outside + a SIGN inside (+ some detail); the Grimoire on the
+   page shows all twelve and can lay one faintly on the paper to trace. ---------- */
+const wzMat = (col, glow, op) => glow ? new THREE.MeshBasicMaterial({color:col, transparent:op != null, opacity:op != null ? op : 1, depthWrite:op == null}) : new THREE.MeshLambertMaterial({color:col});
+const wzMk = (geo, mat, par, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x || 0, y || 0, z || 0); m.userData.noRay = true; if (par) par.add(m); return m; };
+function wzRun(life, fn, end){ let t = 0, done = false; fxAdd({update(dt){ if (done) return false; t += dt; let r; try { r = fn(t, dt); } catch (e) { console.warn(e); r = false; } if (t >= life || r === false) { done = true; if (end) try { end(); } catch (e) { console.warn(e); } return false; } return true; }}); }
+const wzGP = (x, z, h) => V3(x, groundH(x, z) + (h || 0), z);
+const wzW = g => { noRayAll(g); roundGroup.add(g); return g; };
+const wzDel = g => { if (g && g.parent) g.parent.remove(g); };
+const wzHit = (o, p, R, dmg, kb, pal, x) => bBoom(p, R, dmg, kb, o.key, o.team, Object.assign({pal, size:clamp(R/8, .2, 1.2)}, x || {}));
+const wzSky = (o, q, sp, h) => wzGlyphFX('z_custom', V3(q.x, q.y + h, q.z), sp.size*.8, sp.col, {life:1.8, key:o.key, sky:true, rayH:6, open:.3});
+function wzNear(o, p, R, not){ let b = null, bd = R; for (const f of wzFoes(o.team)) { if (not && not.has(f.bot || f.P)) continue; const d = Math.hypot(f.x - p.x, f.z - p.z); if (d < bd) { bd = d; b = f; } } return b; }
+// frozen in place (the host holds frozen dark wizards still; a frozen player is pinned)
+const WZF = [];
+function wzFreeze(o, q, R, t){ const P = victimFor(o.key, o.team); if (P && hdist(P.body.position, q) < R) { P.pinT = Math.max(P.pinT || 0, t); P.slowT = Math.max(P.slowT || 0, t + .5); }
+  for (const z of WZ.bots) if (wzFoeBot(z, o.team) && WZB_KINDS[z.kind].mesh !== 'king' && hdist(z.pos, q) < R) WZF.push({z, t, x:z.pos.x, zz:z.pos.z}); }
+function wzWildFrame(dt){ for (let i = WZF.length - 1; i >= 0; i--) { const f = WZF[i]; f.t -= dt; if (f.t <= 0 || f.z.dead) { WZF.splice(i, 1); continue; } f.z.pos.x = f.x; f.z.pos.z = f.zz; f.z.cd = Math.max(f.z.cd || 0, .4); } }
+function wzLift(o, q, R, t){ const P = victimFor(o.key, o.team); if (P && hdist(P.body.position, q) < R) knock(P, 0, 9, 0, t); for (const z of WZ.bots) if (wzFoeBot(z, o.team) && hdist(z.pos, q) < R) z.liftT = Math.max(z.liftT || 0, t); }
+/* ---------- creatures and things ---------- */
+function wzHand(col, s, glow){
+  const g = new THREE.Group(), mat = glow ? wzMat(col, true) : new THREE.MeshLambertMaterial({color:col}), fingers = [];
+  wzMk(new THREE.BoxGeometry(.7*s, .8*s, .22*s), mat, g, 0, .4*s, 0); wzMk(new THREE.CylinderGeometry(.22*s, .26*s, .9*s, 8), mat, g, 0, -.4*s, 0);
+  for (let i = 0; i < 5; i++) { const th = i === 4, f = new THREE.Group(); f.position.set(th ? .4*s : (-.27 + i*.18)*s, th ? .25*s : .8*s, 0); if (th) f.rotation.z = -1; g.add(f); let par = f, prev = 0; const segs = [];
+    for (let j = 0; j < 3; j++) { const L = (th ? .22 : .28 - j*.04)*s, sg = new THREE.Group(); sg.position.y = prev; par.add(sg); wzMk(new THREE.CylinderGeometry(.055*s, .065*s, L, 6), mat, sg, 0, L/2, 0); segs.push(sg); par = sg; prev = L; } fingers.push(segs); }
+  g.userData.curl = c => fingers.forEach(segs => segs.forEach(sg => sg.rotation.x = c*.9)); return g;
+}
+function wzWolf(col){
+  const g = new THREE.Group(), m = new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:.75});
+  wzMk(new THREE.BoxGeometry(.5, .45, 1.2), m, g, 0, .75, 0); const h = wzMk(new THREE.BoxGeometry(.38, .36, .5), m, g, 0, .95, .75); wzMk(new THREE.ConeGeometry(.12, .3, 4), m, h, 0, -.02, .32).rotation.x = Math.PI/2;
+  for (const s of [-1, 1]) wzMk(new THREE.ConeGeometry(.07, .2, 4), m, h, s*.12, .25, -.05);
+  const legs = [[-.18, .45], [.18, .45], [-.18, -.45], [.18, -.45]].map(([x, z]) => wzMk(new THREE.BoxGeometry(.12, .55, .12), m, g, x, .3, z));
+  wzMk(new THREE.ConeGeometry(.1, .6, 5), m, g, 0, .85, -.8).rotation.x = -2.2; g.add(wzGlowSprite(col, 2.2)); g.userData.legs = legs; return g;
+}
+function wzBird(col, s, dark){
+  const g = new THREE.Group(), m = dark ? new THREE.MeshLambertMaterial({color:col, emissive:0x200808}) : wzMat(col, true), w = dark ? new THREE.MeshLambertMaterial({color:col, emissive:0x200808, side:THREE.DoubleSide}) : new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:.85, side:THREE.DoubleSide});
+  wzMk(new THREE.SphereGeometry(.5*s, 10, 8), m, g).scale.set(.8, .7, 1.6); wzMk(new THREE.SphereGeometry(.3*s, 8, 6), m, g, 0, .25*s, .8*s); wzMk(new THREE.ConeGeometry(.1*s, .4*s, 5), m, g, 0, .2*s, 1.15*s).rotation.x = Math.PI/2;
+  wzMk(new THREE.ConeGeometry(.35*s, 1.4*s, 4), w, g, 0, 0, -1.2*s).rotation.x = -Math.PI/2;
+  const wings = [-1, 1].map(sx => { const piv = new THREE.Group(); piv.position.set(sx*.3*s, .1*s, 0); g.add(piv); const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(sx*2.4*s, .5*s); sh.lineTo(sx*2.8*s, -.4*s); sh.lineTo(sx*1.2*s, -.9*s); sh.lineTo(0, -.5*s); wzMk(new THREE.ShapeGeometry(sh), w, piv).rotation.x = -Math.PI/2; return piv; });
+  if (!dark) g.add(wzGlowSprite(col, 4*s)); g.userData.flap = t => wings.forEach((p, i) => p.rotation.z = (i ? -1 : 1)*Math.sin(t*7)*.6); return g;
+}
+function wzDragonHead(s, col){
+  const g = new THREE.Group(), m = new THREE.MeshLambertMaterial({color:col || 0x5A1A1A, emissive:0x1A0505}), horn = new THREE.MeshLambertMaterial({color:0xD8C8A0}), eye = wzMat(0xFFE14D, true);
+  wzMk(new THREE.CylinderGeometry(.9*s, 1.2*s, 4*s, 8), m, g, 0, -1*s, -.6*s).rotation.x = -.3;
+  wzMk(new THREE.BoxGeometry(1.5*s, 1.1*s, 1.6*s), m, g, 0, 1*s, 0); wzMk(new THREE.BoxGeometry(1.1*s, .7*s, 1.6*s), m, g, 0, .95*s, 1.4*s);
+  const jaw = new THREE.Group(); jaw.position.set(0, .55*s, .5*s); g.add(jaw); wzMk(new THREE.BoxGeometry(1*s, .3*s, 2*s), m, jaw, 0, -.1*s, 1*s);
+  for (const sx of [-1, 1]) { wzMk(new THREE.ConeGeometry(.18*s, 1.4*s, 6), horn, g, sx*.55*s, 1.9*s, -.5*s).rotation.x = -.7; wzMk(new THREE.SphereGeometry(.13*s, 6, 4), eye, g, sx*.5*s, 1.3*s, .75*s);
+    for (let i = 0; i < 3; i++) wzMk(new THREE.ConeGeometry(.06*s, .25*s, 4), horn, g, sx*.4*s, .55*s, (1 + i*.45)*s).rotation.x = Math.PI; }
+  g.userData.jaw = jaw; return g;
+}
+function wzGolem(s, col){
+  const g = new THREE.Group(), r = new THREE.MeshLambertMaterial({color:0xA89C90, map:WZT_TEX.rock(), emissive:0x3A342E}), c = wzMat(col, true), part = (w, h, d, par, x, y, z) => wzMk(new THREE.BoxGeometry(w*s, h*s, d*s), r, par, x*s, y*s, z*s);
+  part(1.6, 1.4, 1, g, 0, 2.6, 0); part(1.2, .8, .9, g, 0, 1.6, 0); const head = part(.7, .6, .7, g, 0, 3.6, .1); for (const sx of [-1, 1]) wzMk(new THREE.BoxGeometry(.14*s, .08*s, .05*s), c, head, sx*.17*s, .05*s, .36*s);
+  wzMk(new THREE.BoxGeometry(.5*s, .6*s, .06*s), c, g, 0, 2.6*s, .52*s);
+  const legs = [-1, 1].map(sx => { const p = new THREE.Group(); p.position.set(sx*.45*s, 1.3*s, 0); g.add(p); part(.55, 1.3, .6, p, 0, -.65, 0); return p; });
+  const arms = [-1, 1].map(sx => { const p = new THREE.Group(); p.position.set(sx*1.05*s, 3.1*s, 0); g.add(p); part(.5, 1.6, .5, p, 0, -.8, 0); part(.7, .6, .7, p, 0, -1.8, .05); return p; });
+  const gs = wzGlowSprite(col, 3*s); gs.position.y = 2.6*s; g.add(gs);
+  g.userData.walk = t => { legs.forEach((l, i) => l.rotation.x = Math.sin(t*5 + i*Math.PI)*.4); arms.forEach((a, i) => { if (!(a.userData.pt > G.t - .45)) a.rotation.x = Math.sin(t*5 + i*Math.PI + Math.PI)*.3; }); };
+  g.userData.punch = () => { const a = arms[Math.random() < .5 ? 0 : 1]; a.userData.pt = G.t; a.rotation.x = -1.7; }; return g;
+}
+function wzImp(){
+  const g = new THREE.Group(), m = new THREE.MeshLambertMaterial({color:0x8A1A1A, emissive:0x3A0505}), h = new THREE.MeshLambertMaterial({color:0x2A1A1A}), e = wzMat(0xFFE14D, true);
+  wzMk(new THREE.SphereGeometry(.35, 8, 6), m, g, 0, .5, 0).scale.set(1, 1.2, .9); const hd = wzMk(new THREE.SphereGeometry(.25, 8, 6), m, g, 0, 1.05, .05);
+  for (const s of [-1, 1]) { wzMk(new THREE.ConeGeometry(.06, .25, 5), h, hd, s*.13, .22, 0).rotation.z = -s*.4; wzMk(new THREE.SphereGeometry(.045, 5, 4), e, hd, s*.09, .03, .21);
+    wzMk(new THREE.PlaneGeometry(.6, .35), new THREE.MeshLambertMaterial({color:0x3A0A0A, side:THREE.DoubleSide}), g, s*.4, .75, -.15).rotation.y = s*.6; }
+  wzMk(new THREE.ConeGeometry(.04, .5, 4), h, g, 0, .35, -.4).rotation.x = -2; g.add(wzGlowSprite(0xFF5A1A, 1.4)); return g;
+}
+/* ---------- the powers (tiers II to VI) ---------- */
+const WZ_POW = {
+  chain:{n:'Chain Lightning', e:'⚡', t:[2, 6], els:['storm'], aff:F => F.zig*.25 + F.lines*.1, d:'lightning leaps from enemy to enemy',
+    fx(o, q, sp, k){ const hit = new Set(); let from = V3(q.x, q.y + 18, q.z), at = q.clone(), i = 0; const n = 3 + sp.tier; wzSky(o, q, sp, 18); sfx('zap');
+      const jump = () => { const f = wzNear(o, at, i ? 13 : sp.R*2.5, hit), to = f ? V3(f.x, f.y, f.z) : (i ? null : q.clone()); if (!to) return; if (f) hit.add(f.bot || f.P);
+        arcBeam(from, to, 0xBFD8FF); arcBeam(from, to, 0xFFFFFF); wzHit(o, to, 1.8, sp.dmg*k*.7, 4, WZ_SKY, {snd:'zapHit'}); from = to.clone(); at = to; if (++i < n) wzAfter(.16, jump); };
+      wzAfter(.3, jump); }},
+  icecage:{n:'Ice Prison', e:'🧊', t:[2, 6], els:['frost'], aff:F => F.quad*.5 + (F.order === 6 ? .4 : 0), d:'enemies in the circle are frozen in ice, then shatter',
+    fx(o, q, sp, k){ const R = sp.R*1.4, list = wzFoes(o.team, q, R).slice(0, 8); if (!list.length) list.push({x:q.x, y:q.y + 1, z:q.z}); wzFreeze(o, q, R, 2.4); sfx('chime');
+      for (const f of list) { const b = wzMk(new THREE.BoxGeometry(1.6, 2.6, 1.6), new THREE.MeshLambertMaterial({color:0xBFF0FF, emissive:0x2A6A8A, transparent:true, opacity:.6})); b.position.set(f.x, groundH(f.x, f.z) + 1.3, f.z); b.rotation.y = Math.random(); roundGroup.add(b);
+        wzRun(2.5, t => { b.scale.y = Math.min(1, .05 + t*5); }, () => { wzDel(b); const g0 = V3(f.x, groundH(f.x, f.z), f.z); wzSpikes(g0, 1.6); wzHit(o, V3(g0.x, g0.y + 1, g0.z), 2.4, sp.dmg*k, 6, WZ_ICE, {snd:'crack'}); }); } }},
+  serpent:{n:'Flame Serpent', e:'🐍', t:[2, 6], els:['fire'], aff:F => F.waves*.5 + F.spirals*.4, d:'a serpent of fire slithers out and hunts',
+    fx(o, q, sp, k){ const N = 16, segs = [], p = q.clone(), dir = V3(1, 0, 0), trail = []; let tick = 0;
+      for (let i = 0; i < N; i++) { const m = wzMk(new THREE.SphereGeometry(.55*(1 - i/N*.7)*(1 + sp.tier*.08), 8, 6), wzMat(i % 2 ? 0xFF8A2A : 0xFFC040, true)); roundGroup.add(m); segs.push(m); }
+      const gl = wzGlowSprite(0xFF7A2A, 4); roundGroup.add(gl); for (let i = 0; i < N*4; i++) trail.push(p.clone()); sfx('fireball');
+      wzRun(6 + sp.tier*.4, (t, dt) => { const f = wzNear(o, p, 30), want = f ? V3(f.x - p.x, 0, f.z - p.z).normalize() : V3(Math.cos(t), 0, Math.sin(t)); dir.lerp(want, Math.min(1, dt*2.5)).normalize(); const side = V3(-dir.z, 0, dir.x);
+        p.addScaledVector(dir, (7 + sp.tier)*dt).addScaledVector(side, Math.sin(t*9)*2.4*dt); p.y = groundH(p.x, p.z) + .5; trail.unshift(p.clone()); trail.length = N*4; segs.forEach((m, i) => m.position.copy(trail[i*4])); gl.position.copy(p);
+        tick -= dt; if (tick <= 0) { tick = .3; wzHit(o, p.clone(), 1.9, sp.dmg*k*.3, 4, WZ_FIRE, {quiet:true}); if (Math.random() < .4) igniteAt(p.clone(), 1.2); } },
+        () => { segs.forEach(wzDel); wzDel(gl); boomVisual(p.clone(), false, .4, WZ_FIRE); }); }},
+  hands:{n:'Grasping Dead', e:'🦴', t:[2, 6], els:['shadow'], aff:F => F.downs*.5 + Math.min(.3, F.crossD*.05), d:'skeletal hands burst from the ground and hold your enemies',
+    fx(o, q, sp, k){ const R = sp.R*1.5, list = wzFoes(o.team, q, R).slice(0, 6); for (let i = list.length; i < 3 + sp.tier; i++) { const a = o.rng()*6.28, r = o.rng()*R; list.push({x:q.x + Math.cos(a)*r, z:q.z + Math.sin(a)*r}); }
+      wzFreeze(o, q, R, 2); sfx('shriek');
+      list.forEach((f, i) => wzAfter(i*.08, () => { const g = wzW(wzHand(0xD8D0B8, .9 + sp.tier*.1)), y0 = groundH(f.x, f.z); g.position.set(f.x, y0 - 2, f.z); g.rotation.y = o.rng()*6.28; let hit = false;
+        wzRun(2.4, t => { g.position.y = y0 - 2 + Math.min(1, t*3)*2.2 - Math.max(0, t - 1.9)*5; g.userData.curl(Math.min(1, Math.max(0, t - .35)*3)); if (t > .4 && !hit) { hit = true; wzHit(o, V3(f.x, y0 + 1, f.z), 2, sp.dmg*k*.8, 2, WZ_EL.shadow.pal, {quiet:i > 0}); } }, () => wzDel(g)); })); }},
+  thorns:{n:'Bramble Burst', e:'🌵', t:[2, 5], els:['life', 'earth'], aff:F => F.rad*.15 + F.lines*.08, d:'a ring of thorns tears outward from the circle',
+    fx(o, q, sp, k){ const R = sp.R*1.6, spikes = [], mat = new THREE.MeshLambertMaterial({color:0x4A6A2A}); sfx('crack');
+      for (let ring = 1; ring <= 4; ring++) wzAfter(ring*.15, () => { const r = R*ring/4, n = 6 + ring*4; for (let i = 0; i < n; i++) { const a = i/n*6.28 + ring, m = wzMk(new THREE.ConeGeometry(.18, 1.6 + Math.random(), 5), mat); m.position.copy(wzGP(q.x + Math.cos(a)*r, q.z + Math.sin(a)*r)); m.rotation.set((Math.random() - .5)*.6, 0, (Math.random() - .5)*.6); m.scale.y = .05; roundGroup.add(m); spikes.push(m); }
+        wzHit(o, V3(q.x, q.y + 1, q.z), r + .5, sp.dmg*k*.3, 5, WZ_EL.life.pal, {quiet:ring > 1}); wzSlowIn(o, q, r + 1, 2.5); });
+      wzRun(4.5, t => { const f = t > 3.8 ? Math.max(.02, (4.5 - t)/.7) : 1; for (const m of spikes) m.scale.y = Math.min(1, (m.userData.g = (m.userData.g || .05) + .15))*f; }, () => spikes.forEach(wzDel)); }},
+  wolves:{n:'Spirit Wolves', e:'🐺', t:[2, 6], els:['frost', 'shadow', 'light'], aff:F => F.petals*.2, d:'a pack of ghost wolves runs down your enemies',
+    fx(o, q, sp, k){ const n = 2 + Math.floor(sp.tier/2), col = WZ_EL[sp.el].col, list = []; sfx('roar');
+      for (let i = 0; i < n; i++) { const g = wzW(wzWolf(col)), a = i/n*6.28; g.position.copy(wzGP(q.x + Math.cos(a)*1.5, q.z + Math.sin(a)*1.5)); list.push({g, bites:0, cd:0}); }
+      wzRun(7, (t, dt) => { for (const W of list) { if (W.done) continue; const p = W.g.position, f = wzNear(o, p, 40); W.g.userData.legs.forEach((l, i) => l.rotation.x = Math.sin(t*16 + i*1.6)*.6); W.cd -= dt; if (!f) continue;
+        const d = V3(f.x - p.x, 0, f.z - p.z), L = d.length(); W.g.rotation.y = Math.atan2(d.x, d.z); if (L > 1.2) p.addScaledVector(d.normalize(), Math.min(L, 13*dt)); p.y = groundH(p.x, p.z) + (L < 3 ? Math.sin(Math.min(1, (3 - L)/2)*Math.PI)*.8 : 0);
+        if (L < 1.4 && W.cd <= 0) { W.cd = .7; wzHit(o, V3(f.x, f.y, f.z), 1.6, sp.dmg*k*.4, 6, WZ_EL[sp.el].pal, {size:.2}); if (++W.bites >= 2) { W.done = true; puff(p.clone(), col, .8); wzDel(W.g); } } } },
+        () => list.forEach(W => { if (!W.done) { puff(W.g.position.clone(), col, .8); wzDel(W.g); } })); }},
+  bubbles:{n:'Bubble Prison', e:'🫧', t:[2, 5], els:['frost', 'cosmic', 'life'], aff:F => F.circles*.12, d:'enemies are caught in bubbles, float away, then fall',
+    fx(o, q, sp, k){ const R = sp.R*1.4, list = wzFoes(o.team, q, R).slice(0, 8); if (!list.length) list.push({x:q.x, y:q.y + 1, z:q.z}); wzLift(o, q, R, 2.6); sfx('pop');
+      for (const f of list) { const b = wzMk(new THREE.SphereGeometry(1.1, 16, 12), new THREE.MeshBasicMaterial({color:0xBFE6FF, transparent:true, opacity:.28, depthWrite:false})), y0 = groundH(f.x, f.z) + 1.1; roundGroup.add(b);
+        wzRun(2.7, t => { b.position.set(f.x + Math.sin(t*2)*.2, y0 + Math.min(4, t*2.2), f.z); b.scale.setScalar(1 + Math.sin(t*6)*.05); }, () => { puff(b.position.clone(), 0xBFE6FF, .6); wzDel(b); wzHit(o, V3(f.x, y0, f.z), 2, sp.dmg*k*.8, 3, WZ_ICE, {quiet:true}); }); } }},
+  totem:{n:'Storm Totem', e:'🗿', t:[3, 6], els:['storm', 'earth'], aff:F => F.lines*.12 + F.quad*.2, d:'a carved totem rises and zaps every enemy that comes near',
+    fx(o, q, sp, k){ const g = wzW(new THREE.Group()), wood = new THREE.MeshLambertMaterial({color:0x7A5A3A, map:WZT_TEX.wood()}), eye = wzMat(0x9FD8FF, true);
+      for (let i = 0; i < 4; i++) { wzMk(new THREE.CylinderGeometry(.55 - i*.05, .6 - i*.05, 1.1, 8), wood, g, 0, .55 + i*1.1, 0); for (const s of [-1, 1]) wzMk(new THREE.SphereGeometry(.09, 6, 4), eye, g, s*.2, .7 + i*1.1, .52 - i*.05); wzMk(new THREE.BoxGeometry(.5, .08, .1), wood, g, 0, .4 + i*1.1, .56 - i*.05); }
+      for (const s of [-1, 1]) wzMk(new THREE.BoxGeometry(1, .2, .3), wood, g, s*.8, 4.1, 0); const top = wzGlowSprite(0x9FD8FF, 3); top.position.y = 4.8; g.add(top);
+      g.position.set(q.x, q.y - 5, q.z); let tick = .4; sfx('thud');
+      wzRun(7 + sp.tier*.5, (t, dt) => { g.position.y = q.y - 5 + Math.min(5, t*8); top.scale.setScalar(3 + Math.sin(t*20)*.5); tick -= dt;
+        if (t > .7 && tick <= 0) { tick = .55; const f = wzNear(o, q, 16); if (f) { const to = V3(f.x, f.y, f.z); arcBeam(V3(q.x, q.y + 4.8, q.z), to, 0xBFD8FF); wzHit(o, to, 1.6, sp.dmg*k*.3, 3, WZ_SKY, {quiet:true}); sfx('zap'); } } },
+        () => { puff(V3(q.x, q.y + 2, q.z), 0x6A4A2A, 1); wzDel(g); }); }},
+  blades:{n:'Rain of Blades', e:'🗡️', t:[2, 6], els:['light', 'earth', 'shadow'], aff:F => Math.min(.8, F.rad*.15), d:'a storm of swords falls from the sky circle',
+    fx(o, q, sp, k){ wzSky(o, q, sp, 22); const n = 10 + sp.tier*4, mat = new THREE.MeshLambertMaterial({color:0xD8DCE8, emissive:0x30344A}), gold = new THREE.MeshLambertMaterial({color:0xC9A24A}); sfx('whoosh');
+      for (let i = 0; i < n; i++) wzAfter(.3 + i*.06, () => { const a = o.rng()*6.28, r = Math.sqrt(o.rng())*sp.R*1.2, p = wzGP(q.x + Math.cos(a)*r, q.z + Math.sin(a)*r), s = wzW(new THREE.Group()); let hit = false;
+        wzMk(new THREE.BoxGeometry(.12, 2.2, .04), mat, s, 0, -1.1, 0); wzMk(new THREE.BoxGeometry(.6, .08, .1), gold, s); wzMk(new THREE.CylinderGeometry(.04, .04, .45, 5), gold, s, 0, .25, 0); s.rotation.set((o.rng() - .5)*.4, o.rng()*6, (o.rng() - .5)*.4);
+        wzRun(4, t => { s.position.set(p.x, p.y + 2 + Math.max(0, 20 - t*60), p.z); if (t > .33 && !hit) { hit = true; wzHit(o, V3(p.x, p.y + .5, p.z), 1.6, sp.dmg*k*.3, 3, WZ_EL.light.pal, {quiet:i % 4 !== 0, size:.15}); } }, () => wzDel(s)); }); }},
+  blink:{n:'Blink Strike', e:'💫', t:[2, 5], els:['cosmic', 'storm'], aff:F => (F.lines >= 1 && F.loops <= 1 ? .6 : 0), d:'you vanish and reappear on the circle in a blast',
+    fx(o, q, sp, k){ puff(o.from.clone(), 0xC080FF, 1); sparkle(o.from.clone(), 0xC080FF); sfx('portal');
+      wzAfter(.15, () => { if (o.key === G.localKey) { const me = localP(); if (me && me.alive !== false) { me.body.position.set(q.x, q.y + .3, q.z); me.body.velocity.set(0, 0, 0); } }
+        shockRing(V3(q.x, q.y + .3, q.z), sp.R*1.2, .5, 0xC080FF); wzHit(o, V3(q.x, q.y + 1, q.z), sp.R, sp.dmg*k, 12, WZ_EL.cosmic.pal); if (o.key === G.localKey) flash(.2, .2); }); }},
+  bees:{n:'Hornet Swarm', e:'🐝', t:[2, 5], els:['life', 'fire'], aff:F => F.petals*.15 + F.density*.8, d:'an angry swarm hunts the nearest enemy',
+    fx(o, q, sp, k){ const N = 40, pos = new Float32Array(N*3), geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); const pts = new THREE.Points(geo, new THREE.PointsMaterial({color:0xFFD84D, size:.22})); pts.frustumCulled = false; wzW(pts);
+      const ph = Array.from({length:N}, () => [Math.random()*6, Math.random()*6, .6 + Math.random()*1.2]), c = V3(q.x, q.y + 1.2, q.z); let tick = 0; sfx('buzz');
+      wzRun(6 + sp.tier*.5, (t, dt) => { const f = wzNear(o, c, 30); if (f) { const d = V3(f.x - c.x, f.y - c.y, f.z - c.z), L = d.length(); if (L > .3) c.addScaledVector(d.normalize(), Math.min(L, 9*dt)); }
+        for (let i = 0; i < N; i++) { const p = ph[i]; pos[i*3] = c.x + Math.sin(t*7 + p[0])*p[2]; pos[i*3 + 1] = c.y + Math.sin(t*9 + p[1])*.6; pos[i*3 + 2] = c.z + Math.cos(t*6 + p[0])*p[2]; } geo.attributes.position.needsUpdate = true;
+        tick -= dt; if (tick <= 0) { tick = .3; wzHit(o, c.clone(), 2, sp.dmg*k*.1, 1, WZ_EL.life.pal, {quiet:true}); } }, () => wzDel(pts)); }},
+  crystals:{n:'Crystal Spiral', e:'💎', t:[3, 6], els:['frost', 'cosmic'], aff:F => F.spirals*.4 + F.upStars*.3, d:'giant crystals spiral up out of the ground',
+    fx(o, q, sp, k){ const n = 14 + sp.tier*3, mat = new THREE.MeshLambertMaterial({color:0x9FE6FF, emissive:0x2A7AB0, transparent:true, opacity:.85}), list = []; sfx('chime');
+      for (let i = 0; i < n; i++) wzAfter(i*.05, () => { const a = i*.55, r = .8 + i/n*sp.R*1.3, p = wzGP(q.x + Math.cos(a)*r, q.z + Math.sin(a)*r), m = wzMk(new THREE.OctahedronGeometry(1, 0), mat); m.scale.set(.35, 1.5 + o.rng()*2 + sp.tier*.3, .35); m.position.copy(p); m.rotation.set((o.rng() - .5)*.5, o.rng()*3, (o.rng() - .5)*.5); roundGroup.add(m); list.push(m);
+        if (i % 3 === 0) wzHit(o, V3(p.x, p.y + 1, p.z), 2.2, sp.dmg*k*.3, 6, WZ_ICE, {quiet:i % 6 !== 0}); });
+      wzRun(5, t => { if (t > 4) list.forEach(m => m.scale.y *= .9); }, () => list.forEach(wzDel)); }},
+  gravity:{n:'Gravity Collapse', e:'🌀', t:[3, 6], els:['cosmic', 'earth'], aff:F => F.rings*.2 + F.spirals*.3, d:'everything in the circle is hurled up, then smashed down',
+    fx(o, q, sp, k){ const R = sp.R*1.5; wzLift(o, q, R, 1.6); shockRing(V3(q.x, q.y + .3, q.z), R, 1, 0xC080FF); for (let i = 0; i < 20; i++) puff(V3(q.x + rr(-R, R), q.y + rr(0, 5), q.z + rr(-R, R)), 0x8A6AB0, .5); sfx('drone');
+      wzAfter(1.6, () => { const P = victimFor(o.key, o.team); if (P && hdist(P.body.position, q) < R) knock(P, 0, -25, 0, .5); wzHit(o, V3(q.x, q.y + 1, q.z), R, sp.dmg*k*1.1, 6, WZ_EL.cosmic.pal, {size:1}); for (let i = 0; i < 16; i++) puff(V3(q.x + rr(-R, R), q.y + .3, q.z + rr(-R, R)), 0x6A5A4A, .7); shakeAt(q, 1.2, 80); }); }},
+  hydra:{n:'Hydra', e:'🐉', t:[4, 6], els:['life', 'shadow', 'frost'], aff:F => (F.tri >= 1 ? .3 : 0) + (F.petals === 3 ? .6 : 0) + (F.order === 3 ? .4 : 0), d:'a three-headed hydra rises and spits at your enemies',
+    fx(o, q, sp, k){ const col = WZ_EL[sp.el].col, heads = [], mat = new THREE.MeshLambertMaterial({color:0x2A5A3A, emissive:0x0A2A1A}), eye = wzMat(0xFFE14D, true);
+      for (let i = 0; i < 3; i++) { const a = i/3*6.28 + .5, base = V3(q.x + Math.cos(a)*2.2, q.y, q.z + Math.sin(a)*2.2), g = wzW(new THREE.Group()), segs = []; for (let j = 0; j < 12; j++) segs.push(wzMk(new THREE.SphereGeometry(.5 - j*.02, 8, 6), mat, g));
+        const hd = new THREE.Group(); g.add(hd); wzMk(new THREE.BoxGeometry(.6, .45, 1), mat, hd, 0, 0, .3); wzMk(new THREE.BoxGeometry(.5, .15, .8), mat, hd, 0, -.3, .35); for (const s of [-1, 1]) wzMk(new THREE.SphereGeometry(.08, 6, 4), eye, hd, s*.22, .12, .65); heads.push({g, segs, hd, base, a, cd:.6 + i*.3}); }
+      sfx('roar'); wzRun(6 + sp.tier*.3, (t, dt) => { const up = Math.min(1, t*1.5)*(t > 5.6 ? Math.max(.05, (6.3 - t)/.7) : 1);
+        for (const h of heads) { const f = wzNear(o, h.base, 30), tgt = f ? V3(f.x, f.y, f.z) : V3(q.x, q.y + 3, q.z), sway = Math.sin(t*2 + h.a)*.6;
+          h.segs.forEach((m, j) => { const u = j/11; m.position.set(h.base.x + Math.cos(h.a)*u*1.5 + Math.sin(t*2 + h.a + u*3)*.4*u, h.base.y - 1 + up*(u*6 + sway*u), h.base.z + Math.sin(h.a)*u*1.5); });
+          const top = h.segs[11].position; h.hd.position.copy(top); h.hd.lookAt(tgt); h.cd -= dt;
+          if (t > 1 && f && h.cd <= 0) { h.cd = 1.1; const orb = wzOrb(.25, col, 0xFFFFFF), from = top.clone(), d = tgt.clone().sub(from), L = Math.max(.5, d.length()); orb.position.copy(from); roundGroup.add(orb);
+            wzRun(L/22, tt => { orb.position.copy(from).addScaledVector(d, Math.min(1, tt*22/L)); }, () => { wzDel(orb); wzHit(o, tgt, 1.8, sp.dmg*k*.35, 4, WZ_EL[sp.el].pal, {quiet:true}); puff(tgt, col, .5); }); } } },
+        () => heads.forEach(h => wzDel(h.g))); }},
+  dragonhead:{n:"Dragon's Breath", e:'🐲', t:[4, 6], els:['fire'], aff:F => F.triUp*.5 + F.zig*.1, d:'a dragon head rises out of the circle and breathes fire',
+    fx(o, q, sp, k){ const back = Math.atan2(q.x - o.from.x, q.z - o.from.z), h = wzGP(q.x - Math.sin(back)*7, q.z - Math.cos(back)*7), g = wzW(wzDragonHead(1.6 + sp.tier*.15)); let yaw = back, tick = 0; g.position.set(h.x, h.y - 4, h.z); sfx('roar');   /* it rises just before the circle and breathes across it */
+      wzRun(4.2, (t, dt) => { g.position.y = h.y - 4 + Math.min(1, t*2)*5.5 - Math.max(0, t - 3.6)*9; const f = wzNear(o, q, 12); if (f) yaw += (Math.atan2(f.x - h.x, f.z - h.z) - yaw)*Math.min(1, dt*2); g.rotation.y = yaw;
+        g.userData.jaw.rotation.x = t > .8 && t < 3.3 ? .5 : .05;
+        if (t > .9 && t < 3.3) { const mouth = V3(h.x + Math.sin(yaw)*2.5, g.position.y + 1, h.z + Math.cos(yaw)*2.5); for (let i = 0; i < 3; i++) { const d = 2 + Math.random()*12, s = (Math.random() - .5)*d*.35; puff(V3(mouth.x + Math.sin(yaw)*d + Math.cos(yaw)*s, mouth.y - d*.12 + Math.random(), mouth.z + Math.cos(yaw)*d - Math.sin(yaw)*s), pick([0xFF5A1F, 0xFFC040, 0xFF8A2A]), .5 + d*.05); }
+          tick -= dt; if (tick <= 0) { tick = .25; wzTakeCone(mouth, yaw, 15, .8, sp.dmg*k*.18, o.team); const P = victimFor(o.key, o.team); if (P) { const dx = P.body.position.x - mouth.x, dz = P.body.position.z - mouth.z, L = Math.hypot(dx, dz); if (L < 15 && (dx*Math.sin(yaw) + dz*Math.cos(yaw))/Math.max(L, .01) > .8) painHurt(P, sp.dmg*k*.18, o.key); }
+            igniteAt(wzGP(mouth.x + Math.sin(yaw)*7, mouth.z + Math.cos(yaw)*7), 2); sfx('fire'); } } }, () => wzDel(g)); }},
+  godhand:{n:'Hand of God', e:'✋', t:[4, 6], els:['light', 'earth'], aff:F => F.rings*.15 + F.lines*.1 + (F.quad ? .3 : 0), d:'a colossal hand comes down from the sky circle and crushes',
+    fx(o, q, sp, k){ wzSky(o, q, sp, 30); const s = 3 + sp.tier*.4, g = wzW(wzHand(sp.el === 'light' ? 0xFFE9A8 : 0x9A8A7A, s, sp.el === 'light')); g.rotation.x = Math.PI; g.userData.curl(.15); g.position.set(q.x, q.y + 34, q.z); let hit = false; sfx('whoosh');
+      wzRun(2.6, t => { const f = Math.min(1, t/1.2); g.position.y = q.y + 34 - (34 - s*1.3)*f*f + Math.max(0, t - 2)*2; if (f >= 1 && !hit) { hit = true; wzHit(o, V3(q.x, q.y + 1, q.z), sp.R*1.3, sp.dmg*k*1.3, 25, WZ_EL[sp.el].pal, {size:1, snd:'boom'}); shakeAt(q, 1.6, 120); for (let i = 0; i < 18; i++) puff(V3(q.x + rr(-6, 6), q.y + .4, q.z + rr(-6, 6)), 0x8A7A6A, .8); } }, () => wzDel(g)); }},
+  kraken:{n:'Kraken', e:'🐙', t:[4, 6], els:['frost', 'shadow', 'cosmic'], aff:F => F.waves*.4 + F.petals*.1 + F.spirals*.2, d:'tentacles burst from the ground and thrash',
+    fx(o, q, sp, k){ const n = 5 + Math.floor(sp.tier/2), mat = new THREE.MeshLambertMaterial({color:0x6A2A7A, emissive:0x1A0A2A}), sk = new THREE.MeshLambertMaterial({color:0xE8B0D8}), ts = []; sfx('roar');
+      for (let i = 0; i < n; i++) { const a = i/n*6.28, b = wzGP(q.x + Math.cos(a)*sp.R*.9, q.z + Math.sin(a)*sp.R*.9), g = wzW(new THREE.Group()), segs = []; for (let j = 0; j < 14; j++) { const m = wzMk(new THREE.SphereGeometry(.6*(1 - j/16), 8, 6), mat, g); if (j % 2) wzMk(new THREE.SphereGeometry(.14, 5, 4), sk, m, 0, 0, .45*(1 - j/16)); segs.push(m); } ts.push({g, segs, b, ph:o.rng()*6, sl:.8 + i*.35, hits:{}}); }
+      wzRun(5.5, t => { for (const T of ts) { const up = Math.min(1, t*1.5)*(t > 4.8 ? Math.max(0, (5.5 - t)/.7) : 1), w1 = t - T.sl, w2 = t - T.sl - 2.2, slam = w1 > 0 && w1 < .5 ? w1/.5 : w2 > 0 && w2 < .5 ? w2/.5 : 0, inA = Math.atan2(q.z - T.b.z, q.x - T.b.x);
+        T.segs.forEach((m, j) => { const u = j/13, bend = slam ? slam*1.2*u*u : 0, h = up*u*7*(1 - slam*.85*u); m.position.set(T.b.x + Math.cos(inA)*bend*7 + Math.sin(t*3 + T.ph + u*4)*.6*u, T.b.y - 1 + h, T.b.z + Math.sin(inA)*bend*7 + Math.cos(t*3 + T.ph + u*4)*.6*u); });
+        const key = w1 > 0 && w1 < .6 ? 'a' : w2 > 0 && w2 < .6 ? 'b' : null; if (key && slam > .9 && !T.hits[key]) { T.hits[key] = 1; const tip = T.segs[13].position; wzHit(o, wzGP(tip.x, tip.z, .5), 3, sp.dmg*k*.35, 10, WZ_EL[sp.el].pal, {size:.4}); } } },
+        () => ts.forEach(T => wzDel(T.g))); }},
+  phoenix:{n:'Phoenix', e:'🐦‍🔥', t:[4, 6], els:['fire', 'light'], aff:F => F.triUp*.3 + F.rad*.1, d:'a phoenix bursts out, rains fire over the area and dives',
+    fx(o, q, sp, k){ const g = wzW(wzBird(0xFF8A2A, 2 + sp.tier*.2)), R = sp.R*1.6; let tick = 0; sfx('roar');
+      wzRun(4.6, (t, dt) => { let p; if (t < 3.6) { const a = t/3.6*Math.PI*2; p = V3(q.x + Math.cos(a)*R, q.y + 2 + Math.min(1, t*2)*10, q.z + Math.sin(a)*R); g.rotation.y = -a; } else { const u = Math.min(1, t - 3.6); p = V3(q.x + R*(1 - u), q.y + 12*(1 - u) + 1, q.z); }
+        g.position.copy(p); g.userData.flap(t); if (Math.random() < .6) puff(p.clone(), pick([0xFF5A1F, 0xFFC040]), .5);
+        tick -= dt; if (t < 3.6 && tick <= 0) { tick = .3; const d = wzGP(p.x + rr(-1, 1), p.z + rr(-1, 1)), orb = wzOrb(.3, 0xFF8A2A, 0xFFE14D), from = p.clone(); roundGroup.add(orb); wzRun(.4, tt => { orb.position.lerpVectors(from, d, Math.min(1, tt/.4)); }, () => { wzDel(orb); wzHit(o, d, 2.2, sp.dmg*k*.2, 4, WZ_FIRE, {quiet:true}); igniteAt(d, 1.2); }); } },
+        () => { wzDel(g); wzHit(o, V3(q.x, q.y + 1, q.z), sp.R*1.1, sp.dmg*k, 14, WZ_FIRE, {size:1}); igniteAt(q, 4); }); }},
+  golem:{n:'Stone Golem', e:'🪨', t:[4, 6], els:['earth'], aff:F => F.quad*.5 + F.density*.5, d:'a stone golem rises and pounds your enemies',
+    fx(o, q, sp, k){ const s = 1.2 + sp.tier*.15, g = wzW(wzGolem(s, WZ_EL[sp.el].col)), p = q.clone(); let cd = 1.5; g.position.set(q.x, q.y - 5*s, q.z); sfx('rumble');
+      wzRun(9 + sp.tier*.5, (t, dt) => { if (t < 1) { g.position.y = q.y - 5*s + t*5*s; return; } const f = wzNear(o, p, 35); g.userData.walk(t);
+        if (f) { const d = V3(f.x - p.x, 0, f.z - p.z), L = d.length(); g.rotation.y = Math.atan2(d.x, d.z); if (L > 2.2*s) p.addScaledVector(d.normalize(), Math.min(L, 4.5*dt)); else { cd -= dt; if (cd <= 0) { cd = 1.3; g.userData.punch(); wzAfter(.25, () => wzHit(o, V3(f.x, f.y, f.z), 2.6, sp.dmg*k*.5, 18, WZ_EL.earth.pal, {snd:'thud'})); } } }
+        p.y = groundH(p.x, p.z); g.position.copy(p); }, () => { puff(g.position.clone().setY(g.position.y + 2), 0x6A5E52, 1.4); wzDel(g); }); }},
+  timestop:{n:'Time Stop', e:'⏳', t:[4, 6], els:['cosmic', 'light'], aff:F => (F.rad >= 8 ? .6 : 0) + F.rings*.15, d:'time stops for every enemy in the circle, then crashes back in',
+    fx(o, q, sp, k){ const R = sp.R*1.6, g = wzW(new THREE.Group()), gold = new THREE.MeshBasicMaterial({color:0xFFD84D, transparent:true, opacity:.8, side:THREE.DoubleSide, depthWrite:false});
+      wzMk(new THREE.RingGeometry(R - .3, R, 48), gold, g).rotation.x = -Math.PI/2; for (let i = 0; i < 12; i++) { const a = i/12*6.28, m = wzMk(new THREE.PlaneGeometry(.25, R*.15), gold, g, Math.cos(a)*R*.88, 0, Math.sin(a)*R*.88); m.rotation.set(-Math.PI/2, 0, -a + Math.PI/2); }
+      const hands = [R*.75, R*.5].map(L => { const p = new THREE.Group(); g.add(p); wzMk(new THREE.PlaneGeometry(.3, L), gold, p, 0, 0, L/2).rotation.x = -Math.PI/2; return p; }); g.position.set(q.x, q.y + .4, q.z);
+      wzFreeze(o, q, R, 3.4); sfx('chime'); { const me = localP(), P = victimFor(o.key, o.team); if (P && P === me && hdist(me.body.position, q) < R) toast('⏳ Time stopped!'); }
+      wzRun(3.6, t => { hands[0].rotation.y = -t*2; hands[1].rotation.y = -t*.3; gold.opacity = .8 - t*.1; }, () => { wzDel(g); wzHit(o, V3(q.x, q.y + 1, q.z), R, sp.dmg*k*1.2, 10, {ball:0xFFD84D, core:0xFFFFFF, ring:0xC080FF}, {size:.9}); if (o.key === G.localKey) flash(.3, .3); }); }},
+  beam:{n:'Judgement Beam', e:'🔆', t:[3, 6], els:['light', 'storm'], aff:F => F.lines*.15 + F.rings*.1, d:'a beam of light from the sky sweeps across the circle',
+    fx(o, q, sp, k){ wzSky(o, q, sp, 26); const R = sp.R*1.4, beam = wzMk(new THREE.CylinderGeometry(.9, .9, 60, 12, 1, true), new THREE.MeshBasicMaterial({color:0xFFF3C0, transparent:true, opacity:.8, blending:THREE.AdditiveBlending, depthWrite:false})), a0 = o.rng()*6.28; let tick = 0; roundGroup.add(beam); sfx('zap');
+      wzRun(2.4, (t, dt) => { const u = t/2.4, a = a0 + u*Math.PI, s = (u*2 - 1)*R, p = wzGP(q.x + Math.cos(a)*s, q.z + Math.sin(a)*s); beam.position.set(p.x, p.y + 30, p.z); beam.scale.x = beam.scale.z = 1 + Math.sin(t*30)*.15;
+        tick -= dt; if (tick <= 0) { tick = .12; wzHit(o, V3(p.x, p.y + .5, p.z), 2.4, sp.dmg*k*.15, 4, WZ_EL.light.pal, {quiet:true}); puff(p.clone(), 0xFFF3C0, .5); } }, () => wzDel(beam)); }},
+  volcano:{n:'Volcano', e:'🌋', t:[4, 6], els:['fire', 'earth'], aff:F => F.triUp*.4 + F.density*.4, d:'a volcano bursts out of the ground and hurls lava',
+    fx(o, q, sp, k){ const g = wzW(new THREE.Group()), rock = new THREE.MeshLambertMaterial({color:0x4A3A32, map:WZT_TEX.rock(), side:THREE.DoubleSide}); wzMk(new THREE.CylinderGeometry(1.2, 5, 5, 10, 1, true), rock, g, 0, 2.5, 0); wzMk(new THREE.CircleGeometry(1.2, 10), wzMat(0xFF6A1A, true), g, 0, 4.9, 0).rotation.x = -Math.PI/2;
+      const gl = wzGlowSprite(0xFF6A1A, 8); gl.position.y = 5.5; g.add(gl); g.position.set(q.x, q.y - 5, q.z); let tick = 0; sfx('rumble'); shakeAt(q, .8, 60);
+      wzRun(6 + sp.tier*.3, (t, dt) => { g.position.y = q.y - 5 + Math.min(5, t*4) - Math.max(0, t - 5.5)*6; if (Math.random() < .5) puff(V3(q.x + rr(-.6, .6), q.y + 6 + rr(0, 2), q.z + rr(-.6, .6)), pick([0x3A3A3A, 0x5A4A4A]), .9);
+        tick -= dt; if (t > 1.3 && tick <= 0) { tick = .35; const a = o.rng()*6.28, r = 3 + o.rng()*sp.R*1.4, d = wzGP(q.x + Math.cos(a)*r, q.z + Math.sin(a)*r), from = V3(q.x, q.y + 5.5, q.z), orb = wzOrb(.45, 0xFF5A1F, 0xFFC040); roundGroup.add(orb);
+          wzRun(.9, tt => { const u = Math.min(1, tt/.9); orb.position.set(from.x + (d.x - from.x)*u, from.y + (d.y - from.y)*u + Math.sin(u*Math.PI)*8, from.z + (d.z - from.z)*u); }, () => { wzDel(orb); wzHit(o, V3(d.x, d.y + .5, d.z), 2.6, sp.dmg*k*.3, 6, WZ_FIRE, {size:.35}); igniteAt(d, 1.5); }); } }, () => wzDel(g)); }},
+  legion:{n:'Legion of the Dead', e:'👻', t:[4, 6], els:['shadow'], aff:F => F.downs*.4 + F.petals*.1 + F.crossD*.1, d:'the dead rise from the circle and swarm your enemies',
+    fx(o, q, sp, k){ const n = 4 + sp.tier, list = []; sfx('shriek');
+      for (let i = 0; i < n; i++) { const g = wzW(wzWraithMesh()), a = i/n*6.28; g.scale.setScalar(.8); g.position.copy(wzGP(q.x + Math.cos(a)*2, q.z + Math.sin(a)*2, -2)); list.push({g, sp:6 + o.rng()*3}); }
+      wzRun(8, (t, dt) => { for (const W of list) { if (W.done) continue; const p = W.g.position; if (t < 1) { p.y = groundH(p.x, p.z) - 2 + t*2.4; continue; } const f = wzNear(o, p, 40); if (!f) continue;
+        const d = V3(f.x - p.x, 0, f.z - p.z), L = d.length(); W.g.rotation.y = Math.atan2(d.x, d.z); p.addScaledVector(d.normalize(), Math.min(L, W.sp*dt)); p.y = groundH(p.x, p.z) + .4 + Math.sin(t*4)*.2;
+        if (L < 1.4) { W.done = true; wzDel(W.g); wzHit(o, V3(p.x, p.y + 1, p.z), 2.4, sp.dmg*k*.4, 5, WZ_EL.shadow.pal, {size:.4}); } } },
+        () => list.forEach(W => { if (!W.done) { puff(W.g.position.clone(), 0x1A0A24, .8); wzDel(W.g); } })); }},
+  stormring:{n:'Storm Ring', e:'🌪️', t:[4, 6], els:['storm', 'frost'], aff:F => F.rings*.2 + F.waves*.3, d:'a ring of tornadoes whirls around the circle',
+    fx(o, q, sp, k){ const n = 5, R = sp.R*1.2, ts = []; let tick = 0; sfx('whoosh');
+      for (let i = 0; i < n; i++) { const g = wzW(new THREE.Group()); for (let j = 0; j < 4; j++) wzMk(new THREE.CylinderGeometry(.6 + j*.5, .2 + j*.5, 2.2, 10, 1, true), new THREE.MeshBasicMaterial({color:sp.el === 'frost' ? 0xCFF0FF : 0xB8C8D8, transparent:true, opacity:.35, side:THREE.DoubleSide, depthWrite:false}), g, 0, 1.1 + j*2, 0); ts.push(g); }
+      wzRun(5.5, (t, dt) => { ts.forEach((g, i) => { const a = i/n*6.28 + t*1.4; g.position.copy(wzGP(q.x + Math.cos(a)*R, q.z + Math.sin(a)*R)); g.rotation.y = t*8; g.scale.setScalar(Math.max(.05, Math.min(1, t*2)*(t > 5 ? (5.5 - t)*2 : 1))); });
+        tick -= dt; if (tick <= 0) { tick = .4; for (const g of ts) wzHit(o, V3(g.position.x, g.position.y + 1.5, g.position.z), 2.6, sp.dmg*k*.15, 8, WZ_SKY, {quiet:true}); wzSlowIn(o, q, R + 2, 1); } }, () => ts.forEach(wzDel)); }},
+  star:{n:'Falling Star', e:'🌠', t:[3, 6], els:['cosmic', 'light'], aff:F => F.upStars*.6, d:'a star falls from the heavens with a blazing tail',
+    fx(o, q, sp, k){ const a = o.rng()*6.28, from = V3(q.x + Math.cos(a)*40, q.y + 60, q.z + Math.sin(a)*40), st = wzW(new THREE.Group()); wzMk(new THREE.OctahedronGeometry(1.2 + sp.tier*.15, 0), wzMat(0xFFFFFF, true), st); st.add(wzGlowSprite(0xC0A0FF, 10)); sfx('whoosh');
+      wzRun(1.4, t => { const u = t/1.4; st.position.lerpVectors(from, q, u*u); st.rotation.y += .3; for (let i = 0; i < 3; i++) puff(st.position.clone().add(V3(rr(-.5, .5), rr(-.5, .5), rr(-.5, .5))), pick([0xC080FF, 0xFFFFFF, 0xFF7AE0]), .5); },
+        () => { wzDel(st); wzHit(o, V3(q.x, q.y + 1, q.z), sp.R*1.2, sp.dmg*k*1.2, 18, WZ_EL.cosmic.pal, {size:1, mush:sp.tier >= 5}); for (let i = 0; i < 8; i++) sparkle(V3(q.x + rr(-4, 4), q.y + rr(1, 4), q.z + rr(-4, 4)), 0xFFFFFF); }); }},
+  spring:{n:'Spring of Life', e:'⛲', t:[2, 5], els:['life', 'light'], aff:F => F.petals*.15 + (F.circles >= 3 ? .3 : 0), d:'a glowing spring heals your side, and stings enemies who stand in it',
+    fx(o, q, sp, k){ const R = sp.R*1.3, gl = wzGlowSprite(0x7CFFC8, R*2); gl.position.set(q.x, q.y + 1, q.z); roundGroup.add(gl); shockRing(V3(q.x, q.y + .3, q.z), R, .8, 0x7CFF9A); let tick = 0; sfx('holy');
+      wzRun(6, (t, dt) => { if (Math.random() < .7) puff(V3(q.x + rr(-.5, .5), q.y + .5 + rr(0, 2.5), q.z + rr(-.5, .5)), pick([0x7CFFC8, 0xBFFFE0]), .25); gl.material.opacity = .6 + Math.sin(t*4)*.2; tick -= dt;
+        if (tick <= 0) { tick = .5; const me = localP(); if (me && me.alive !== false && (G.localKey === o.key || me.team === o.team) && hdist(me.body.position, q) < R) { me.hp = Math.min(100, me.hp + 3 + sp.tier); updateHud(); } wzHit(o, V3(q.x, q.y + 1, q.z), R, sp.dmg*k*.08, 0, WZ_EL.life.pal, {quiet:true}); } }, () => wzDel(gl)); }},
+  surge:{n:'Wild Surge', e:'🌀', t:[2, 6], els:['cosmic'], aff:() => 0, d:'wild, unstable magic: a random tumble of powers',
+    fx(o, q, sp, k){ const ids = Object.keys(WZ_POW).filter(i => i !== 'surge' && i !== 'blink' && i !== 'spring'), n = 2 + Math.floor(o.rng()*3);
+      for (let i = 0; i < n; i++) { const id = ids[Math.floor(o.rng()*ids.length)], P = WZ_POW[id], el = P.els[Math.floor(o.rng()*P.els.length)], a = o.rng()*6.28, r = o.rng()*sp.R*1.5, p = wzGP(q.x + Math.cos(a)*r, q.z + Math.sin(a)*r), s2 = Object.assign({}, sp, {el, col:WZ_EL[el].col, pal:WZ_EL[el].pal, tier:Math.max(2, sp.tier - 1)});
+        wzAfter(i*.6, () => P.fx(Object.assign({}, o, {p}), p, s2, k*.7)); }
+      if (o.rng() < .18) wzAfter(.4, () => { if (o.key === G.localKey) { const me = localP(); if (me && me.alive !== false) { knock(me, rr(-6, 6), 14, rr(-6, 6), .6); toast('🌀 The wild magic threw you into the air!'); } } }); sfx('drone'); }}
+};
+/* ---------- tier I extras ---------- */
+const WZ_WHIM2 = {
+  frogs:['Rain of Frogs', 'it rains frogs. Just frogs.', (o, q) => { sfx('croak'); for (let i = 0; i < 12; i++) wzAfter(i*.12, () => { const f = wzW(wzFrogMesh()), p = wzGP(q.x + rr(-3, 3), q.z + rr(-3, 3)); f.scale.setScalar(.5); let vy = 0, y = p.y + 12;
+    wzRun(6, (t, dt) => { vy -= 20*dt; y += vy*dt; if (y < p.y) { y = p.y; vy = t < 4 ? 5 : 0; p.x += rr(-.6, .6); p.z += rr(-.6, .6); p.y = groundH(p.x, p.z); } f.position.set(p.x, y, p.z); }, () => { puff(f.position.clone(), 0x5A9A3A, .4); wzDel(f); }); }); }],
+  soap:['Soap Bubbles', 'a stream of shimmering bubbles', (o, q) => { sfx('pop'); for (let i = 0; i < 24; i++) { const b = wzMk(new THREE.SphereGeometry(.2 + Math.random()*.25, 10, 8), new THREE.MeshBasicMaterial({color:pick([0xBFE6FF, 0xF4C6E8, 0xD8FFE0]), transparent:true, opacity:.35, depthWrite:false})), p = V3(q.x + rr(-1, 1), q.y + .5, q.z + rr(-1, 1)), v = V3(rr(-.6, .6), 1 + Math.random(), rr(-.6, .6)); roundGroup.add(b);
+    wzRun(4 + Math.random()*3, (t, dt) => { p.addScaledVector(v, dt); b.position.set(p.x + Math.sin(t*2 + i)*.3, p.y, p.z); }, () => { puff(b.position.clone(), 0xFFFFFF, .2); wzDel(b); }); } }],
+  cranes:['Paper Cranes', 'a flock of paper cranes takes flight', (o, q) => { sfx('whoosh'); const m = new THREE.MeshLambertMaterial({color:0xF2E8D0, side:THREE.DoubleSide});
+    for (let i = 0; i < 9; i++) { const g = wzW(new THREE.Group()); wzMk(new THREE.ConeGeometry(.12, .7, 3), m, g).rotation.x = Math.PI/2; const ws = [-1, 1].map(s => { const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(s*.6, .15); sh.lineTo(0, -.25); const w = wzMk(new THREE.ShapeGeometry(sh), m, g); w.rotation.x = -Math.PI/2; return w; }); const a0 = i/9*6.28;
+      wzRun(7, t => { const a = a0 + t*.8, r = 2 + t*.6; g.position.set(q.x + Math.cos(a)*r, q.y + 1 + t*1.2, q.z + Math.sin(a)*r); g.rotation.y = -a; ws.forEach((w, j) => w.rotation.z = (j ? -1 : 1)*Math.sin(t*10 + i)*.6); }, () => wzDel(g)); } }]
+};
+/* ---------- tier VII: five more legends (the first seven are in wzLegend) ---------- */
+const WZ_LEG2 = {
+  moon(o, q, sp, k){ const m = wzMk(new THREE.SphereGeometry(1, 28, 20), new THREE.MeshLambertMaterial({color:0xC8C8D8, map:WZT_TEX.rock(), emissive:0x30304A})), gl = wzGlowSprite(0xD8E0FF, 1); roundGroup.add(m); roundGroup.add(gl); let hit = false; sfx('drone');
+    wzRun(4.6, t => { const u = Math.min(1, t/4), s = 3 + 9*u; m.scale.setScalar(s); m.position.set(q.x + (1 - u)*30, q.y + 90*(1 - u*u) + s*.6 - Math.max(0, t - 4)*10, q.z); m.rotation.y += .01; gl.position.copy(m.position); gl.scale.set(s*4, s*4, 1);
+      if (u >= 1 && !hit) { hit = true; wzHit(o, V3(q.x, q.y + 2, q.z), 24, 150*k, 45, {ball:0xC8C8D8, core:0xFFFFFF, ring:0x8A8AA8}, {mush:true, size:1.4, snd:'boom'}); for (let i = 0; i < 12; i++) { const a = i/12*6.28; wzSpikes(wzGP(q.x + Math.cos(a)*14, q.z + Math.sin(a)*14), 3); } flash(.9, .8); shakeAt(q, 3, 250); } }, () => { wzDel(m); wzDel(gl); }); },
+  dragon(o, q, sp, k){ const g = wzW(wzBird(0x6A1414, 3.2, true)), hd = wzDragonHead(.7, 0x6A1414), a0 = o.rng()*6.28; hd.position.set(0, .3, 4.2); hd.rotation.x = .5; g.add(hd); let tick = 0; sfx('roar'); flash(.2, .2);
+    wzRun(7.5, (t, dt) => { const pass = t < 3.7 ? 0 : 1, u = pass ? (t - 3.7)/3.7 : t/3.7, a = a0 + pass*2.2, dir = V3(Math.cos(a), 0, Math.sin(a)), s = u*120 - 60, p = V3(q.x + dir.x*s, q.y + 18 - Math.sin(u*Math.PI)*6, q.z + dir.z*s);
+      g.position.copy(p); g.rotation.y = Math.atan2(dir.x, dir.z); g.userData.flap(t*.6);
+      if (Math.abs(s) < 26) { for (let i = 0; i < 3; i++) puff(V3(p.x + rr(-1, 1) + dir.x*3, p.y - rr(1, 14), p.z + rr(-1, 1) + dir.z*3), pick([0xFF5A1F, 0xFFC040, 0xFF8A2A]), .8); tick -= dt;
+        if (tick <= 0) { tick = .15; const d = wzGP(p.x + dir.x*3, p.z + dir.z*3); wzHit(o, V3(d.x, d.y + 1, d.z), 5, 34*k, 10, WZ_FIRE, {quiet:Math.random() < .6, size:.6}); igniteAt(d, 3); } } }, () => wzDel(g)); },
+  seraph(o, q, sp, k){ const g = wzW(new THREE.Group()), white = new THREE.MeshLambertMaterial({color:0xF4F0E8, emissive:0x504A40, side:THREE.DoubleSide}), gold = wzMat(0xFFD84D, true), wing = new THREE.MeshBasicMaterial({color:0xFFFFFF, transparent:true, opacity:.85, side:THREE.DoubleSide});
+    wzMk(new THREE.ConeGeometry(2.2, 7, 14, 1, true), white, g, 0, 3.5, 0); wzMk(new THREE.SphereGeometry(.9, 14, 10), white, g, 0, 7.6, 0); wzMk(new THREE.TorusGeometry(1.1, .1, 6, 24), gold, g, 0, 8.9, 0).rotation.x = Math.PI/2;
+    const wings = []; for (const sx of [-1, 1]) for (const lv of [0, 1]) { const piv = new THREE.Group(); piv.position.set(sx*.6, 6 - lv*1.6, -.4); g.add(piv); const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.quadraticCurveTo(sx*3, 2.5, sx*6.5, 3.5 - lv*2); sh.lineTo(sx*5, .5 - lv); sh.quadraticCurveTo(sx*3, -1, 0, -1); wzMk(new THREE.ShapeGeometry(sh), wing, piv); wings.push(piv); }
+    const arm = new THREE.Group(); arm.position.set(1.6, 6.2, .4); g.add(arm); wzMk(new THREE.BoxGeometry(.3, 9, .12), wzMat(0xFFFBE0, true), arm, 0, 4.5, 0); wzMk(new THREE.BoxGeometry(1.6, .25, .3), gold, arm, 0, -.1, 0);
+    const gl = wzGlowSprite(0xFFF3C0, 22); gl.position.y = 6; g.add(gl); g.position.set(q.x, q.y + 40, q.z); g.rotation.y = Math.atan2(o.from.x - q.x, o.from.z - q.z) + Math.PI; let hit = false; sfx('holy'); flash(.3, .3);
+    wzRun(5, t => { g.position.y = q.y + 40 - Math.min(1, t/1.8)*39.5 + Math.max(0, t - 4)*30; wings.forEach((w, i) => w.rotation.y = (i < 2 ? 1 : -1)*Math.sin(t*2)*.25); arm.rotation.x = t < 2.2 ? -.3 : Math.min(1.8, (t - 2.2)*9);
+      if (t > 2.4 && !hit) { hit = true; wzColumn(q, 60, 4, 0xFFF3C0, 1.5); wzHit(o, V3(q.x, q.y + 1, q.z), 18, 130*k, 30, {ball:0xFFE9A8, core:0xFFFFFF, ring:0xFFD84D}, {mush:true, size:1.3}); wzHealIn(o, q, 22, 60, 2); flash(.7, .5); shakeAt(q, 2, 200); } }, () => wzDel(g)); },
+  hellgate(o, q, sp, k){ const g = wzW(new THREE.Group()), yaw = Math.atan2(q.x - o.from.x, q.z - o.from.z) + Math.PI, imps = []; let spawn = 0, n = 0, rain = 0; g.rotation.y = yaw;
+    wzMk(new THREE.TorusGeometry(5, .7, 8, 32), new THREE.MeshLambertMaterial({color:0x3A0A0A, emissive:0x8A1A0A}), g, 0, 5.5, 0); const disc = wzMk(new THREE.CircleGeometry(4.5, 32), new THREE.MeshBasicMaterial({color:0xFF3A0A, transparent:true, opacity:.85, side:THREE.DoubleSide}), g, 0, 5.5, 0);
+    for (let i = 0; i < 8; i++) { const a = i/8*6.28; wzMk(new THREE.ConeGeometry(.4, 1.6, 5), new THREE.MeshLambertMaterial({color:0x2A1A1A}), g, Math.cos(a)*5.6, 5.5 + Math.sin(a)*5.6, 0).rotation.z = a - Math.PI/2; }
+    const gl = wzGlowSprite(0xFF3A0A, 18); gl.position.y = 5.5; g.add(gl); g.position.set(q.x, q.y - 12, q.z); sfx('roar'); flash(.3, .3);
+    wzRun(8, (t, dt) => { g.position.y = q.y - 12 + Math.min(1, t)*12 - Math.max(0, t - 7.2)*15; disc.material.opacity = .7 + Math.sin(t*10)*.15;
+      spawn -= dt; if (t > 1 && n < 12 && spawn <= 0) { spawn = .35; n++; const im = wzW(wzImp()); im.position.set(q.x, q.y + 3, q.z); imps.push({g:im, v:V3(Math.sin(yaw + rr(-.8, .8))*8, 6, Math.cos(yaw + rr(-.8, .8))*8)}); }
+      for (const I of imps) { if (I.done) continue; const p = I.g.position, f = wzNear(o, p, 40); if (f) { const d = V3(f.x - p.x, 0, f.z - p.z), L = Math.max(.01, d.length()); I.v.x += (d.x/L*11 - I.v.x)*dt*2; I.v.z += (d.z/L*11 - I.v.z)*dt*2; I.g.rotation.y = Math.atan2(d.x, d.z); if (L < 1.3) { I.done = true; wzDel(I.g); wzHit(o, V3(p.x, p.y + .5, p.z), 2.4, 30*k, 6, WZ_FIRE, {size:.35}); continue; } }
+        I.v.y -= 18*dt; p.addScaledVector(I.v, dt); const gy = groundH(p.x, p.z); if (p.y < gy) { p.y = gy; I.v.y = 5; } }
+      rain -= dt; if (rain <= 0 && t > 1) { rain = .25; const a = o.rng()*6.28, r = o.rng()*18, d = wzGP(q.x + Math.cos(a)*r, q.z + Math.sin(a)*r), orb = wzOrb(.4, 0xFF3A0A, 0xFFC040); roundGroup.add(orb); wzRun(.6, tt => orb.position.set(d.x, d.y + 20*(1 - Math.min(1, tt/.6)), d.z), () => { wzDel(orb); wzHit(o, V3(d.x, d.y + .5, d.z), 3, 24*k, 6, WZ_FIRE, {quiet:Math.random() < .5, size:.35}); igniteAt(d, 1.5); }); } },
+      () => { wzDel(g); imps.forEach(I => { if (!I.done) { puff(I.g.position.clone(), 0x3A0A0A, .6); wzDel(I.g); } }); }); },
+  leviathan(o, q, sp, k){ const N = 34, segs = [], mat = new THREE.MeshLambertMaterial({color:0x1A4A5A, emissive:0x0A1A2A}), belly = new THREE.MeshLambertMaterial({color:0x8AC8B8}), a = o.rng()*6.28, dir = V3(Math.cos(a), 0, Math.sin(a));
+    for (let i = 0; i < N; i++) { const r = 2.6*Math.sin(Math.PI*(.15 + .85*(1 - i/N))) + .4, m = wzMk(new THREE.SphereGeometry(r, 12, 8), mat); if (i % 3 === 0) wzMk(new THREE.ConeGeometry(.4*r, r, 4), belly, m, 0, r*.9, 0); m.visible = false; roundGroup.add(m); segs.push(m); }
+    const hd = wzW(wzDragonHead(1.6, 0x1A4A5A)), path = u => { const s = u*2 - 1; return V3(q.x + dir.x*s*28, q.y - 6 + (1 - s*s)*26, q.z + dir.z*s*28); }; hd.visible = false; sfx('roar'); shakeAt(q, 1.5, 150);
+    wzRun(6, t => { for (let i = 0; i < N; i++) { const u = clamp(t/4.2 - i*.018, 0, 1); segs[i].position.copy(path(u)); segs[i].visible = u > 0 && u < 1; }
+      const uh = clamp(t/4.2, 0, 1); hd.position.copy(path(uh)); hd.lookAt(path(Math.min(1, uh + .01))); hd.visible = uh > 0 && uh < 1;
+      if (t < 4.5 && Math.random() < .4) { const p = path(clamp(t/4.2 - .25, 0, 1)); puff(wzGP(p.x, p.z, .5), 0x8AC8FF, .9); } }, () => { segs.forEach(wzDel); wzDel(hd); });
+    for (let i = 0; i < 6; i++) wzAfter(.8 + i*.55, () => { const s = i/5*2 - 1; wzHit(o, wzGP(q.x + dir.x*s*24, q.z + dir.z*s*24, 1), 7, 45*k, 18, WZ_EL.frost.pal, {size:.6}); }); }
+};
+const WZ_LEGS = {death:['💀', 'Death Himself', 'shadow', 'Death rises from the circle and reaps'], sun:['☀️', 'Death of a Sun', 'fire', 'a sun falls from the sky and explodes'], hole:['🕳️', 'Black Hole', 'cosmic', 'a black hole swallows the area, then collapses'],
+  heavens:['⛈️', 'Wrath of the Heavens', 'storm', 'the sky tears open in a storm of lightning'], winter:['❄️', 'The Endless Winter', 'frost', 'everything freezes under a killing blizzard'], titan:['🗿', "Titan's Fall", 'earth', 'a mountain falls out of the sky'],
+  tree:['🌳', 'The World Tree', 'life', 'a colossal tree heals your side and crushes the rest'], moon:['🌕', 'Fall of the Moon', 'light', 'the moon itself comes down'], dragon:['🐉', 'Ancient Dragon', 'fire', 'an ancient dragon sweeps over the land breathing fire'],
+  seraph:['👼', "Seraph's Judgement", 'light', 'a seraph descends and strikes with a sword of light; your side is healed'], hellgate:['🔥', 'Gate of Hell', 'fire', 'a gate to hell opens: demons pour out and fire rains'], leviathan:['🐋', 'Leviathan', 'frost', 'a sea serpent bursts from the ground and crashes down']};
+// the sign inside a legend's double ring (first match wins)
+function wzMotif(F){
+  if (F.spirals >= 1) return 'hole';
+  if (F.zig >= 5) return 'heavens';
+  if (F.rad >= 8) return 'sun';
+  if (F.starDown >= 1) return 'death';
+  if ((F.triUp >= 1 && F.triDown >= 1) || F.order === 6) return 'winter';
+  if (F.triDown >= 1) return 'hellgate';
+  if (F.upStars >= 1) return 'seraph';
+  if (F.triUp >= 1) return 'dragon';
+  if (F.quad >= 1) return 'titan';
+  if (F.petals >= 5) return 'tree';
+  if (F.waves >= 2) return 'leviathan';
+  if (F.rings >= 3) return 'moon';
+  return null;
+}
+// the reading -> the spell
+function wzWildSpec(b){
+  const F = b.F, rng = b.rng; let tier = b.tier, el = b.el, legend = null, lucky = false, pw = null, whim = null, name, desc, e;
+  if (F.rings >= 2 && F.X >= .55 && F.O >= .62) legend = wzMotif(F);
+  if (!legend && tier >= 2 && tier < 6 && rng() < .12) { tier++; lucky = true; }
+  if (legend) { tier = 7; const L = WZ_LEGS[legend]; e = L[0]; name = L[1]; el = L[2]; desc = L[3]; }
+  else if (tier === 1) { if (rng() < .3) { whim = pick2(Object.keys(WZ_WHIM2), rng); name = WZ_WHIM2[whim][0]; desc = WZ_WHIM2[whim][1]; } else { whim = el; name = WZ_WHIM[el][0]; desc = WZ_WHIM[el][1]; } e = WZ_EL[el].e; }
+  else { let bs = -1; for (const id in WZ_POW) { const P = WZ_POW[id]; if (id === 'surge' || P.t[0] > tier || tier > P.t[1]) continue; const s = (P.els.includes(el) ? 2 : 0) + P.aff(F) + rng()*1.6; if (s > bs) { bs = s; pw = id; } }
+    if (b.chaos > .4 && F.O < .45) pw = 'surge'; const P = WZ_POW[pw]; if (!P.els.includes(el)) el = P.els[0];
+    name = `${lucky ? '✨ ' : ''}${['', '', 'Lesser ', '', 'Greater ', 'Grand ', 'Mythic '][tier]}${P.n}`; desc = P.d; e = P.e; }
+  const E = WZ_EL[el];
+  return {tier, el, form:pw || 'burst', pw, name, desc, e, col:E.col, pal:E.pal, legend, whim, lucky, seed:b.seed,
+    R:[2.5, 3.5, 4.5, 6, 8, 11, 18][tier - 1], dmg:[2, 14, 24, 36, 52, 72, 120][tier - 1], cd:[3, 5, 8, 12, 18, 28, 60][tier - 1], size:legend ? 30 : 6 + tier*2.6,
+    f:Object.fromEntries(Object.entries(F).map(([k, v]) => [k, typeof v === 'number' ? +v.toFixed(2) : v]))};
+}
+const pick2 = (a, rng) => a[Math.floor(rng()*a.length)];
+/* ---------- the Grimoire: how to draw each legend ---------- */
+const wzStarPts = (r, down, rot) => { const p = []; for (let i = 0; i <= 5; i++) { const a = (down ? -Math.PI/2 : Math.PI/2) + (rot || 0) + i*4*Math.PI/5; p.push([Math.cos(a)*r, Math.sin(a)*r]); } return [p]; };
+const wzRim = () => [...GL.circ(0, 0, .93), ...GL.circ(0, 0, .81)];
+const WZ_RECIPES = [
+  {id:'death', h:'an upside-down star, a small circle at each point', polys:() => { const g = [...wzRim(), ...wzStarPts(.74, true)]; for (let i = 0; i < 5; i++) { const a = -Math.PI/2 + i*2*Math.PI/5; g.push(...GL.circ(Math.cos(a)*.5, Math.sin(a)*.5, .07)); } return g; }},
+  {id:'hellgate', h:'an upside-down triangle with three small circles', polys:() => [...wzRim(), ...GL.ngon(0, 0, .74, 3, -Math.PI/2), ...GL.circ(0, .25, .08), ...GL.circ(-.22, -.12, .08), ...GL.circ(.22, -.12, .08)]},
+  {id:'seraph', h:'an upright star, a small circle in the middle', polys:() => [...wzRim(), ...wzStarPts(.74, false), ...GL.circ(0, 0, .1)]},
+  {id:'dragon', h:'an upright triangle, a smaller one inside it', polys:() => [...wzRim(), ...GL.ngon(0, 0, .74, 3, Math.PI/2), ...GL.ngon(0, -.05, .3, 3, Math.PI/2)]},
+  {id:'winter', h:'a six-pointed star (one triangle up, one down)', polys:() => [...wzRim(), ...GL.ngon(0, 0, .72, 3, Math.PI/2), ...GL.ngon(0, 0, .72, 3, -Math.PI/2), ...GL.circ(0, 0, .12)]},
+  {id:'titan', h:'a square inside, a smaller square in it', polys:() => [...wzRim(), ...GL.ngon(0, 0, .72, 4, Math.PI/4), ...GL.ngon(0, 0, .34, 4, Math.PI/4)]},
+  {id:'hole', h:'a spiral winding out from the centre', polys:() => [...wzRim(), ...GL.spiral(0, 0, .04, .66, 3)]},
+  {id:'heavens', h:'three lightning bolts (zigzags)', polys:() => { const g = wzRim(); for (const dx of [-.38, 0, .38]) g.push([[dx - .08, .58], [dx + .1, .25], [dx - .1, .12], [dx + .12, -.2], [dx - .06, -.32], [dx + .08, -.6]]); return g; }},
+  {id:'sun', h:'a circle in the middle with rays all round it (8 or more)', polys:() => { const g = [...wzRim(), ...GL.circ(0, 0, .25)]; for (let i = 0; i < 12; i++) { const a = i/12*Math.PI*2; g.push(...GL.line(Math.cos(a)*.32, Math.sin(a)*.32, Math.cos(a)*.72, Math.sin(a)*.72)); } return g; }},
+  {id:'tree', h:'five or more petal circles round a centre', polys:() => { const g = [...wzRim(), ...GL.circ(0, 0, .14)]; for (let i = 0; i < 6; i++) { const a = i/6*Math.PI*2; g.push(...GL.circ(Math.cos(a)*.47, Math.sin(a)*.47, .17)); } return g; }},
+  {id:'leviathan', h:'two or three wavy lines across', polys:() => [...wzRim(), ...GL.wave(-.6, .6, .3, .1, 2), ...GL.wave(-.66, .66, 0, .1, 2), ...GL.wave(-.6, .6, -.3, .1, 2)]},
+  {id:'moon', h:'three rings round a full circle, nothing else', polys:() => [...GL.circ(0, 0, .95), ...GL.circ(0, 0, .83), ...GL.circ(0, 0, .71), ...GL.circ(0, 0, .32)]}
+];
+function wzGrimoire(Pp){
+  const old = Pp.el.querySelector('#wzGrim'); if (old) { old.remove(); return; }
+  const sheet = Pp.el.querySelector('#wzSheet'), box = document.createElement('div'); sheet.style.position = 'relative'; box.id = 'wzGrim';
+  box.style.cssText = 'position:absolute;inset:0;background:rgba(28,16,8,.96);display:flex;flex-direction:column;padding:12px 14px;gap:8px;overflow:auto;border-radius:10px;z-index:3';
+  box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b style="font-size:18px;color:#FFE9A8">📖 The Grimoire: the twelve legends</b><button class="btn" id="wzGrX">✕</button></div>
+    <div style="font-size:13px;opacity:.9;line-height:1.35">Every legend is a <b>double ring</b> round the outside + its <b>sign</b> inside. Draw it big, neat and closed. Pick one to see it faintly on your page and trace it. (Below legends, anything you draw becomes one of ${Object.keys(WZ_POW).length - 1} powers: try shapes!)</div>
+    <div id="wzGrL" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:8px"></div>`;
+  sheet.appendChild(box); const L = box.querySelector('#wzGrL');
+  for (const R of WZ_RECIPES) { const Lg = WZ_LEGS[R.id], c = document.createElement('button'); c.className = 'btn'; c.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 6px;height:auto;white-space:normal;line-height:1.2;border-radius:12px';
+    const cv = document.createElement('canvas'); cv.width = cv.height = 120; cv.style.cssText = 'width:84px;height:84px;background:#F2E2B8;border-radius:6px'; wzDrawGlyph(cv.getContext('2d'), R.polys(), 60, 60, 54, '#2A1408', 2); c.appendChild(cv);
+    const t = document.createElement('div'); t.innerHTML = `<b style="font-size:13px">${Lg[0]} ${Lg[1]}</b><div style="font-size:11px;opacity:.8;font-weight:600;margin-top:2px">${R.h}</div>`; c.appendChild(t);
+    c.onclick = e => { e.stopPropagation(); Pp.recipe = R.polys(); box.remove(); }; L.appendChild(c); }
+  box.querySelector('#wzGrX').onclick = e => { e.stopPropagation(); box.remove(); };
+}
 
 /* ===================================== WORLD: rain, nature, an unbreakable ground =====================================
    The ground never changes shape any more: craterAt() only scorches it (colour), World Severance leaves a glowing
