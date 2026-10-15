@@ -814,3 +814,14 @@ wzTakeCone; players via victimFor/knock/painHurt/floatT). Test t95; recognition 
 DRAWING ASSIST (wiz_assist, WZ.assist, on by default, A / 🧲 button): with a guide (spell guide or Grimoire trace) the ink is
 pulled .5-.8 of the way onto the nearest guide line within .14; a steady hand (lag .75) everywhere; the stroke ends at the true pen
 point. Sloppy Fireball: B .75 -> S .95.
+Wizards 2026-10-15.3: Pain's circles now run PAIN'S OWN abilities (runPain via wzPainRun: G.casterKey = the caster, G.yaw from the
+cast; every screen runs it like a replayed cast): same forces, effects, SpaceWarp lens, gravWaves. The circle's tier stands for the
+charge (wzPainC: tier - 3 -> chargeMul). Two-step abilities are scripted per screen: boulder (p_boulder -> p_boulderx -> drop),
+link (no props in the Wizards map: a Bansho rock is torn out, linked 'B'+key|i, hurled with p_linkx), grab (an enemy player: p_grab
++ p_throw; a dark wizard: SpaceWarp + bridge; nobody: a rock), circuit (6 p_circ points + close, p_circx after 6 s), levitate
+(p_levitate {dur} + p_levitatex), vortex (self, then {fire:1} at the nearest enemy). The dark wizards are not physics bodies: a bridge
+(wzBotMove/wzBotsFreeze/liftT + wzBotHit where Pain's code doesn't reach summonsTakeArea) carries each push/lift/hold onto them.
+Test t96 (runPain logged per ability). Also: the paper no longer swallows key-ups (stuck Shift = running on its own + every C a
+redraw); keys are cleared when the paper opens/closes; REDRAW the wild page is X (not Shift+C). Wizards has its own cooldown
+setting (ME.wzCd, 'ca-cd-wiz', on by default): the menu's cooldown button edits it while Wizards is picked; off = cdFor 0 for
+WIZ_SK and wzCdOf 0. Test t97.
