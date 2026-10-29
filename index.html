@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-15.3';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-29.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -480,10 +480,10 @@ function cone(r,h,c,x=0,y=0,z=0,p,seg=6){ const m=new THREE.Mesh(new THREE.ConeG
 /* sea + island (permanent) */
 const sea = new THREE.Mesh(new THREE.PlaneGeometry(9000,9000), new THREE.MeshLambertMaterial({color:0x4FB3E8}));
 sea.rotation.x = -Math.PI/2; sea.position.y = -7; scene.add(sea);
-const ISL = 140;   // half the play area's side: 280 x 280 m (it was 140 x 140)
+let ISL = 140;   // half the play area's side (Piss Wars stretches it: setWorldScale): 280 x 280 m (it was 140 x 140)
 const MAPK = (ISL/70)*(ISL/70);   // how many times more ground than the original map: scales prop and animal counts
 /* ---------------- deformable procedural terrain (the play area) ---------------- */
-const TN = ISL + 1, TES = 2;
+const TN = ISL + 1; let TES = 2;   // (TES stretches with ISL: TN stays)
 const terrH = new Float32Array(TN*TN), terrDmg = new Float32Array(TN*TN);
 // Balloon Defense and Fortress Siege: the ground is never damaged (no scorch, no split, no burnt island): always green, the paths always clear
 const groundSafe = () => G.pvp && G.mode === 'td';
@@ -500,6 +500,7 @@ const _meadow = new THREE.Color(0x8CC456), _dry = new THREE.Color(0xB8B060), _fo
 const _tdGrass = new THREE.Color(0x7BE04F), _tdSand = new THREE.Color(0xF6D98E), _tdEdge = new THREE.Color(0xB98A52);
 function terrainColor(v, x, z){
   if (terrH[v] < -20) return _tc.setRGB(.03, .02, .05);   // World Severance abyss
+  if (G.pvp && G.mode === 'piss') return psGround(_tc, v, x, z);   /* Piss Wars: grass, sand, rock, snow */
   const n = .5 + .25*Math.sin(x*.11 + z*.07) + .15*Math.sin(x*.31 - z*.23) + .1*Math.sin(z*.53 + x*.02);
   _tc.copy(_grass2).lerp(_grass, n);
   const b1 = Math.sin(x*.021 + terrSeed*3) * Math.cos(z*.018 - terrSeed), b2 = Math.sin(x*.013 - z*.017 + terrSeed*5);
@@ -539,6 +540,7 @@ function syncTerrain(i0 = 0, i1 = TN-1, j0 = 0, j1 = TN-1){
   hfShape.updateBoundingSphereRadius(); hfBody.aabbNeedsUpdate = true;
 }
 function genTerrain(seed){
+  if (G.pvp && G.mode === 'piss') { psGenTerrain(seed); syncTerrain(); return; }   /* Piss Wars: mountains, a lake, a river */
   if (G.pvp && G.mode === 'td') tdBuildPath();
   terrSeed = (seed % 997) * .137;
   for (let j=0;j<TN;j++) for (let i=0;i<TN;i++){
@@ -1155,7 +1157,7 @@ function stunPlayer(P, v){
 function buildRound(seed, keepChars){
   G.gen = (G.gen || 0) + 1; clearRound(); for (const k in chars) delete chars[k]; booms = []; holes = []; comets = []; skels = []; pits = []; tornados = []; volcanoes = []; bolts = []; gcows = []; puddles = []; frogs = []; storms = []; stuck = []; G.targeting = null; marker.visible = false; G.dome = null; G.eggArmor = 0; G.defPlace = null; bodyObj.clear(); hands = []; fireballs = []; judgements = []; comings = []; G.sky = null; G.worldEnding = null; golems = []; drones = []; interceptors = []; shells = []; punches = []; zones = []; auraRefs = new Set(); G.carriers = []; G.moat = null; G.eggLives = 0; G.cloak = false; G.eggRegen = false; G.halo = null; G.regenT = 0; satans = []; swords = []; gtrees = []; novas = []; vacs = []; evas = []; frozen = []; if (G.night > 0) endNight(); G.night = 0; G.warp = 0; G.freeze = 0; G.flip = 0; G.roll = 0; updateFilter(); G.gravOff = 0; G.armed = null; scene.background.set(0x9ED8F5); scene.fog.color.set(0x9ED8F5); sea.material.color.set(0x4FB3E8);
   G.seed = seed; rand = mulberry32(seed);
-  G.map = G.pvp && G.mode === 'wiz' ? WIZ_MAP : G.pvp && G.mode === 'td' ? MAPS[0] : pick(MAPS);   // Balloon Defense: always a sunny day
+  G.map = G.pvp && G.mode === 'wiz' ? WIZ_MAP : G.pvp && G.mode === 'piss' ? PS_MAP : G.pvp && G.mode === 'td' ? MAPS[0] : pick(MAPS);   // Balloon Defense: always a sunny day
   const c1 = pick(CHARS), c2 = pick(CHARS);
   if (!keepChars) { G.defChar = c1; G.atkChar = c2; }
   world.gravity.set(0, G.map.grav || -9.81, 0);
@@ -1181,7 +1183,7 @@ function buildRound(seed, keepChars){
   const LIM = ISL - 4, taken = [];
   const sgMap = G.pvp && G.mode === 'td' && G.siege;
   const free = (p, r) => p.distanceTo(atkSpawn) > r + 4 && !(sgMap && Math.hypot(p.x, p.z) < LAVA[1] + 5 + r) && !(G.pvp && G.mode === 'egg' && Math.hypot(p.x, p.z) < LAVA[1] + 6 + r) && !(G.pvp && G.mode === 'td' && (tdPathDist(p.x, p.z) < r + 5 || Math.hypot(p.x, p.z) < 9 + r)) && !(G.pvp && G.mode === 'tennis' && Math.abs(p.x) < TN_CW + TN_FENCE + 6 + r && Math.abs(p.z) < TN_CL + TN_FENCE + 6 + r) && taken.every(t => Math.hypot(t.x-p.x, t.z-p.z) > t.r + r);
-  const place = (r, minR, tree) => { if (G.pvp && G.mode === 'wiz') return null;   /* Wizards builds its own map (wzaBuildMap) */
+  const place = (r, minR, tree) => { if (G.pvp && (G.mode === 'wiz' || G.mode === 'piss')) return null;   /* Wizards builds its own map (wzaBuildMap) */
     if (G.pvp && G.mode === 'td' && rand() > (sgMap ? (tree ? .7 : .02) : r < 1.3 ? .03 : .05)) return null;   // Balloon Defense: a simple, open map (Fortress Siege: hardly any props, lots of trees)
     for (let k=0;k<60;k++){ const a = rr(0,Math.PI*2), d = rr(minR, LIM - r); const p = new THREE.Vector3(Math.cos(a)*d, 0, Math.sin(a)*d); if (free(p, r)) { taken.push({x:p.x, z:p.z, r}); return p; } } return null; };
   const hillCols = G.map.ice ? [0xBFE6FA,0xD5F0FF] : G.map.bouncy ? [0xF093CC,0xFAB8DF] : [0x62A844,0x74B852,0x5E9E40];
@@ -4348,7 +4350,7 @@ const tuftXZ = [], flowerXZ = [];
 for (let i=0;i<1600*MAPK*.7;i++){ const a = Math.random()*Math.PI*2, r = 12 + Math.sqrt(Math.random())*(ISL - 14); tuftXZ.push([clamp(Math.cos(a)*r + (Math.random() - .5)*6, -ISL + 1, ISL - 1), clamp(Math.sin(a)*r + (Math.random() - .5)*6, -ISL + 1, ISL - 1), Math.random()*6, .7 + Math.random()*.8, 1]); }
 for (let i=0;i<420*MAPK*.8;i++){ let x = (Math.random() - .5)*(ISL*2 - 4), z = (Math.random() - .5)*(ISL*2 - 4); if (Math.hypot(x, z) < 12) x += 14; flowerXZ.push([x, z, 0, .8 + Math.random()*.5, 1]); }
 function placeInst(inst, list){ const d = new THREE.Object3D(); list.forEach((q, i) => { d.position.set(q[0], groundH(q[0], q[1]), q[1]); d.rotation.set(0, q[2], 0); d.scale.setScalar(q[4] ? q[3] : .0001); d.updateMatrix(); inst.setMatrixAt(i, d.matrix); }); inst.instanceMatrix.needsUpdate = true; }
-function placeGrass(){ const few = G.pvp && G.mode === 'td', none = G.pvp && G.mode === 'tennis'; tuftXZ.forEach((q, i) => q[4] = none || (few && i % 6) ? 0 : 1); flowerXZ.forEach((q, i) => q[4] = none || (few && i % 6) ? 0 : 1); placeInst(tufts, tuftXZ); placeInst(flowers, flowerXZ); }
+function placeGrass(){ const few = G.pvp && G.mode === 'td', none = G.pvp && (G.mode === 'tennis' || G.mode === 'piss'); tuftXZ.forEach((q, i) => q[4] = none || (few && i % 6) ? 0 : 1); flowerXZ.forEach((q, i) => q[4] = none || (few && i % 6) ? 0 : 1); placeInst(tufts, tuftXZ); placeInst(flowers, flowerXZ); }
 function hideGrass(p, r){
   let ch = false; for (const q of tuftXZ) if (q[4] && Math.hypot(q[0] - p.x, q[1] - p.z) < r) { q[4] = 0; ch = true; }
   for (const q of flowerXZ) if (q[4] && Math.hypot(q[0] - p.x, q[1] - p.z) < r) { q[4] = 0; ch = true; }
@@ -4658,6 +4660,7 @@ const LOOK_COUNT = CHARS.length;
 const casterTeam = () => { const P = chars[attacker()]; return P ? P.team : null; };
 const localP = () => chars[G.localKey];
 function teamSpawn(team){
+  if (G.pvp && G.mode === 'piss') return psSpawn(team);
   if (G.mode === 'swarm') { const a = Math.random()*Math.PI*2, x = Math.cos(a)*3, z = Math.sin(a)*3; return new THREE.Vector3(x, groundH(x, z) + .3, z); }   // Swarm: the middle of the island
   if (G.pvp && G.mode === 'egg' && team === 'blue') { const a = Math.random()*Math.PI*2, x = Math.cos(a)*6.5, z = Math.sin(a)*6.5; return new THREE.Vector3(x, groundH(x, z) + .3, z); }   // the defender starts next to the egg
   const x = (team === 'blue' ? -1 : 1)*ISL*.48, z = (Math.random() - .5)*ISL*.6; return new THREE.Vector3(x, groundH(x, z) + .3, z); }
@@ -4752,9 +4755,9 @@ function removePlayer(id){ const P = chars[id]; if (!P) return; roundGroup.remov
 function startMatch(seed, list, score, mode, cdOn, eg){
   hideOverlay(); $('matchEnd').style.display = 'none'; $('eggBanner').style.display = 'none';
   G.siege = mode === 'siege'; G.siegeN = (G.siegeNP | 0) || list.length; G.siegeNP = 0;   /* the host's path count (np) wins: a late joiner must build the same paths */ if (G.siege) mode = 'td';   /* Fortress Siege runs on Balloon Defense */
-  G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' || mode === 'swarm' || mode === 'td' || mode === 'tennis' || mode === 'wiz' ? mode : mode === 'chaos' ? 'td' : 'chaos'; G.cdOn = !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
+  G.pvp = true; G.localKey = NET.myId || 'me'; G.mode = mode === 'pain' || mode === 'egg' || mode === 'swarm' || mode === 'td' || mode === 'tennis' || mode === 'wiz' || mode === 'piss' ? mode : mode === 'chaos' ? 'td' : 'chaos'; G.cdOn = !!cdOn; G.matchT0 = performance.now()/1000; G.egg = null;
   if (G.mode === 'egg' && !eg) eg = {def:G.localKey, round:1, total:1, pts:{}};
-  buildRound(seed); wzTheme(G.mode === 'wiz'); wzMusic(G.mode === 'wiz');
+  setWorldScale(G.mode === 'piss' ? 2.5 : 1); buildRound(seed); wzTheme(G.mode === 'wiz'); wzMusic(G.mode === 'wiz');
   painReset(); painAmbience(); barReset(); bomberReset(); swordReset(); avatarReset(); woodReset(); summonReset(); necroReset(); ultReset();
   if (!classCycle().includes(G.cls)) G.cls = classCycle()[0];   // a class hidden in this mode
   fortReset();
@@ -4764,8 +4767,9 @@ function startMatch(seed, list, score, mode, cdOn, eg){
   }
   for (const k of Object.keys(chars)) { const P = chars[k]; if (P) { roundGroup.remove(P.root); if (P.body.world) world.removeBody(P.body); } delete chars[k]; }
   G.atkChar = {name:'', e:'', atk:{}}; G.defChar = {name:'', e:'', def:{}};
-  G.wzCoop = G.mode === 'wiz' && (list.length < 2 || list.every(i => i.team === list[0].team));   /* Wizards: one colour = co-op against the dark coven */
-  list.forEach((info, ix) => addPlayer(G.mode === 'wiz' && G.wzCoop ? Object.assign({}, info, {team:'blue'}) : G.mode === 'tennis' ? Object.assign({}, info, {team:ix % 2 ? 'blue' : 'red'}) : G.mode === 'td' ? Object.assign({}, info, {team:'blue'}) : G.mode === 'egg' ? Object.assign({}, info, {team:(eg.defs ? eg.defs[info.id] : info.id === eg.def) ? 'blue' : 'red'}) : info, info.id === G.localKey));
+  G.wzCoop = G.mode === 'wiz' && (list.length < 2 || list.every(i => i.team === list[0].team));
+  const psTeam = ix => G.mode !== 'piss' ? null : list.length < 2 ? 'blue' : list.every(i => i.team === list[0].team) ? (ix % 2 ? 'red' : 'blue') : null;   /* Piss Wars: alone you are blue (the rivals red); all one colour: split in two */   /* Wizards: one colour = co-op against the dark coven */
+  list.forEach((info, ix) => addPlayer(psTeam(ix) ? Object.assign({}, info, {team:psTeam(ix)}) : G.mode === 'wiz' && G.wzCoop ? Object.assign({}, info, {team:'blue'}) : G.mode === 'tennis' ? Object.assign({}, info, {team:ix % 2 ? 'blue' : 'red'}) : G.mode === 'td' ? Object.assign({}, info, {team:'blue'}) : G.mode === 'egg' ? Object.assign({}, info, {team:(eg.defs ? eg.defs[info.id] : info.id === eg.def) ? 'blue' : 'red'}) : info, info.id === G.localKey));
   G.phase = 'attack'; G.atkTime = Infinity; G.specials = {}; Object.keys(modeTable()).forEach(k => G.specials[k] = Infinity);
   G.targeting = null; G.cd = {}; G.spCd = 0; G.kiCd = 0; G.slowmo = 0; G.eggCam = 0;
   G.score = score || {blue:0, red:0}; G.matchOver = false; G.spawnShield = 2;
@@ -4779,6 +4783,8 @@ function startMatch(seed, list, score, mode, cdOn, eg){
   $('eggPts').style.display = G.mode === 'egg' ? 'block' : 'none'; document.querySelector('#top .score').style.display = G.mode === 'egg' || G.mode === 'swarm' || G.mode === 'td' || G.mode === 'tennis' ? 'none' : '';
   tdHudShow(G.mode === 'td'); if (G.mode !== 'td') tdClear();
   tnHud(G.mode === 'tennis'); if (G.mode !== 'tennis') TNS.on = false;
+  psHud(false); PS.bots = []; sun.shadow.camera.far = G.mode === 'piss' ? 240 : 100; sun.shadow.camera.updateProjectionMatrix();
+  if (G.mode === 'piss') { psStart(); return; }
   if (G.mode === 'wiz') { wzStart(); return; }
   if (G.mode === 'td') { tdStart(); return; }
   if (G.mode === 'tennis') { tnStart(); return; }
@@ -8617,8 +8623,8 @@ function castOK(c, m){
    any class, so players can swap freely without telling anyone. */
 const CLASS_IDS = ['native', 'pain', 'bomber', 'sword', 'avatar', 'wood', 'summon', 'necro'];
 // in Pain mode the default kit already is Pain, so the class is skipped there
-const classCycle = () => G.mode === 'wiz' ? ['wizard'] : G.mode === 'td' && G.siege ? ['kit', 'pain', 'bomber', 'sword', 'avatar', 'wood'] : CLASS_IDS.filter(c => !(c === 'pain' && isPain()) && !((G.mode === 'egg' || G.mode === 'td') && (c === 'native' || c === 'summon' || c === 'necro')));   // Alpha Mode: no Chaos, Summoner or Necromancer for now
-function classInfo(c){ return c === 'wizard' ? {name:'Wizard', e:'🧙'} : c === 'kit' ? {name:'Defences', e:'🛡️'} : c === 'wood' ? {name:'Wood Sage', e:'🌳'} : c === 'avatar' ? {name:'Genos', e:'🔥'} : c === 'pain' ? {name:'Pain', e:'🌑'} : c === 'bomber' ? {name:'Bomber', e:'💣'} : c === 'sword' ? {name:'Swordsman', e:'⚔️'} : c === 'summon' ? {name:'Summoner', e:'🐾'} : c === 'necro' ? {name:'Necromancer', e:'💀'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
+const classCycle = () => G.mode === 'piss' ? ['piss'] : G.mode === 'wiz' ? ['wizard'] : G.mode === 'td' && G.siege ? ['kit', 'pain', 'bomber', 'sword', 'avatar', 'wood'] : CLASS_IDS.filter(c => !(c === 'pain' && isPain()) && !((G.mode === 'egg' || G.mode === 'td') && (c === 'native' || c === 'summon' || c === 'necro')));   // Alpha Mode: no Chaos, Summoner or Necromancer for now
+function classInfo(c){ return c === 'piss' ? {name:'Pisser', e:'💦'} : c === 'wizard' ? {name:'Wizard', e:'🧙'} : c === 'kit' ? {name:'Defences', e:'🛡️'} : c === 'wood' ? {name:'Wood Sage', e:'🌳'} : c === 'avatar' ? {name:'Genos', e:'🔥'} : c === 'pain' ? {name:'Pain', e:'🌑'} : c === 'bomber' ? {name:'Bomber', e:'💣'} : c === 'sword' ? {name:'Swordsman', e:'⚔️'} : c === 'summon' ? {name:'Summoner', e:'🐾'} : c === 'necro' ? {name:'Necromancer', e:'💀'} : G.mode === 'pain' ? {name:'Pain', e:'🌑'} : {name:'Chaos', e:'🌀'}; }
 function modeTable(){ return isPain() ? PAIN_SKILLS : SPECIALS; }
 G.cls = (() => { try { const c = localStorage.getItem('ca-cls'); return c === 'pain' || c === 'bomber' || c === 'sword' || c === 'avatar' || c === 'wood' || c === 'summon' || c === 'necro' ? c : 'native'; } catch (e) { return 'native'; } })();
 function switchClass(to){
@@ -17266,6 +17272,352 @@ function wzAssist(Pp, q, last){
 function wzAssistToggle(){ WZ.assist = !WZ.assist; try { localStorage.setItem('ca-wzassist', WZ.assist ? 'on' : 'off'); } catch (e) {} const b = WZ.paper && WZ.paper.el.querySelector('#wzAs'); if (b) b.textContent = WZ.assist ? '🧲 Assist: on (A)' : '✍️ Assist: off (A)'; }
 function wzAssistBtn(Pp){ const b = document.createElement('button'); b.className = 'btn'; b.id = 'wzAs'; b.textContent = WZ.assist ? '🧲 Assist: on (A)' : '✍️ Assist: off (A)'; b.onclick = e => { e.stopPropagation(); wzAssistToggle(); }; const c = Pp.el.querySelector('#wzClr'); if (c) c.after(b); }
 
+/* ===================================== PISS WARS =====================================
+   PvP in a big valley: 700 x 700 m (the terrain grid is stretched to 5 m a cell for this mode only: setWorldScale), with a wall of
+   mountains all round and peaks inside, a river, a lake and ponds, and giant trees. Everyone carries a bladder (0..130 %): hold E
+   at any water to drink it through a straw; hold Click to piss where you aim. The fuller the bladder, the farther, harder and
+   thicker the stream (and the faster it drains); over 100 % you waddle, at 125 % it all comes out on its own, spraying round.
+   Hits soak (damage) and push; soaked through = knocked out. Teams by colour (online, one colour for all = split in two);
+   alone: rival pissers to practise on. Streams travel in the player state ('st' .ps), each screen draws them and judges the
+   hits on its own player (the host on the rivals), like every other power. */
+const psOn = () => G.pvp && G.mode === 'piss';
+const PS_MAP = {name:'Golden Valley', e:'💦', d:'A wide green valley under the mountains. Drink up.'};
+const PS_WIN = 20, PS_G = 14, PS_MAXP = 2400;
+const PS = {bl:40, wantPee:false, wantDrink:false, drinking:false, peeing:false, burstT:0, pr:0, dir:V3(0, 0, 1), streams:{}, sendT:0, kills:0, deaths:0, soakT:0, straws:{}, hud:null, snd:null, bots:[], sipT:0, overT:0};
+const PSW = {lakes:[], river:null, spawns:{blue:[], red:[]}, peaks:[]};
+/* ---------- the world, bigger for this mode (k = 2.5: 700 m a side; the grid keeps its 141 x 141 points) ---------- */
+const WSC = {k:1, outer:null};
+function setWorldScale(k){
+  if (WSC.k === k) return; WSC.k = k; ISL = 140*k; TES = 2*k;
+  islandTop.scale.set(k, 1, k); islandTop.updateMatrixWorld(true);
+  hfShape.elementSize = TES; hfBody.position.set(-ISL, 0, ISL); hfShape.update(); hfShape.updateBoundingSphereRadius(); hfBody.aabbNeedsUpdate = true;
+  if (!WSC.outer) WSC.outer = world.bodies.filter(b => b.isTerrain && b !== hfBody && b.shapes[0] && b.shapes[0].halfExtents && Math.abs(b.shapes[0].halfExtents.y - 1) < 1e-6).slice(0, 4);
+  const S = [[-ISL - 300, 0, 300, ISL + 600], [ISL + 300, 0, 300, ISL + 600], [0, -ISL - 300, ISL, 300], [0, ISL + 300, ISL, 300]];
+  WSC.outer.forEach((b, i) => { const [x, z, hx, hz] = S[i]; b.shapes[0].halfExtents.set(hx, 1, hz); b.shapes[0].updateConvexPolyhedronRepresentation(); b.updateBoundingRadius(); b.position.set(x, -1, z); b.aabbNeedsUpdate = true; });
+  edgeWalls.forEach((w, i) => { w.scale.x = k; const q = [[0, -ISL], [0, ISL], [-ISL, 0], [ISL, 0]][i]; w.position.set(q[0], 5, q[1]); });
+  if (typeof HB_STATIC !== 'undefined') HB_STATIC.n++;
+}
+/* ---------- the land: rolling meadows, a wall of mountains, peaks, a lake, ponds, a river ---------- */
+function psGenTerrain(seed){
+  const R = mulberry32((seed ^ 0x5EE5) >>> 0); terrSeed = (seed % 997)*.137; PSW.lakes = []; PSW.river = null; PSW.peaks = [];
+  const n2 = (x, z) => Math.sin(x*.013 + terrSeed*2)*Math.cos(z*.011 - terrSeed) + .5*Math.sin((x + z)*.021 + terrSeed*3) + .25*Math.sin(x*.047 - z*.039 + terrSeed*5);
+  const ridge = (x, z) => 1 - Math.abs(Math.sin(x*.031 + Math.cos(z*.017)*2 + terrSeed)*Math.cos(z*.027 + Math.sin(x*.019)*2));
+  const S = ISL*.55, far = (x, z, list, d) => list.every(q => Math.hypot(q[0] - x, q[1] - z) > d);
+  for (let k = 0; k < 60 && PSW.peaks.length < 4; k++) { const a = R()*Math.PI*2, d = 70 + R()*170, x = Math.cos(a)*d, z = Math.sin(a)*d;
+    if (Math.hypot(x + S, z) < 90 || Math.hypot(x - S, z) < 90 || !far(x, z, PSW.peaks, 120)) continue; PSW.peaks.push([x, z, 34 + R()*36, 38 + R()*40]); }
+  for (let j = 0; j < TN; j++) for (let i = 0; i < TN; i++) { const x = -ISL + i*TES, z = -ISL + j*TES, v = i + j*TN;
+    let h = n2(x, z)*5 + Math.sin(x*.09 + z*.07)*.8 + 6;
+    const e = Math.max(Math.abs(x), Math.abs(z))/ISL; h += smooth(.7, .97, e)*(58 + 26*ridge(x, z) + 9*n2(z, x));
+    for (const [px, pz, H, r] of PSW.peaks) { const d = Math.hypot(x - px, z - pz); h += H*Math.exp(-(d*d)/(r*r))*(.75 + .35*ridge(x*1.3, z*1.3)); }
+    terrH[v] = h; terrDmg[v] = 0; }
+  const carveBowl = (cx, cz, r, depth, bank) => { const lv = (() => { let m = 1e9; for (let a = 0; a < 24; a++) m = Math.min(m, groundH(cx + Math.cos(a/24*Math.PI*2)*(r + 2), cz + Math.sin(a/24*Math.PI*2)*(r + 2))); return m - .6; })();
+    const RR = r + bank; for (let j = 0; j < TN; j++) { const z = -ISL + j*TES; if (Math.abs(z - cz) > RR) continue;
+      for (let i = 0; i < TN; i++) { const x = -ISL + i*TES; if (Math.abs(x - cx) > RR) continue; const d = Math.hypot(x - cx, z - cz); if (d > RR) continue; const v = i + j*TN;
+        const t = d < r ? lv - depth*(1 - (d/r)*(d/r)) - .3 : lv - .3 + (d - r)*(3/bank); if (t < terrH[v]) terrH[v] = t; } }
+    return lv; };
+  // the lake: somewhere in the middle, off the spawns
+  for (let k = 0; k < 40; k++) { const x = (R() - .5)*ISL*.6, z = (R() - .5)*ISL*.9, r = 42 + R()*18; if (Math.hypot(x + S, z) < r + 50 || Math.hypot(x - S, z) < r + 50 || !far(x, z, PSW.peaks, r + 45)) continue;
+    PSW.lakes.push({x, z, r, lv:carveBowl(x, z, r, 5, 14), big:true}); break; }
+  if (!PSW.lakes.length) PSW.lakes.push({x:0, z:ISL*.25, r:45, lv:carveBowl(0, ISL*.25, 45, 5, 14), big:true});
+  // the river: down from the northern mountains, through the lake, out to the south
+  { const L = PSW.lakes[0], pts = [[L.x*.3 + (R() - .5)*80, -ISL*.8], [L.x + (R() - .5)*90, (L.z - ISL*.8)/2 + (R() - .5)*30], [L.x, L.z - L.r*.5], [L.x, L.z + L.r*.5], [L.x + (R() - .5)*90, (L.z + ISL*.8)/2 + (R() - .5)*30], [L.x*.3 + (R() - .5)*80, ISL*.8]];
+    const curve = new THREE.CatmullRomCurve3(pts.map(([x, z]) => V3(x, 0, z))), N = Math.ceil(curve.getLength()/3), sp = curve.getSpacedPoints(N), W = 11;
+    const nrm = sp.map((q, i) => { const a = sp[Math.max(0, i - 1)], b = sp[Math.min(N, i + 1)], dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz) || 1; return [-dz/l, dx/l]; });
+    let lv = sp.map((q, i) => { let m = 1e9; for (let s = -1; s <= 1; s += .25) m = Math.min(m, groundH(q.x + nrm[i][0]*(W/2 + 1)*s, q.z + nrm[i][1]*(W/2 + 1)*s)); return m - .7; });
+    const inLake = sp.map(q => Math.hypot(q.x - L.x, q.z - L.z) < L.r); let mid = sp.findIndex((q, i) => inLake[i]); if (mid < 0) mid = Math.floor(N/2);
+    for (let i = 1; i <= mid; i++) lv[i] = Math.min(lv[i], lv[i - 1]); for (let i = mid; i <= N; i++) lv[i] = Math.min(lv[i], i > mid ? lv[i - 1] : L.lv);   // it runs down to the lake, and on down out of it
+    for (let i = 0; i <= N; i++) if (inLake[i]) lv[i] = L.lv;
+    for (let it = 0; it < 6; it++) lv = lv.map((v, i) => Math.min(v, (lv[Math.max(0, i - 1)] + v*2 + lv[Math.min(N, i + 1)])/4));
+    const RR = W/2 + 12; for (let j = 0; j < TN; j++) { const z = -ISL + j*TES; for (let i = 0; i < TN; i++) { const x = -ISL + i*TES; let b = 1e9, bi = 0;
+      for (let k = 0; k <= N; k += 2) { const d = (sp[k].x - x)*(sp[k].x - x) + (sp[k].z - z)*(sp[k].z - z); if (d < b) { b = d; bi = k; } } const dd = Math.sqrt(b); if (dd > RR) continue;
+      const v = i + j*TN, bed = lv[bi] - 2.2 + Math.max(0, dd - (W/2 - 1.5))*.75; if (bed < terrH[v]) terrH[v] = bed; } }
+    PSW.river = {sp, nrm, lv, W, hw:W/2 + .8, pts:sp.filter((_, i) => i % 2 === 0).map((q, i) => [q.x, q.z, lv[i*2]])}; }
+  // ponds in the meadows
+  for (let k = 0, n = 0; k < 200 && n < 8; k++) { const x = (R()*2 - 1)*ISL*.66, z = (R()*2 - 1)*ISL*.66, r = 7 + R()*8;
+    if (!far(x, z, PSW.lakes.map(l => [l.x, l.z]), 70) || !far(x, z, PSW.peaks, 55) || psRiverNear(x, z).d < 30 || Math.hypot(x + S, z) < 30 || Math.hypot(x - S, z) < 30) continue;
+    PSW.lakes.push({x, z, r, lv:carveBowl(x, z, r, 2.4, 8)}); n++; }
+  // where each team comes in: open, dry, gentle ground on its side of the valley
+  for (const [team, sx] of [['blue', -1], ['red', 1]]) { const out = [];
+    for (let k = 0; k < 400 && out.length < 8; k++) { const x = sx*S + (R() - .5)*60, z = (R() - .5)*90; if (psWaterAt(x, z, 6) != null || psSlope(x, z) > .35 || !far(x, z, out, 8)) continue; out.push([x, z]); }
+    PSW.spawns[team] = out.length ? out : [[sx*S, 0]]; }
+}
+function psSlope(x, z){ return Math.hypot(groundH(x + 2, z) - groundH(x - 2, z), groundH(x, z + 2) - groundH(x, z - 2))/4; }
+function psRiverNear(x, z){ const R0 = PSW.river; if (!R0) return {d:99, lv:0}; let b = 1e9, n = null; for (const q of R0.pts) { const d = (q[0] - x)*(q[0] - x) + (q[1] - z)*(q[1] - z); if (d < b) { b = d; n = q; } } return {d:Math.sqrt(b), lv:n[2], x:n[0], z:n[1]}; }
+// the water surface at (x, z) (within `pad` metres of any water), or null
+function psWaterAt(x, z, pad){ pad = pad || 0; for (const L of PSW.lakes) if (Math.hypot(x - L.x, z - L.z) < L.r + pad) return L.lv; const r = psRiverNear(x, z); if (PSW.river && r.d < PSW.river.hw + pad) return r.lv; return null; }
+// the nearest water point within reach of someone standing at p (for the straw)
+function psDrinkPoint(p){ let best = null, bd = 3.2;
+  for (const L of PSW.lakes) { const dx = p.x - L.x, dz = p.z - L.z, d = Math.hypot(dx, dz), e = d - L.r; if (e < bd) { bd = Math.max(0, e); const k = d > L.r ? (L.r - .5)/d : 1; best = V3(L.x + dx*k, L.lv, L.z + dz*k); } }
+  const r = psRiverNear(p.x, p.z); if (PSW.river && r.d - PSW.river.hw < bd) { const k = r.d > PSW.river.hw ? (PSW.river.hw - .5)/r.d : 1; best = V3(r.x + (p.x - r.x)*k, r.lv, r.z + (p.z - r.z)*k); }
+  return best; }
+/* ---------- what grows and lies on it: water, giant trees, boulders, grass, team flags ---------- */
+WZT_TEX.psWater = () => wzaTex('psWater', 128, 128, (g, W, H, r) => { g.fillStyle = '#3A8FC8'; g.fillRect(0, 0, W, H); for (let i = 0; i < 70; i++) { g.strokeStyle = `rgba(255,255,255,${.12 + r()*.25})`; g.lineWidth = 1 + r()*1.5; const x = r()*W, y = r()*H; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + 8, y - 3, x + 16 + r()*10, y); g.stroke(); } });
+function psBuildMap(){
+  const R = mulberry32(((G.seed || 1) ^ 0xB00B) >>> 0), wt = WZT_TEX.psWater().clone(); wt.wrapS = wt.wrapT = THREE.RepeatWrapping; wt.needsUpdate = true;
+  const wmat = new THREE.MeshPhongMaterial({color:0x8FD0FF, map:wt, transparent:true, opacity:.84, shininess:90, specular:0xBFE8FF, depthWrite:false}); PS.wmat = wmat;
+  for (const L of PSW.lakes) { const g = new THREE.CircleGeometry(L.r + 2.5, 64); g.rotateX(-Math.PI/2); uvScale(g, (L.r + 2.5)/6, (L.r + 2.5)/6); const m = new THREE.Mesh(g, wmat); m.position.set(L.x, L.lv, L.z); m.renderOrder = 2; m.userData.noRay = true; roundGroup.add(m); }
+  if (PSW.river) { const {sp, nrm, lv, W} = PSW.river, pos = [], uv = [], idx = [], N = sp.length - 1; let acc = 0;
+    for (let i = 0; i <= N; i++) { if (i) acc += sp[i].distanceTo(sp[i - 1]); for (const s of [-1, 1]) { pos.push(sp[i].x + nrm[i][0]*(W/2 + .8)*s, lv[i], sp[i].z + nrm[i][1]*(W/2 + .8)*s); uv.push((s + 1), acc/8); }
+      if (i < N) { const k = i*2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); } }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+    if (g.attributes.normal.getY(0) < 0) { idx.reverse(); g.setIndex(idx); g.computeVertexNormals(); }
+    const rm = wmat.clone(); rm.map = wt.clone(); rm.map.needsUpdate = true; PS.rmat = rm; const m = new THREE.Mesh(g, rm); m.renderOrder = 2; m.userData.noRay = true; roundGroup.add(m); }
+  // giant trees: pines, oaks, birches (instanced; every trunk is solid)
+  const T = psTreeKinds(), lists = T.map(() => []), S = ISL*.55;
+  for (let k = 0, n = 0; k < 20000 && n < 1150; k++) { const x = (R()*2 - 1)*(ISL - 12), z = (R()*2 - 1)*(ISL - 12), gy = groundH(x, z);
+    const forest = .5 + .5*Math.sin(x*.016 + terrSeed)*Math.cos(z*.013 - terrSeed*2) + .25*Math.sin(x*.05 + z*.04); if (R() > forest*.9 + .05) continue;
+    if (gy > 48 || psSlope(x, z) > .55 || psWaterAt(x, z, 5) != null || Math.hypot(x + S, z) < 26 || Math.hypot(x - S, z) < 26) continue;
+    const kind = gy > 26 ? 0 : R() < .5 ? 0 : R() < .65 ? 1 : 2, s = (kind === 0 ? 1 : .9) + R()*.6; lists[kind].push([x, gy, z, s, R()*6.28, R()]); n++;
+    const b = new CANNON.Body({mass:0, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(.45*s*T[kind].tw, 4*s, .45*s*T[kind].tw))); b.position.set(x, gy + 4*s, z); b.tag = 'tree'; world.addBody(b); }
+  const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), Sv = new THREE.Vector3(), C = new THREE.Color();
+  T.forEach((K, ti) => { const L = lists[ti]; if (!L.length) return;
+    for (const [part, geo, mat, tint] of [['trunk', K.trunk, K.tmat, K.tcol], ['crown', K.crown, K.cmat, K.ccol]]) { const im = new THREE.InstancedMesh(geo, mat, L.length); im.castShadow = true; im.receiveShadow = true; im.userData.noRay = true;
+      L.forEach(([x, y, z, s, ry, c], i) => { Q.setFromEuler(new THREE.Euler(0, ry, 0)); M4.compose(V3(x, y - .3, z), Q, Sv.set(s, s, s)); im.setMatrixAt(i, M4); C.setHex(tint[Math.floor(c*tint.length)]); im.setColorAt(i, C); });
+      im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; roundGroup.add(im); } });
+  // boulders
+  { const n = 170, im = new THREE.InstancedMesh(PAIN_ROCK, new THREE.MeshToonMaterial({color:0xFFFFFF, gradientMap:TOON}), n); im.castShadow = im.receiveShadow = true; im.userData.noRay = true; let c = 0;
+    for (let k = 0; k < 3000 && c < n; k++) { const x = (R()*2 - 1)*(ISL - 10), z = (R()*2 - 1)*(ISL - 10); if (psWaterAt(x, z, 2) != null) continue; const gy = groundH(x, z), s = .6 + Math.pow(R(), 2)*3.4;
+      Q.setFromEuler(new THREE.Euler(R()*3, R()*3, R()*3)); M4.compose(V3(x, gy + s*.25, z), Q, Sv.set(s, s*.75, s)); im.setMatrixAt(c, M4); C.setHex(gy > 30 ? 0x9A9AA0 : pick([0x8A8378, 0x7A7468, 0x9A9284])); im.setColorAt(c, C); c++;
+      if (s > 1.2) { const b = new CANNON.Body({mass:0, material:PM.def}); b.addShape(new CANNON.Sphere(s*.8)); b.position.set(x, gy + s*.25, z); b.tag = 'rock'; world.addBody(b); } }
+    im.count = c; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; roundGroup.add(im); }
+  // grass and flowers across the meadows
+  { const g = new THREE.ConeGeometry(.16, .6, 3); g.translate(0, .3, 0); const n = 9000, im = new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial({color:0xFFFFFF}), n); im.userData.noRay = true; let c = 0;
+    for (let k = 0; k < 30000 && c < n; k++) { const x = (R()*2 - 1)*(ISL - 6), z = (R()*2 - 1)*(ISL - 6), gy = groundH(x, z); if (gy > 34 || psWaterAt(x, z, 1) != null) continue; const s = .7 + R()*1.1, fl = R() < .12;
+      Q.setFromEuler(new THREE.Euler((R() - .5)*.4, R()*6, (R() - .5)*.4)); M4.compose(V3(x, gy - .05, z), Q, Sv.set(fl ? .6 : s, fl ? .55 : s, fl ? .6 : s)); im.setMatrixAt(c, M4);
+      C.setHex(fl ? pick([0xFFE14D, 0xFF8AC8, 0xFFFFFF, 0xB98AFF]) : pick([0x5FA83A, 0x6CB848, 0x4E9A34, 0x7CC456])); im.setColorAt(c, C); c++; }
+    im.count = c; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; roundGroup.add(im); }
+  // the team flags at the spawns
+  for (const team of ['blue', 'red']) { const [x, z] = PSW.spawns[team][0], gy = groundH(x, z), fg = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(.08, .1, 7, 6), M3(0x7A5A3A)); pole.position.y = 3.5; fg.add(pole);
+    const fl = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.5), new THREE.MeshLambertMaterial({color:team === 'blue' ? 0x3B82F6 : 0xE5484D, side:THREE.DoubleSide})); fl.position.set(1.2, 6.2, 0); fg.add(fl); fg.userData.flag = fl;
+    fg.position.set(x + 3, gy, z + 3); noRayAll(fg); roundGroup.add(fg); }
+}
+function psTreeKinds(){
+  if (PS.kinds) return PS.kinds; const geo = (parts) => wzaMerge(parts.map(([g, x, y, z, sx, sy, sz]) => { const q = g.index ? g.toNonIndexed() : g; q.applyMatrix4(new THREE.Matrix4().compose(V3(x, y, z), new THREE.Quaternion(), V3(sx || 1, sy || sx || 1, sz || sx || 1))); return q; }));
+  const toon = () => new THREE.MeshToonMaterial({color:0xFFFFFF, gradientMap:TOON});
+  return (PS.kinds = [
+    {n:'pine', tw:1, trunk:geo([[new THREE.CylinderGeometry(.3, .62, 8, 7), 0, 4, 0]]), crown:geo([[new THREE.ConeGeometry(3.8, 5.5, 8), 0, 6.8, 0], [new THREE.ConeGeometry(3.1, 5, 8), 0, 9.6, 0], [new THREE.ConeGeometry(2.3, 4.4, 8), 0, 12.2, 0], [new THREE.ConeGeometry(1.4, 3.6, 8), 0, 14.6, 0]]),
+      tmat:toon(), cmat:toon(), tcol:[0x6A4A30, 0x5A3E28], ccol:[0x2E6B3A, 0x2A5E34, 0x357A42, 0x23523A]},
+    {n:'oak', tw:1.3, trunk:geo([[new THREE.CylinderGeometry(.5, .85, 6, 7), 0, 3, 0], [new THREE.CylinderGeometry(.18, .3, 3.4, 5), 1.1, 5.8, 0, 1, 1, 1]]),
+      crown:geo([[new THREE.IcosahedronGeometry(3.4, 1), 0, 7.6, 0], [new THREE.IcosahedronGeometry(2.6, 1), 2.3, 6.8, 1], [new THREE.IcosahedronGeometry(2.7, 1), -2.1, 7, -1.1], [new THREE.IcosahedronGeometry(2.4, 1), .6, 9.6, -.8], [new THREE.IcosahedronGeometry(2.2, 1), -.4, 6.4, 2.2]]),
+      tmat:toon(), cmat:toon(), tcol:[0x5A4030, 0x6A4C34], ccol:[0x4E8A34, 0x5C9A3A, 0x467E2E, 0x6AA842]},
+    {n:'birch', tw:.6, trunk:geo([[new THREE.CylinderGeometry(.2, .3, 9, 6), 0, 4.5, 0]]), crown:geo([[new THREE.IcosahedronGeometry(1.9, 1), 0, 9.2, 0, 1, 1.6, 1], [new THREE.IcosahedronGeometry(1.3, 1), .9, 7.6, .4, 1, 1.4, 1], [new THREE.IcosahedronGeometry(1.3, 1), -.8, 8, -.5, 1, 1.4, 1]]),
+      tmat:toon(), cmat:toon(), tcol:[0xE8E4DA, 0xDAD6CC], ccol:[0x9CCB52, 0x8ABF48, 0xB0D45C]}
+  ]);
+}
+// the ground: grass, sand by the water, rock on the steep and high, snow on the peaks
+const _psG = [new THREE.Color(0x6CB848), new THREE.Color(0x5AA23E), new THREE.Color(0xD9C98A), new THREE.Color(0x8A847A), new THREE.Color(0xF4F6FA), new THREE.Color(0x4A8A34)];
+function psGround(c, v, x, z){
+  const h = terrH[v], n = .5 + .25*Math.sin(x*.07 + z*.05) + .25*Math.sin(x*.21 - z*.17); c.copy(_psG[1]).lerp(_psG[0], n);
+  if (Math.sin(x*.011 + terrSeed)*Math.cos(z*.009) > .45) c.lerp(_psG[5], .5);
+  const w = PSW.lakes.length ? psWaterAt(x, z, 4) : null; if (w != null && h < w + 1.2) c.lerp(_psG[2], .75);
+  const i = v % TN, j = (v/TN) | 0, sl = i > 0 && i < TN - 1 && j > 0 && j < TN - 1 ? Math.hypot(terrH[v + 1] - terrH[v - 1], terrH[v + TN] - terrH[v - TN])/(2*TES) : 0;
+  if (h > 24 || sl > .7) c.lerp(_psG[3], Math.min(1, Math.max((h - 24)/12, (sl - .7)*2)));
+  if (h > 52) c.lerp(_psG[4], Math.min(1, (h - 52)/8));
+  if (((Math.floor(x/8) + Math.floor(z/8)) & 1) === 0) c.multiplyScalar(.97); return c;
+}
+function psSpawn(team){ const L = PSW.spawns[team === 'red' ? 'red' : 'blue']; const [x, z] = L.length ? L[Math.floor(Math.random()*L.length)] : [(team === 'red' ? 1 : -1)*ISL*.55, 0]; return V3(x, groundH(x, z) + .3, z); }
+/* ---------- the stream ---------- */
+const psPr = bl => clamp(bl/100, .04, 1.3);
+const psSpeed = pr => 3 + 20*pr;
+function psEmitter(P, face){ const b = P.remote ? P.root.position : P.body.position, f = face != null ? face : P.face; return V3(b.x + Math.sin(f)*.38, b.y + .9, b.z + Math.cos(f)*.38); }
+// a rival near the crosshair line: the stream goes for their chest
+const _psCD = new THREE.Vector3();
+function psAssist(me){
+  camera.getWorldDirection(_psCD); const o = camera.position, cands = PS.bots.filter(b => !b.dead).map(b => b.pos);
+  for (const k of Object.keys(chars)) { const P = chars[k]; if (!P || P === me || P.alive === false || P.team === me.team) continue; cands.push(P.remote ? P.root.position : P.body.position); }
+  let best = null, bt = 1e9;
+  for (const c of cands) { const x = c.x - o.x, y = c.y + 1.1 - o.y, z = c.z - o.z, t = x*_psCD.x + y*_psCD.y + z*_psCD.z; if (t < 2 || t > 90) continue;
+    const px = x - _psCD.x*t, py = y - _psCD.y*t, pz = z - _psCD.z*t; if (Math.hypot(px, py, pz) < 1.1 + t*.035 && t < bt) { bt = t; best = V3(c.x, c.y + 1.1, c.z); } }
+  return best ? {point:best} : null;
+}
+// the launch direction that lands the stream on the crosshair (the low arc), or the longest throw when it can't reach
+function psAim(me, pr){
+  const e = psEmitter(me), v = psSpeed(pr), h = psAssist(me) || crosshairHit(), yaw = G.yaw;
+  if (h) { const T = h.point, dx = T.x - e.x, dz = T.z - e.z, D = Math.hypot(dx, dz), H = T.y - e.y, v2 = v*v, disc = v2*v2 - PS_G*(PS_G*D*D + 2*H*v2);
+    if (D > .6 && disc >= 0) { const th = Math.atan((v2 - Math.sqrt(disc))/(PS_G*D)); return V3(dx/D*Math.cos(th), Math.sin(th), dz/D*Math.cos(th)); }
+    if (D > .6) { const th = clamp(Math.atan2(H, D) + .3, .12, .42); return V3(dx/D*Math.cos(th), Math.sin(th), dz/D*Math.cos(th)); } }
+  const th = Math.max(-.6, Math.min(.42, G.pitch + .2)); return V3(Math.sin(yaw)*Math.cos(th), Math.sin(th), Math.cos(yaw)*Math.cos(th));
+}
+const PSP = {list:[], mesh:null};
+const PST = {mesh:null, S:7};
+function psTubeMesh(){
+  if (PST.mesh && PST.mesh.parent) return PST.mesh; const n = PS_MAXP*PST.S, g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n*3), 3).setUsage(THREE.DynamicDrawUsage)); g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(n*3), 3).setUsage(THREE.DynamicDrawUsage));
+  g.setIndex(new THREE.BufferAttribute(new Uint32Array(n*6), 1).setUsage(THREE.DynamicDrawUsage)); g.setDrawRange(0, 0);
+  PST.mesh = new THREE.Mesh(g, new THREE.MeshPhongMaterial({color:0xF4D531, emissive:0x5E4A00, specular:0xFFFBE0, shininess:70, transparent:true, opacity:.9}));
+  PST.mesh.frustumCulled = false; PST.mesh.userData.noRay = true; roundGroup.add(PST.mesh); return PST.mesh;
+}
+const _psUp = new THREE.Vector3(0, 1, 0), _psT = new THREE.Vector3(), _psA = new THREE.Vector3(), _psB = new THREE.Vector3();
+function psTubeFrame(){
+  const mesh = psTubeMesh(), g = mesh.geometry, P = g.attributes.position.array, N = g.attributes.normal.array, I = g.index.array, S = PST.S, by = new Map();
+  for (const p of PSP.list) { let a = by.get(p.own); if (!a) by.set(p.own, a = []); a.push(p); }
+  let v = 0, ii = 0;
+  for (const arr of by.values()) for (let k = 0; k < arr.length; k++) {
+    const p = arr[k], q = arr[k + 1]; if (v + S > PS_MAXP*S) break;
+    _psT.set(p.vx, p.vy, p.vz).normalize(); _psA.set(_psT.z, 0, -_psT.x); if (_psA.lengthSq() < 1e-6) _psA.set(1, 0, 0); _psA.normalize(); _psB.crossVectors(_psA, _psT);
+    const r = (.011 + .062*Math.min(1.2, p.pr))*(1 + .09*Math.sin(p.t*30 + p.ph))*Math.min(1, .45 + p.t*12), v0 = v;
+    for (let s2 = 0; s2 < S; s2++) { const a = s2/S*Math.PI*2, c = Math.cos(a), sn = Math.sin(a), nx = _psA.x*c + _psB.x*sn, ny = _psA.y*c + _psB.y*sn, nz = _psA.z*c + _psB.z*sn;
+      P[v*3] = p.x + nx*r; P[v*3 + 1] = p.y + ny*r; P[v*3 + 2] = p.z + nz*r; N[v*3] = nx; N[v*3 + 1] = ny; N[v*3 + 2] = nz; v++; }
+    if (q && (q.x - p.x)**2 + (q.y - p.y)**2 + (q.z - p.z)**2 < 2.2) for (let s2 = 0; s2 < S; s2++) { const a0 = v0 + s2, a1 = v0 + (s2 + 1)%S, b0 = a0 + S, b1 = a1 + S; I[ii++] = a0; I[ii++] = b0; I[ii++] = a1; I[ii++] = a1; I[ii++] = b0; I[ii++] = b1; }
+  }
+  // (an index past the last ring would read a stale vertex: drop quads that point beyond what was written)
+  let jj = 0; for (let k = 0; k < ii; k += 3) if (I[k] < v && I[k + 1] < v && I[k + 2] < v) { I[jj++] = I[k]; I[jj++] = I[k + 1]; I[jj++] = I[k + 2]; }
+  g.setDrawRange(0, jj); g.attributes.position.needsUpdate = g.attributes.normal.needsUpdate = g.index.needsUpdate = true;
+}
+function psEmit(key, team, P, dir, pr, dt, S){
+  const rate = 55 + 60*pr; S.acc = (S.acc || 0) + rate*dt; const e = psEmitter(P, Math.atan2(dir.x, dir.z)), v = psSpeed(pr), bv = P.remote ? (P.net ? V3(P.net.vx || 0, 0, P.net.vz || 0) : V3(0, 0, 0)) : V3(P.body.velocity.x, 0, P.body.velocity.z);
+  while (S.acc >= 1 && PSP.list.length < PS_MAXP) { S.acc -= 1; S.ph = S.ph || Math.random()*9; const wb = .005 + .012*(1 - Math.min(1, pr)), wa = G.t*9 + S.ph - S.acc/rate*9, ox = Math.sin(wa)*wb, oy = Math.cos(wa*1.3)*wb;
+    PSP.list.push({x:e.x, y:e.y, z:e.z, vx:(dir.x + ox*dir.z)*v + bv.x*.6, vy:(dir.y + oy)*v, vz:(dir.z - ox*dir.x)*v + bv.z*.6, t:0, own:key, team, pr, dx:dir.x, dz:dir.z, ph:S.ph});
+    { const q = PSP.list[PSP.list.length - 1], f = Math.min(dt, S.acc/rate); q.x += q.vx*f; q.y += q.vy*f - PS_G*f*f/2; q.z += q.vz*f; q.vy -= PS_G*f; q.t = f; } }   // spread over the frame: an even stream at any frame rate
+}
+function psParticlesFrame(dt){
+  const me = localP(), meIn = me && me.alive !== false, mb = meIn ? me.body.position : null; let n = 0, hitD = 0, hx = 0, hz = 0, by = null;
+  const keep = [];
+  for (const p of PSP.list) { p.t += dt; p.vy -= PS_G*dt; p.x += p.vx*dt; p.y += p.vy*dt; p.z += p.vz*dt;
+    // a hit on me (on my screen) / on a rival (the host)
+    if (meIn && p.own !== G.localKey && p.team !== me.team && Math.abs(p.x - mb.x) < .5 && Math.abs(p.z - mb.z) < .5 && p.y > mb.y && p.y < mb.y + 1.95) { hitD += .1 + .4*p.pr; hx += p.dx*(.03 + .09*p.pr); hz += p.dz*(.03 + .09*p.pr); by = p.own; continue; }
+    if (PS.bots.length && psBotsHit(p)) continue;
+    const gy = groundH(p.x, p.z), w = psWaterAt(p.x, p.z), floor = w != null ? Math.max(w, gy) : gy;
+    if (p.y <= floor || p.t > 3) { if (p.y <= floor && Math.random() < .12) puff(V3(p.x, floor + .05, p.z), w != null && w >= gy ? 0xD8F0A8 : 0xF2D640, .1 + .1*p.pr); if (w == null || w < gy) psPuddle(p.x, p.z, gy, .02 + .04*p.pr); continue; }
+    keep.push(p); }
+  PSP.list = keep; psTubeFrame();
+  if (hitD > 0 && meIn) { painHurt(me, hitD, by); me.body.velocity.x += hx; me.body.velocity.z += hz; if (me.body.velocity.y < 1) me.body.velocity.y += Math.min(.3, hitD*.04); PS.soakT = Math.min(1.5, PS.soakT + hitD*.05); }
+}
+// puddles where it lands (they fade)
+const PSD = {cells:new Map(), mat:null};
+function psPuddle(x, z, gy, amt){
+  const k = Math.round(x/1.6) + ',' + Math.round(z/1.6); let c = PSD.cells.get(k);
+  if (!c) { if (PSD.cells.size > 160) { const old = PSD.cells.keys().next().value; const o = PSD.cells.get(old); if (o.m.parent) o.m.parent.remove(o.m); PSD.cells.delete(old); }
+    PSD.mat = PSD.mat || new THREE.MeshBasicMaterial({color:0xE8CC30, transparent:true, opacity:.55, depthWrite:false, polygonOffset:true, polygonOffsetFactor:-2});
+    const m = new THREE.Mesh(new THREE.CircleGeometry(1, 14), PSD.mat); m.rotation.x = -Math.PI/2; m.position.set(Math.round(x/1.6)*1.6, gy + .06, Math.round(z/1.6)*1.6); m.scale.setScalar(.01); m.userData.noRay = true; roundGroup.add(m); c = {m, amt:0, t:0}; PSD.cells.set(k, c); }
+  c.amt = Math.min(6, c.amt + amt); c.t = 0; c.m.scale.setScalar(Math.min(2.4, .4 + Math.sqrt(c.amt)*.9));
+}
+function psPuddlesFrame(dt){ for (const [k, c] of PSD.cells) { c.t += dt; if (c.t > 25) { c.m.scale.multiplyScalar(1 - dt*.6); if (c.m.scale.x < .05) { if (c.m.parent) c.m.parent.remove(c.m); PSD.cells.delete(k); } } } }
+/* ---------- the straw ---------- */
+function psStraw(key, P, on){
+  let s = PS.straws[key]; if (!on) { if (s) { if (s.parent) s.parent.remove(s); delete PS.straws[key]; } return; }
+  const b = P.remote ? P.root.position : P.body.position, w = psDrinkPoint(b); if (!w) { if (s && s.parent) s.visible = false; return; }
+  if (!s) { s = new THREE.Group(); const tube = new THREE.Mesh(new THREE.CylinderGeometry(.035, .035, 1, 6, 1, true), new THREE.MeshLambertMaterial({color:0xFF5A8A})); tube.position.y = .5; s.add(tube);
+    const flow = new THREE.Mesh(new THREE.CylinderGeometry(.022, .022, 1, 6), new THREE.MeshBasicMaterial({color:0x7FD0FF})); flow.position.y = .5; s.add(flow); s.userData.flow = flow; noRayAll(s); roundGroup.add(s); PS.straws[key] = s; }
+  s.visible = true; const f = P.face, mouth = V3(b.x + Math.sin(f)*.22, b.y + 1.52, b.z + Math.cos(f)*.22), d = w.clone().sub(mouth), L = d.length();
+  s.position.copy(mouth); s.quaternion.setFromUnitVectors(_psUp, d.clone().normalize()); s.scale.set(1, L, 1); s.userData.flow.scale.y = .3 + .7*((G.t*3) % 1);
+}
+/* ---------- the local player: drink, piss, overflow ---------- */
+function psLocalFrame(dt){
+  const me = localP(); if (!me || me.alive === false) { PS.peeing = PS.drinking = false; PS.burstT = 0; return; }
+  { const b = me.body, w = psWaterAt(b.position.x, b.position.z); if (w != null && b.position.y < w - 1.25) { b.velocity.y = Math.max(b.velocity.y, Math.min(6, (w - 1.25 - b.position.y)*5)); b.velocity.x *= .97; b.velocity.z *= .97; me.slowT = Math.max(me.slowT || 0, .1); } }   /* swimming */
+  const near = psDrinkPoint(me.body.position);
+  PS.drinking = PS.wantDrink && !!near && PS.burstT <= 0 && !PS.wantPee;
+  if (PS.drinking) { const was = PS.bl; PS.bl = Math.min(130, PS.bl + 20*dt); me.slowT = Math.max(me.slowT || 0, .15); PS.sipT -= dt; if (PS.sipT <= 0) { PS.sipT = .45; sfx('pop'); } if (was < 100 && PS.bl >= 100) toast('🥤 Full! Any more and you\'ll waddle… and at 125% it all comes out.'); }
+  if (PS.bl >= 125 && PS.burstT <= 0) { PS.burstT = 3; toast('💦 OVERFLOW! It\'s all coming out!'); sfx('boom'); }
+  if (PS.bl > 100) me.slowT = Math.max(me.slowT || 0, .1);
+  PS.peeing = (PS.wantPee && !PS.drinking) || PS.burstT > 0;
+  if (PS.peeing) { PS.pr = psPr(PS.bl);
+    if (PS.burstT > 0) { PS.burstT -= dt; const a = G.t*7; PS.dir = V3(Math.sin(a)*.8, .6, Math.cos(a)*.8).normalize(); PS.pr = 1.3; if (PS.burstT <= 0) PS.bl = Math.min(PS.bl, 60); }
+    else PS.dir = psAim(me, PS.pr);
+    me.face = Math.atan2(PS.dir.x, PS.dir.z) + .9; if (PS.burstT <= 0) PS.bl = Math.max(0, PS.bl - (2.5 + 12*PS.pr)*dt);
+    psEmit(G.localKey, me.team, me, PS.dir, PS.pr, dt, PS.streams[G.localKey] = PS.streams[G.localKey] || {}); }
+  psStraw(G.localKey, me, PS.drinking); psSound(PS.peeing ? PS.pr : 0);
+}
+// what everyone else sees of me (rides on the player state)
+function psState(){ const d = PS.dir; return [PS.peeing ? 1 : 0, +d.x.toFixed(3), +d.y.toFixed(3), +d.z.toFixed(3), +PS.pr.toFixed(2), PS.drinking ? 1 : 0]; }
+function psNet(id, s){ if (!Array.isArray(s)) return; const S = PS.streams[id] = PS.streams[id] || {}; S.on = !!s[0]; S.dir = V3(+s[1] || 0, +s[2] || 0, +s[3] || 1).normalize(); S.pr = clamp(+s[4] || 0, 0, 1.3); S.drink = !!s[5]; S.t = G.t; }
+function psRemoteFrame(dt){
+  for (const k in PS.streams) { if (k === G.localKey) continue; const S = PS.streams[k], P = chars[k];
+    if (!P || P.alive === false || G.t - (S.t || 0) > 1) { S.on = false; S.drink = false; }
+    if (P && S.on) { P.face = Math.atan2(S.dir.x, S.dir.z); psEmit(k, P.team, P, S.dir, S.pr, dt, S); }
+    if (P) psStraw(k, P, !!S.drink); else psStraw(k, null, false); }
+}
+// the stream's sound: hiss through a band-pass, pitch and loudness with the pressure
+function psSound(pr){
+  if (!actx || muted) { if (PS.snd) PS.snd.g.gain.value = 0; return; }
+  if (!PS.snd) { const len = actx.sampleRate*2, buf = actx.createBuffer(1, len, actx.sampleRate), d = buf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random()*2 - 1;
+    const src = actx.createBufferSource(); src.buffer = buf; src.loop = true; const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.2; const g = actx.createGain(); g.gain.value = 0;
+    src.connect(f); f.connect(g); g.connect(actx.destination); src.start(); PS.snd = {src, f, g}; }
+  const t = actx.currentTime; PS.snd.g.gain.setTargetAtTime(pr > 0 ? .05 + .09*Math.min(1, pr) : 0, t, .06); PS.snd.f.frequency.setTargetAtTime(700 + 1500*Math.min(1.3, pr), t, .08);
+}
+/* ---------- rival pissers (alone: practice) ---------- */
+function psBotsMake(n){
+  PS.bots = []; for (let i = 0; i < n; i++) { const root = new THREE.Group(), rig = new THREE.Group(); root.add(rig); const body = akaBody('red', CHARS[(i + 1) % LOOK_COUNT], rig); noRayAll(root); roundGroup.add(root);
+    const b = {id:i, key:'PB' + i, name:pick(['Sir Leaks-a-Lot', 'Captain Tinkle', 'Old Faithful', 'The Fire Hose', 'Lil Drizzle', 'Niagara', 'Whiz Kid', 'Golden Boy'].filter(q => !PS.bots.some(o => o.name === q))),
+      root, rig, legs:body.legs, arms:body.arms, pos:V3(0, 0, 0), face:0, hp:100, bl:40 + Math.random()*50, st:'wander', tgt:null, t:Math.random()*5, dead:false, respT:0, peeT:0, S:{}, team:'red', dir:V3(0, 0, 1), think:0, push:V3(0, 0, 0), err:V3(0, 0, 0), peeT:0};
+    psBotSpawn(b); PS.bots.push(b); }
+}
+function psBotSpawn(b){ const s = psSpawn('red'); b.pos.set(s.x + rr(-4, 4), 0, s.z + rr(-4, 4)); b.pos.y = groundH(b.pos.x, b.pos.z); b.hp = 100; b.bl = 40 + Math.random()*40; b.dead = false; b.root.visible = true; b.st = 'wander'; b.tgt = null; }
+function psBotsHit(p){
+  for (const b of PS.bots) { if (b.dead || p.team === b.team || Math.abs(p.x - b.pos.x) > .55 || Math.abs(p.z - b.pos.z) > .55 || p.y < b.pos.y || p.y > b.pos.y + 1.95) continue;
+    b.hp -= .1 + .4*p.pr; b.push.x += p.dx*(.03 + .09*p.pr); b.push.z += p.dz*(.03 + .09*p.pr); b.hitT = .15;
+    if (b.hp <= 0 && !b.dead) { b.dead = true; b.respT = 4; b.root.visible = false; puff(V3(b.pos.x, b.pos.y + 1, b.pos.z), 0xF2D640, 1.2); sfx('pop'); if (p.own === G.localKey) { PS.kills++; toast(`💦 You soaked ${b.name}! (${PS.kills})`); } }
+    return true; }
+  return false;
+}
+function psBotsFrame(dt){
+  const me = localP();
+  for (const b of PS.bots) {
+    if (b.dead) { b.respT -= dt; if (b.respT <= 0) psBotSpawn(b); continue; }
+    b.t += dt; b.think -= dt; const p = b.pos;
+    // decide: thirsty -> the nearest water; full enough -> the nearest enemy (me) in sight; else wander
+    if (b.think <= 0) { b.think = .5 + Math.random()*.4;
+      const foe = me && me.alive !== false ? me.body.position : null, dF = foe ? Math.hypot(foe.x - p.x, foe.z - p.z) : 1e9;
+      if (b.bl < 25 && b.st !== 'drink') { b.st = 'thirst'; let best = null, bd = 1e9; for (const L of PSW.lakes) { const d = Math.hypot(L.x - p.x, L.z - p.z) - L.r; if (d < bd) { bd = d; best = V3(L.x, 0, L.z); } } const r = psRiverNear(p.x, p.z); if (r.d < bd) best = V3(r.x, 0, r.z); b.tgt = best; }
+      else if (b.st !== 'thirst' && b.st !== 'drink' && foe && dF < 70) { b.st = 'hunt'; b.tgt = foe.clone(); }
+      else if (b.st === 'hunt' || (b.st === 'wander' && (!b.tgt || Math.hypot(b.tgt.x - p.x, b.tgt.z - p.z) < 4))) { b.st = 'wander'; b.tgt = V3(clamp(p.x + rr(-60, 60), -ISL*.7, ISL*.7), 0, clamp(p.z + rr(-60, 60), -ISL*.7, ISL*.7)); } }
+    let move = 0, pee = false;
+    if (b.st === 'thirst') { const w = psDrinkPoint(p); if (w) { b.st = 'drink'; } else move = 4.5; }
+    if (b.st === 'drink') { b.bl = Math.min(110, b.bl + 20*dt); if (b.bl >= 95) { b.st = 'wander'; b.tgt = null; } }
+    if (b.st === 'hunt' && b.tgt) { const pr = psPr(b.bl), reach = Math.max(4, (psSpeed(pr)**2)/PS_G*.75), d = Math.hypot(b.tgt.x - p.x, b.tgt.z - p.z); if (d > reach*.9) { move = 5.5; b.peeT = 0; } else if (b.bl > 2) { b.peeT = (b.peeT || 0) + dt; pee = b.peeT % 2.8 < 1.6; } if (me && me.alive !== false) b.tgt.copy(me.body.position); }
+    if (b.st === 'wander') move = 3;
+    if (move && b.tgt) { const dx = b.tgt.x - p.x, dz = b.tgt.z - p.z, L = Math.hypot(dx, dz) || 1; b.face = Math.atan2(dx, dz); const sp = move*(b.bl > 100 ? .6 : 1); p.x += dx/L*sp*dt; p.z += dz/L*sp*dt; }
+    p.x = clamp(p.x + b.push.x*dt, -ISL + 10, ISL - 10); p.z = clamp(p.z + b.push.z*dt, -ISL + 10, ISL - 10); b.push.multiplyScalar(Math.exp(-4*dt)); { const w = psWaterAt(p.x, p.z); p.y = Math.max(groundH(p.x, p.z), w != null ? w - 1.3 : -1e9); }
+    if (pee && me) { const pr = psPr(b.bl), e = V3(p.x, p.y + .92, p.z), T = me.body.position, dx = T.x - e.x, dz = T.z - e.z, D = Math.hypot(dx, dz) || 1, H = T.y + 1 - e.y, v = psSpeed(pr), v2 = v*v, disc = v2*v2 - PS_G*(PS_G*D*D + 2*H*v2);
+      const th = disc >= 0 ? Math.atan((v2 - Math.sqrt(disc))/(PS_G*D)) + b.err.y : .7, a = Math.atan2(dx, dz) + b.err.x; if (Math.random() < dt*1.5) b.err.set(rr(-.09, .09), rr(-.06, .06), 0); b.dir.set(Math.sin(a)*Math.cos(th), Math.sin(th), Math.cos(a)*Math.cos(th)); b.face = a;
+      b.bl = Math.max(0, b.bl - (2.5 + 12*pr)*dt); psEmit(b.key, b.team, {remote:true, root:{position:p}, face:b.face, net:null}, b.dir, pr, dt, b.S); }
+    // the body: walk, lean back while pissing, sip at the water
+    b.root.position.copy(p); b.root.rotation.y = b.face; const w = move ? Math.sin(b.t*9)*.6 : 0; b.legs[0].rotation.x = w; b.legs[1].rotation.x = -w;
+    b.arms.forEach((a, i) => a.rotation.x = pee ? -.9 : move ? -w*(i ? -1 : 1) : 0); b.rig.rotation.x = pee ? -.16 : b.st === 'drink' ? .35 : 0;
+    psStraw(b.key, {remote:true, root:{position:p}, face:b.face}, b.st === 'drink');
+  }
+}
+/* ---------- the HUD: the bladder bottle ---------- */
+function psHud(on){
+  let el = $('psHud'); if (!on) { if (el) el.style.display = 'none'; const s = $('psSoak'); if (s) s.style.display = 'none'; return; }
+  if (!el) { el = document.createElement('div'); el.id = 'psHud'; el.style.cssText = 'position:fixed;right:18px;top:50%;transform:translateY(-50%);z-index:20;pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:6px;font:800 13px Nunito,system-ui,sans-serif;color:#fff;text-shadow:0 2px 3px #000';
+    el.innerHTML = `<div id="psLbl" style="font-size:14px">💧 Bladder</div><div style="position:relative;width:46px;height:190px;border:3px solid #fff;border-radius:14px 14px 18px 18px;background:rgba(0,0,0,.35);overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,.4)"><div id="psFill" style="position:absolute;left:0;right:0;bottom:0;height:0;background:linear-gradient(180deg,#FFF27A,#E8C020)"></div><div style="position:absolute;left:0;right:0;top:${190*(1 - 100/130)}px;border-top:2px dashed rgba(255,255,255,.8)"></div></div><div id="psPct" style="font-size:20px">0%</div><div id="psPr" style="font-size:12px;opacity:.95"></div><div id="psK" style="font-size:12px;opacity:.9"></div>`;
+    document.body.appendChild(el);
+    const s = document.createElement('div'); s.id = 'psSoak'; s.style.cssText = 'position:fixed;inset:0;z-index:15;pointer-events:none;background:radial-gradient(ellipse at center, rgba(240,210,40,0) 40%, rgba(240,210,40,.55) 100%);opacity:0'; document.body.appendChild(s); }
+  el.style.display = 'flex'; $('psSoak').style.display = 'block';
+}
+function psHudFrame(){
+  const el = $('psHud'); if (!el) return; const bl = PS.bl; $('psFill').style.height = (Math.min(130, bl)/130*100) + '%'; $('psFill').style.background = bl > 100 ? 'linear-gradient(180deg,#FFB040,#E86A20)' : 'linear-gradient(180deg,#FFF27A,#E8C020)';
+  $('psPct').textContent = Math.round(bl) + '%'; const pr = psPr(bl);
+  $('psPr').textContent = PS.burstT > 0 ? '💥 OVERFLOW' : bl > 100 ? '😖 Desperate' : bl < 8 ? '💧 Dribble' : pr < .45 ? '🚿 Steady' : pr < .8 ? '💦 Strong' : '🚒 FIRE HOSE';
+  const me = localP(), near = me && psDrinkPoint(me.body.position); $('psLbl').textContent = PS.drinking ? '🥤 Slurp…' : near ? '🥤 Hold E: drink' : '💧 Bladder';
+  $('psK').textContent = PS.bots.length ? `💦 ${PS.kills} · 😵 ${PS.deaths}` : '';
+  PS.soakT = Math.max(0, PS.soakT - .02); $('psSoak').style.opacity = Math.min(.9, PS.soakT);
+}
+function psTray(t){
+  t.innerHTML = `<div class="bar sticker"><div class="tl">Piss Wars</div><div class="skills" style="--cols:3">
+    <button class="skill" aria-label="Piss"><span class="si">💦</span><span class="sn">Piss</span><sup>Click</sup></button>
+    <button class="skill" aria-label="Drink"><span class="si">🥤</span><span class="sn">Drink</span><sup>E</sup></button>
+    <button class="skill" aria-label="Run"><span class="si">🏃</span><span class="sn">Run</span><sup>Shift</sup></button></div></div>`;
+}
+/* ---------- start, every frame, input ---------- */
+function psStart(){
+  PS.bl = 45; PS.wantPee = PS.wantDrink = PS.drinking = PS.peeing = false; PS.burstT = 0; PS.streams = {}; PS.kills = PS.deaths = 0; PS.soakT = 0; PS.straws = {}; PSP.list = []; PST.mesh = null; PSD.cells = new Map();
+  psBuildMap(); psHud(true); if (!NET.peer) psBotsMake(5); else PS.bots = [];
+  toast(NET.peer ? `💦 Piss Wars! Drink at any water (hold E), piss with Click. First team to ${PS_WIN} soakings wins.` : '💦 Piss Wars practice: 5 rival pissers. Hold E at water to drink, hold Click to piss. The fuller you are, the harder it goes.');
+}
+function psFrame(dt){
+  if (!psOn()) { if (PS.snd) PS.snd.g.gain.value = 0; return; }
+  if (G.phase !== 'attack') return;
+  psLocalFrame(dt); psRemoteFrame(dt); if (PS.bots.length) psBotsFrame(dt); psParticlesFrame(dt); psPuddlesFrame(dt); psHudFrame();
+  if (PS.wmat && PS.wmat.map) { PS.wmat.map.offset.x += dt*.01; PS.wmat.map.offset.y += dt*.006; } if (PS.rmat && PS.rmat.map) PS.rmat.map.offset.y -= dt*.25;
+  const me = localP(); if (me && me.alive === false && !PS.deadSeen) { PS.deadSeen = true; PS.deaths++; PS.bl = 45; } if (me && me.alive !== false) PS.deadSeen = false;
+}
+function psKeyDown(k){ if (k === 'e') { PS.wantDrink = true; return true; } return false; }
+function psKeyUp(k){ if (k === 'e') PS.wantDrink = false; }
+
 /* ===================================== WORLD: rain, nature, an unbreakable ground =====================================
    The ground never changes shape any more: craterAt() only scorches it (colour), World Severance leaves a glowing
    scar instead of an abyss and the Nine Circles are painted on the ground. Props still break, fly and burn: trees
@@ -18455,7 +18807,7 @@ function kiPop(o){
 }
 
 /* remote players: smooth movement from the network */
-function applyState(m){ const P = chars[m.id]; if (!P || !P.remote) return; P.net = m; P.netT = performance.now()/1000; if (m.ch) P.netChT = G.t; P.netAv = Array.isArray(m.av) ? m.av : null; if (m.gm) guidedNet(m.id, m.gm); if (m.pb) boulderNet(m.id, m.pb); }
+function applyState(m){ const P = chars[m.id]; if (!P || !P.remote) return; P.net = m; P.netT = performance.now()/1000; if (m.ch) P.netChT = G.t; P.netAv = Array.isArray(m.av) ? m.av : null; if (m.gm) guidedNet(m.id, m.gm); if (m.pb) boulderNet(m.id, m.pb); if (m.ps) psNet(m.id, m.ps); }
 // what the local player is charging right now: [power id, seconds], for everyone else to see
 function chargeState(){
   const now = performance.now()/1000;
@@ -18508,8 +18860,8 @@ const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').s
 function netSend(m){ if (!NET.peer) return; if (NET.host) netBroadcast(m); else if (NET.hostConn && NET.hostConn.open) NET.hostConn.send(m); }
 function netBroadcast(m, except){ NET.conns.forEach(c => { if (c.open && c !== except) c.send(m); }); }
 function lobbyList(){ return Object.values(NET.players); }
-const normMode = m => m === 'wiz' ? 'wiz' : m === 'siege' || m === 'tennis' ? 'siege' : m === 'td' || m === 'chaos' ? 'td' : 'egg';   // Pain Tennis was replaced by Fortress Siege (2026-10-12)   // Chaos left the menu (2026-10-08); Balloon Defense took its place   // Pain and Swarm modes were removed (2026-10-06); 'egg' is shown as Alpha Mode
-const MODE_NAME = {egg:'🥚 Alpha Mode', td:'🎈 Balloon Defense', siege:'🏰 Fortress Siege', wiz:'🧙 Wizards'};
+const normMode = m => m === 'piss' ? 'piss' : m === 'wiz' ? 'wiz' : m === 'siege' || m === 'tennis' ? 'siege' : m === 'td' || m === 'chaos' ? 'td' : 'egg';   // Pain Tennis was replaced by Fortress Siege (2026-10-12)   // Chaos left the menu (2026-10-08); Balloon Defense took its place   // Pain and Swarm modes were removed (2026-10-06); 'egg' is shown as Alpha Mode
+const MODE_NAME = {egg:'🥚 Alpha Mode', td:'🎈 Balloon Defense', siege:'🏰 Fortress Siege', wiz:'🧙 Wizards', piss:'💦 Piss Wars'};
 function broadcastLobby(){ netBroadcast({t:'lobby', players:lobbyList(), host:NET.myId, mode:NET.mode, cd:NET.cdOn ? 1 : 0}); renderLobby(); }
 /* STUN lets two browsers find a direct route to each other. On strict networks (mobile data, school/work Wi-Fi,
    some VPNs) there is none. PeerJS's free TURN relays are gone (their hostnames no longer resolve), so when the
@@ -18785,11 +19137,11 @@ function onDeath(m){
   if (G.mode === 'td') { const kf = {t:'kf', v:m.id, by:null}; netBroadcast(kf); killFeed(kf); return; }
   if (G.mode === 'egg') { const kf = {t:'kf', v:m.id, by:m.by}; netBroadcast(kf); killFeed(kf); return; }
   if (G.mode === 'wiz' && G.wzCoop) { const kf = {t:'kf', v:m.id, by:null}; netBroadcast(kf); killFeed(kf); return; }   // co-op: no score for the dark coven   // Egg mode scores eggs, not knockouts
-  const other = victim.team === 'blue' ? 'red' : 'blue';
+  const other = ((chars[m.id] && chars[m.id].team) || victim.team) === 'blue' ? 'red' : 'blue';   // (the team they play on: a mode may have split the lobby)
   G.score[other]++; renderScore();
   const kf = {t:'kf', v:m.id, by:m.by}; netBroadcast(kf); killFeed(kf);
   netBroadcast({t:'score', b:G.score.blue, r:G.score.red});
-  if (G.score[other] >= WIN_SCORE) { G.matchOver = true; netBroadcast({t:'end', w:other}); showMatchEnd(other); }
+  if (G.score[other] >= (G.mode === 'piss' ? PS_WIN : WIN_SCORE)) { G.matchOver = true; netBroadcast({t:'end', w:other}); showMatchEnd(other); }
 }
 function hostStart(){
   if (!NET.host) return;
@@ -18802,7 +19154,7 @@ function netTick(dt){
   if (!NET.peer || !G.pvp || !(G.phase === 'attack' || G.phase === 'build')) return;
   NET.sendT -= dt; if (NET.sendT > 0) return; NET.sendT = 1/15;
   const P = localP(); if (!P) return; const b = P.body;
-  netSend({t:'st', cl:G.cls, ...(chargeState() ? {ch:chargeState()} : {}), ...(avAimState() ? {av:avAimState()} : {}), id:G.localKey, x:+b.position.x.toFixed(2), y:+b.position.y.toFixed(2), z:+b.position.z.toFixed(2), f:+P.face.toFixed(2), vx:+b.velocity.x.toFixed(1), vz:+b.velocity.z.toFixed(1), fl:(P.naruto ? 1 : 0) | (P.grounded ? 2 : 0) | (P.dashT > 0 ? 4 : 0) | (P.stun > 0 ? 8 : 0) | (G.cls === 'sword' ? 16 : 0) | (G.hiddenUntil > G.t ? 32 : 0), hp:Math.round(P.hp), al:P.alive === false ? 0 : 1, ...(BX.guided[G.localKey] ? {gm:guidedState()} : {}), ...(boulderAir(G.localKey) ? {pb:boulderState()} : {})});
+  netSend({t:'st', cl:G.cls, ...(psOn() ? {ps:psState()} : {}), ...(chargeState() ? {ch:chargeState()} : {}), ...(avAimState() ? {av:avAimState()} : {}), id:G.localKey, x:+b.position.x.toFixed(2), y:+b.position.y.toFixed(2), z:+b.position.z.toFixed(2), f:+P.face.toFixed(2), vx:+b.velocity.x.toFixed(1), vz:+b.velocity.z.toFixed(1), fl:(P.naruto ? 1 : 0) | (P.grounded ? 2 : 0) | (P.dashT > 0 ? 4 : 0) | (P.stun > 0 ? 8 : 0) | (G.cls === 'sword' ? 16 : 0) | (G.hiddenUntil > G.t ? 32 : 0), hp:Math.round(P.hp), al:P.alive === false ? 0 : 1, ...(BX.guided[G.localKey] ? {gm:guidedState()} : {}), ...(boulderAir(G.localKey) ? {pb:boulderState()} : {})});
 }
 
 /* ---------- menus and HUD ---------- */
@@ -18822,7 +19174,7 @@ function showPvPTitle(){
       <label style="grid-column:1/-1;text-align:left;font-size:14px">Your name<br><input id="nameIn" maxlength="14" value="${clean(saved) === 'Player' && !saved ? '' : clean(saved)}" placeholder="Player" style="width:100%;margin-top:4px;padding:10px 12px;border:3px solid var(--edge);border-radius:12px;font:inherit;background:var(--panel);color:var(--text)"></label>
       <div id="lookRow" style="grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;justify-content:center">${CHARS.map((c, i) => `<button class="btn" data-look="${i}" style="background:#17171F;color:#fff;border-color:#D3121D">${c.e} ${c.name}</button>`).join('')}</div>
       <button class="btn" id="tBlue" style="background:var(--blue);color:#fff">Blue team</button><button class="btn" id="tRed" style="background:var(--red);color:#fff">Red team</button>
-      <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="btn" id="mEgg" style="background:#FFF3DC;color:#3B2A1A">🥚 Alpha Mode</button><button class="btn" id="mTD" style="background:linear-gradient(180deg,#FFE14D,#FF9A2E);color:#4A2A00">🎈 Balloon Defense</button><button class="btn" id="mSiege" style="background:linear-gradient(180deg,#D8C2FF,#9A6BFF);color:#22104A">🏰 Fortress Siege</button><button class="btn" id="mWiz" style="background:linear-gradient(180deg,#F7EBCB,#D9B870);color:#3A2410">🧙 Wizards</button></div>
+      <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="btn" id="mEgg" style="background:#FFF3DC;color:#3B2A1A">🥚 Alpha Mode</button><button class="btn" id="mTD" style="background:linear-gradient(180deg,#FFE14D,#FF9A2E);color:#4A2A00">🎈 Balloon Defense</button><button class="btn" id="mSiege" style="background:linear-gradient(180deg,#D8C2FF,#9A6BFF);color:#22104A">🏰 Fortress Siege</button><button class="btn" id="mWiz" style="background:linear-gradient(180deg,#F7EBCB,#D9B870);color:#3A2410">🧙 Wizards</button><button class="btn" id="mPiss" style="background:linear-gradient(180deg,#FFF27A,#E8C020);color:#4A3A00">💦 Piss Wars</button></div>
       <p class="muted" id="modeDesc" style="grid-column:1/-1;margin:0;font-size:14px"></p>
       <button class="btn" id="cdB"></button><button class="btn" id="pixB"></button><button class="btn" id="infB" style="grid-column:1/-1"></button>
     </div>
@@ -18843,10 +19195,11 @@ function showPvPTitle(){
   $('tBlue').onclick = () => setTeam('blue'); $('tRed').onclick = () => setTeam('red');
   // game mode: the host's choice is used for the match; practice uses yours
   const setMode = m => { ME.mode = m; try { localStorage.setItem('ca-mode2', m); } catch (e) {}
-    if (m !== 'egg' && m !== 'siege' && m !== 'wiz') m = ME.mode = 'td';
-    for (const [id, k] of [['mEgg','egg'],['mTD','td'],['mSiege','siege'],['mWiz','wiz']]) $(id).style.outline = m === k ? '4px solid var(--yolk)' : 'none';
+    if (m !== 'egg' && m !== 'siege' && m !== 'wiz' && m !== 'piss') m = ME.mode = 'td';
+    for (const [id, k] of [['mEgg','egg'],['mTD','td'],['mSiege','siege'],['mWiz','wiz'],['mPiss','piss']]) $(id).style.outline = m === k ? '4px solid var(--yolk)' : 'none';
     $('hostB').disabled = m === 'swarm' || !online; $('hostB').title = m === 'swarm' ? 'Swarm mode is single-player: use Practice alone' : '';
     $('modeDesc').textContent = m === 'egg' ? `Alpha Mode: one player defends the egg with 20 protection powers and builds for as long as they like, then presses Ready. Everyone else attacks until the egg breaks or they give up. Everyone takes a turn defending.`
+      : m === 'piss' ? 'Piss Wars (PvP): a huge valley with mountains, a river, a lake and ponds. Drink at any water through a straw (hold E), then piss on your rivals (hold Click). The more you drink, the farther and harder it goes: over 100% you waddle, at 125% it all comes out. Soak them through to knock them out. Two colours: team against team. Alone: rival pissers to practise on.'
       : m === 'wiz' ? 'Wizards: every spell is a magic circle you draw with the mouse, once, and keep for the whole match. Trace it neatly and it is strong, sloppily and it is weak; while you draw you stand still and can be hit. Bigger spells have harder circles. Everyone on the same colour: fight 12 waves of dark wizards together. Two colours: team battle.'
       : m === 'siege' ? 'Fortress Siege (co-op): everyone defends the egg together. Balloons come down one long, winding path per player. Build walls, domes, lava, drones and spirits (free, refilled every round) and buy turrets with the money you earn, inside the area or along the paths. 100 rounds of fewer but tougher balloons, a boss every third round. Between rounds: rebuild, upgrade, and press Ready.'
       : m === 'swarm' ? 'Swarm (single-player): spawn 5 to 100 enemies that chase you, then try every class’s powers on them. Use Practice alone.'
@@ -18857,7 +19210,7 @@ function showPvPTitle(){
   $('infB').onclick = () => setInf(!ME.tdInf);
   function setCd(on){ ME.cdOn = on; const wz = ME.mode === 'wiz'; if (wz) ME.wzCd = on; else ME.cdGen = on; try { localStorage.setItem(wz ? 'ca-cd-wiz' : 'ca-cd', on ? 'on' : 'off'); } catch (e) {} $('cdB').disabled = false; $('cdB').textContent = wz ? (on ? '⏱️ Spell cooldowns: on' : '⏱️ Spell cooldowns: off (cast anything, any time)') : on ? '⏱️ Cooldowns: on' : '⏱️ Cooldowns: off (spam everything)'; }
   setMode(ME.mode); $('cdB').onclick = () => setCd(!ME.cdOn);
-  $('mEgg').onclick = () => setMode('egg'); $('mTD').onclick = () => setMode('td'); $('mSiege').onclick = () => setMode('siege'); $('mWiz').onclick = () => setMode('wiz');
+  $('mEgg').onclick = () => setMode('egg'); $('mTD').onclick = () => setMode('td'); $('mSiege').onclick = () => setMode('siege'); $('mWiz').onclick = () => setMode('wiz'); $('mPiss').onclick = () => setMode('piss');
   $('pixB').textContent = PIXEL.on ? '🟪 Pixel look: on' : '🟪 Pixel look: off'; $('pixB').title = 'Switching reloads the game';
   $('pixB').onclick = () => { try { localStorage.setItem('ca-pixel2', PIXEL.on ? 'off' : 'on'); } catch (e) {} location.reload(); };
   $('hostB').onclick = () => { if (ME.mode === 'swarm') return; ensureAudio(); hostGame($('codeIn').value); };
@@ -18916,7 +19269,7 @@ function pvpFrame(rdt){
   for (const k in G.cd) G.cd[k] = Math.max(0, G.cd[k] - rdt);
   G.kiCd = Math.max(0, (G.kiCd || 0) - rdt); G.spawnShield = Math.max(0, (G.spawnShield || 0) - rdt);
   G.cdUiT = (G.cdUiT || 0) - rdt; if (G.cdUiT <= 0) { G.cdUiT = .1; updateCooldownUI(); }
-  updateRemotes(rdt); remoteChargeFX(); netTick(rdt); updateEnemyFinder(); eggFrame(rdt); tdFrame(rdt); tnFrame(rdt); wzFrame(rdt);
+  updateRemotes(rdt); remoteChargeFX(); netTick(rdt); updateEnemyFinder(); eggFrame(rdt); tdFrame(rdt); tnFrame(rdt); wzFrame(rdt); psFrame(rdt);
   const P = localP();
   if (P && P.alive === false && G.phase === 'attack') { P.deadT -= rdt; $('respawnT').textContent = Math.max(1, Math.ceil(P.deadT)); if (P.deadT <= 0) respawn(P); }
   if (P && P.alive && P.hp < 100 && G.phase === 'attack') { P.regenWait = (P.regenWait || 0) + rdt; }
@@ -18940,6 +19293,7 @@ function renderPhase(){
   const map = {title:'Egg Defense', intro:`Round ${G.round}`, build:`${teamName(G.defender)} builds`, handoff:'Swap players', attack: G.pvp ? (G.mode === 'pain' ? 'Pain' : 'Chaos Arena') : `${teamName(attacker())} attacks`, end:'Round over'};
   if (eggOn()) { eggHud(true); eggHelp(); $('tAct').textContent = G.phase === 'build' && amDefender() ? 'Place' : 'Shoot'; return; }
   if (G.pvp && G.mode === 'tennis') { const help = $('help'); help.style.display = 'block'; help.innerHTML = painHelp() + '<br>🎾 Fling everything over the net: when the clock runs out, the side with fewer things wins. Knocked off the court, it drops back on your side.'; $('phase').innerHTML = '🎾 Pain Tennis<small>Fewer things on your side wins</small>'; $('tAct').textContent = 'Cast'; return; }
+  if (psOn()) { const help = $('help'); help.style.display = 'block'; help.innerHTML = '<b>WASD</b> move · <b>Space</b> jump · <b>Shift</b> run<br><b>Hold E</b> at water: drink through a straw<br><b>Hold Click</b>: piss where you aim. Fuller = farther, harder<br>Over 100%: you waddle · 125%: it all comes out'; $('phase').innerHTML = '💦 Piss Wars'; return; }
   if (wzOn()) { wzHud(true); const help = $('help'); help.style.display = 'block'; help.innerHTML = '<b>WASD</b> move · <b>Space</b> jump · <b>Shift</b> run<br><b>1–0</b> a spell: the first time, <b>draw its circle</b> on the paper (trace the guide, <b>Enter</b> activates, <b>C</b> clears, <b>G</b> hides the guide for +15%). Drawn once, kept all match: neater = stronger. You stand still while drawing!<br>After that: <b>1–0</b> casts (aimed ones: then <b>Click</b> the marker)<br><b>Click</b> wand bolt'; return; }
   if (G.pvp && G.mode === 'td') { tdHud(); const help = $('help'); help.style.display = 'block'; help.innerHTML = (G.cls === 'bomber' ? bomberHelp() : G.cls === 'sword' ? swordHelp() : G.cls === 'avatar' ? avatarHelp() : G.cls === 'wood' ? woodHelp() : painHelp()) + '<br><b>Enter</b> start the next round · <b>Y</b> turrets (1-5 pick, Click place; aim at one: <b>U</b> upgrade, <b>K</b> sell) · <b>Tab</b> switch class'; $('tAct').textContent = 'Cast'; return; }
   $('phase').innerHTML = map[G.phase] + (G.phase==='build' ? `<small>Place your protection</small>` : G.phase==='attack' ? (G.mode === 'swarm' ? '<small>Swarm mode</small>' : G.pvp ? `<small>First team to ${WIN_SCORE}</small>` : `<small>Break the egg!</small>`) : '');
@@ -19014,6 +19368,7 @@ function renderTray(){
     renderSide();
     $('rotB').onclick = () => { G.ghostRot += Math.PI/4; };
     $('doneB').onclick = finishBuild;
+  } else if (G.phase === 'attack' && psOn()) { psTray(t); renderSide();
   } else if (G.phase === 'attack' && wzOn()) { wzTray(t); renderSide();
   } else if (G.phase === 'attack' || guardActive()) {
     const keyRank = k => { k = String(k || ''); if (k === '-') return 200; if (k.length !== 1 || !/[0-9A-Za-z]/.test(k)) return -1; if (k === '0') return 10; if (/[1-9]/.test(k)) return +k; return 20 + k.toUpperCase().charCodeAt(0); };
@@ -19108,6 +19463,7 @@ function actionDown(){
   const P = activeChar(); if (!P || P.stun > 0) return;
   if (ttClick()) { G.skipUp = true; return; }   // placing a turret (Balloon Defense)
   if (P.carry) { dropCarry(P, true); G.skipUp = true; return; }
+  if (G.phase === 'attack' && psOn()) { PS.wantPee = true; return; }   // Piss Wars: hold to piss
   if (G.phase === 'attack' && wzOn()) { wzMouseDown(); G.skipUp = true; return; }   // Wizards: the aimed spell, or the wand
   if (G.phase === 'attack' && painKit() && PAIN.circBuild && !G.targeting && circuitClick()) { G.skipUp = true; return; }   // placing the Falling Circuit
   if (G.phase === 'attack' && painKit() && G.targeting && PAIN_SKILLS[G.targeting] && PAIN_SKILLS[G.targeting].kind === 'aimcharge') { chargeStart(G.targeting, 'mouse'); return; }   // hold to charge the selected gravity ring
@@ -19119,7 +19475,7 @@ function actionDown(){
   else if (G.phase === 'attack' && G.pvp) { if (G.cls === 'bomber') fireBazooka(); else if (G.cls === 'sword') swordSwing(); else if (G.cls === 'summon') summonCommand(); else if (G.cls === 'necro') fireSkull(); else if (G.cls === 'avatar') avatarClick(); else if (painKit()) tkDown(); else fireKi(); }
   else if (G.phase === 'attack') { if (!G.lastPick || G.t - G.lastPick > 2) { G.lastPick = G.t; toast('Pick a skill first: press its key or tap it in the Skills bar.'); } }
 }
-function actionUp(){ if (WD.mouse) { woodMouseUp(); return; } if (PAIN.charge && PAIN.charge.key === 'mouse') { chargeRelease('mouse'); return; } if (AV.charge && AV.charge.key === 'mouse') { avatarKeyUp('mouse'); return; } if (painKit()) tkUp(); if (G.skipUp) { G.skipUp = false; return; } if (G.phase === 'attack' && G.charging) fire(); }
+function actionUp(){ if (psOn()) { PS.wantPee = false; return; } if (WD.mouse) { woodMouseUp(); return; } if (PAIN.charge && PAIN.charge.key === 'mouse') { chargeRelease('mouse'); return; } if (AV.charge && AV.charge.key === 'mouse') { avatarKeyUp('mouse'); return; } if (painKit()) tkUp(); if (G.skipUp) { G.skipUp = false; return; } if (G.phase === 'attack' && G.charging) fire(); }
 
 let rdrag = null;
 const touches = {stick:null, look:null};
@@ -19203,6 +19559,7 @@ addEventListener('keydown', e => {
   if (k === ' ') { e.preventDefault(); if (!e.repeat) G.jumpQ = .2; }
   if (k === 'shift' && !e.repeat) { if (G.t - (G.lastShift || -9) < .3) { dash(); G.lastShift = -9; } else G.lastShift = G.t; }
   if (['arrowup','arrowdown','arrowleft','arrowright'].includes(k)) e.preventDefault();
+  if (G.phase === 'attack' && psOn() && psKeyDown(k)) return;   // Piss Wars: E drinks
   if (k === 'e' && !e.repeat) { const P = activeChar(); if (P && P.stun <= 0) { const lb = typeof nearLoot === 'function' ? nearLoot(P) : null; if (lb) openLoot(lb, true); else grabNearest(P); } }
   if (k === 'y' && !e.repeat && eggOn() && (G.phase === 'attack' || G.phase === 'build')) { eggSwitchRole(); return; }
   if (k === 'enter' && !e.repeat && tdOn() && (TD.state === 'build' || TD.state === 'wave')) { tdAskWave(); return; }   // anyone: switch sides
@@ -19221,7 +19578,7 @@ addEventListener('keydown', e => {
     if (k === 'f' || k === 'enter') finishBuild();
   }
 });
-addEventListener('keyup', e => { const k = keyName(e); keys[k] = false; guardKeyUp(k); bomberKeyUp(k); if (painKit() || PAIN.charge || PAIN.aim) painKeyUp(k); if (G.cls === 'sword') swordKeyUp(k); if (AV.charge) avatarKeyUp(k); });
+addEventListener('keyup', e => { const k = keyName(e); keys[k] = false; if (psOn()) psKeyUp(k); guardKeyUp(k); bomberKeyUp(k); if (painKit() || PAIN.charge || PAIN.aim) painKeyUp(k); if (G.cls === 'sword') swordKeyUp(k); if (AV.charge) avatarKeyUp(k); });
 // leaving the tab never delivers the key-up for keys that were held, so start clean when it hides and when it comes back
 document.addEventListener('visibilitychange', () => { for (const k in keys) keys[k] = false; if (document.hidden) painKeyUp(null); });
 addEventListener('focus', () => { for (const k in keys) keys[k] = false; });
@@ -19515,7 +19872,7 @@ function frame(now){
   // a slight lean into strafes makes the camera feel alive
   G.sRoll = lerp(G.sRoll || 0, input && !reduceMotion ? -input.x*.022 : 0, Math.min(1, rdt*7)); if (Math.abs(G.sRoll) > .0005) camera.rotateZ(G.sRoll);
   camera.updateMatrixWorld();
-  { const f = act ? act.body.position : camLook; sun.position.set(f.x + 18, 30, f.z + 12); sun.target.position.set(f.x, 0, f.z); sun.target.updateMatrixWorld(); }
+  { const f = act ? act.body.position : camLook; if (psOn()) sun.position.set(f.x + 40, f.y + 95, f.z + 26); else sun.position.set(f.x + 18, 30, f.z + 12); sun.target.position.set(f.x, 0, f.z); sun.target.updateMatrixWorld(); }
 
   // eggcam: keep the slow-mo break visible even mid-play
   if (G.eggCam && G.eggPos && G.phase !== 'end' && G.slowmo > 0) {

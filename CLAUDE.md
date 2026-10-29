@@ -825,3 +825,17 @@ Test t96 (runPain logged per ability). Also: the paper no longer swallows key-up
 redraw); keys are cleared when the paper opens/closes; REDRAW the wild page is X (not Shift+C). Wizards has its own cooldown
 setting (ME.wzCd, 'ca-cd-wiz', on by default): the menu's cooldown button edits it while Wizards is picked; off = cdFor 0 for
 WIZ_SK and wzCdOf 0. Test t97.
+Piss Wars 2026-10-29.1 (mode 'piss', module ps*: PS / PSW / PSP / PST / PSD): PvP, team vs team (alone: 5 red bots; an all-one-colour
+lobby is split in two, psTeam). THE WORLD SCALES PER MODE: ISL and TES are `let`; setWorldScale(k) (k 2.5 here: ISL 350, TES 5, a
+700 m map; the grid keeps TN 141 points) rescales islandTop, the heightfield elementSize, the outer boxes (WSC.outer) and the edge
+walls; startMatch calls it with 1 for every other mode. psGenTerrain: rolling hills, a mountain wall at the edge + 4 peaks (snow
+> 52), a big lake + 8 ponds (carveBowl) and a river (north -> lake -> south, monotonic water levels). psBuildMap: water surfaces,
+~1150 instanced pine/oak/birch (trunk bodies), boulders, 9000 grass/flower cones, team flags. psWaterAt / psDrinkPoint (reach 3.2).
+Bladder PS.bl (0-130): hold E near water = straw (psStraw) +20/s; pressure psPr = bl/100 (.04-1.3), launch speed 3 + 20*pr; > 100
+waddle, >= 125 overflow (3 s spinning spray, then 60). Hold Click: psAim = the low ballistic arc onto the crosshair (psAssist locks
+onto a rival near the crosshair line, since the ray passes through bodies; out of reach: a flat long jet). THE STREAM IS ONE TUBE
+(psTubeFrame): the stream's path points (PSP.list, in emission order, spread over the frame) do the physics and the hits; a 7-sided
+tube is built through each stream's points every frame (radius .011 + .062*pr: thin droopy dribble -> thick straight jet; a smooth
+wobble, no random spray). Hit: .1 + .4*pr per point via painHurt + a small push. The player stands side-on (face + .9) while
+pissing so the camera sees it. Network: psState rides on 'st' as ps:[on, dir, pr, drink]. Bots: wander / thirst / drink / hunt,
+piss in bursts with an aim error. First team to PS_WIN 20. Tests: piss1.mjs, piss_side.mjs.
