@@ -851,3 +851,25 @@ the slope. Sounds: a quiet low-passed trickle and a soft glug (psGlug), no pops/
 GPU LEAK FIX (all modes): clearRound now disposes the geometries of everything it removes from roundGroup (three re-uploads a
 shared one if it is drawn again); rematches no longer pile up GPU buffers. The "3D graphics are blocked" screen has a button that
 opens the game in a new tab.
+Piss Wars 2026-10-29.3: NO CEILING + THE VALLEY'S OWN LOOK + LIFE + 10 ULTIMATES (module ps*, second half = the world part).
+Charge c = bl/100 up to PS_MAXBL 100 000 % (c 1000). Drinking accelerates: 25 %/s x1.65 every second held (cap 25 000 %/s): 100k in
+~15 s. Pissing drains 3 + 8 % of the charge per second (the 29.2 build lost this line in a comment: it never drained). psSpeed
+grows log beyond c 10 (136 m/s ... 362 at 1000); psRad .012 + .05c^0.6 (3.2 m at 1000), psDmg/psPush uncapped; the tube flares
+from the body over ~7 widths (p.v, p.rad per point); hit tests widen with the stream (wr). Hydra heads are 'key#hN' lines (p.src =
+the owner). psState sends [on, dir, pr, drink, ult]. HUD: log-scale bottle, 10 ultimate slots (🔒 until found), banner on unlock.
+THE ULTIMATES (PSU_DEFS / PSU, per stream key in PSUA; the tier = floor(charge at the start of the release / 10k)): Golden Geyser,
+Thunder Stream, Tidal Wave, Hydra, Golden Tornado, Piss Storm, Amber Prison, Orbital Beam, Golden Singularity (bursts on release),
+GOLDEN APOCALYPSE (gold sky, falling sun, 200 m shockwaves). Found ones persist in localStorage 'ca-ps-ult'. Every screen runs
+everyone's ultimates; victims (psVictims): me (on my screen), bots, animals, thrown trees; psHitV/psBlast; trees via psTreesNear,
+rocks via psRocksNear. Effects are psFx {t, life, m, upd, end, disp}; extra drops are pushed to PSX each frame.
+THE LOOK (psLook on/off, saved/restored): full resolution (resize() skips the pixel scale while PSL.hiRes), ACES tone mapping
+(exposure .92), its own hemi/sun/fog, a gradient sky dome with sun + soft cloud sprites (scene children, hidden in other modes),
+Phong smooth terrain (computeVertexNormals) with a grain map, the game's far scenery hidden (PSL.hid) - it was built for the
+small map and stood inside the valley. psAdd() marks my roundGroup children outlined (the game's outline pass would wrap them
+in black shells). Water: ring meshes, depth-coloured vertices (foam at the shore), scrolling normal map; reeds and lilies.
+Trees: psMerge vertex-coloured kinds (pine/oak/birch, big oaks), instanced, wind via onBeforeCompile (psWind, PSL.time); each
+tree remembered (PSTR: shake, leaves, uproot -> thrown Group that lands lying; grid PSTR.grid also holds rocks; rocks roll).
+Grass: 26 000 swaying blade clumps + flowers in a 120 m tile that follows the camera, coloured from the terrain vertices.
+Animals (PSA, instanced per kind, legs/wings as their own instances): deer, sheep, cows, rabbits, ducks on the lakes, bird
+flocks. Graze/walk/flee from people; the stream soaks (gold tint), shoves, throws them ('air' -> 'down' -> up and flee).
+Tests: piss2.mjs, piss3.mjs (all ultimates), scenic.mjs.

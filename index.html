@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-29.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-29.3';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -4785,7 +4785,7 @@ function startMatch(seed, list, score, mode, cdOn, eg){
   $('eggPts').style.display = G.mode === 'egg' ? 'block' : 'none'; document.querySelector('#top .score').style.display = G.mode === 'egg' || G.mode === 'swarm' || G.mode === 'td' || G.mode === 'tennis' ? 'none' : '';
   tdHudShow(G.mode === 'td'); if (G.mode !== 'td') tdClear();
   tnHud(G.mode === 'tennis'); if (G.mode !== 'tennis') TNS.on = false;
-  psHud(false); PS.bots = []; sun.shadow.camera.far = G.mode === 'piss' ? 240 : 100; sun.shadow.camera.updateProjectionMatrix();
+  psHud(false); PS.bots = []; if (G.mode !== 'piss') psLook(false); sun.shadow.camera.far = G.mode === 'piss' ? 240 : 100; sun.shadow.camera.updateProjectionMatrix();
   if (G.mode === 'piss') { psStart(); return; }
   if (G.mode === 'wiz') { wzStart(); return; }
   if (G.mode === 'td') { tdStart(); return; }
@@ -17281,6 +17281,8 @@ function wzAssistBtn(Pp){ const b = document.createElement('button'); b.classNam
    you drank, the faster, thicker and harder the stream: a short droopy arc, a big arc, then a dead-straight beam. Only the
    player decides when it comes out. The stream is liquid: a glossy tube from the body that breaks into drops (a weak one soon,
    a strong one late), splashes where it lands and leaves puddles lying on the slope.
+   No ceiling: drinking speeds up while E is held, up to 100 000 %; every 10 000 % unlocks a secret ultimate (the charge you start
+   pissing with picks it). The valley has its own look (psLook), animals, trees and rocks that react (ps_world part below).
    Hits soak (damage) and push; soaked through = knocked out. Teams by colour (online, one colour for all = split in two);
    alone: rival pissers to practise on. Streams travel in the player state ('st' .ps), each screen draws them and judges the
    hits on its own player (the host on the rivals), like every other power. */
@@ -17354,111 +17356,75 @@ function psDrinkPoint(p){ let best = null, bd = 3.2;
   for (const L of PSW.lakes) { const dx = p.x - L.x, dz = p.z - L.z, d = Math.hypot(dx, dz), e = d - L.r; if (e < bd) { bd = Math.max(0, e); const k = d > L.r ? (L.r - .5)/d : 1; best = V3(L.x + dx*k, L.lv, L.z + dz*k); } }
   const r = psRiverNear(p.x, p.z); if (PSW.river && r.d - PSW.river.hw < bd) { const k = r.d > PSW.river.hw ? (PSW.river.hw - .5)/r.d : 1; best = V3(r.x + (p.x - r.x)*k, r.lv, r.z + (p.z - r.z)*k); }
   return best; }
-/* ---------- what grows and lies on it: water, giant trees, boulders, grass, team flags ---------- */
-WZT_TEX.psWater = () => wzaTex('psWater', 128, 128, (g, W, H, r) => { g.fillStyle = '#3A8FC8'; g.fillRect(0, 0, W, H); for (let i = 0; i < 70; i++) { g.strokeStyle = `rgba(255,255,255,${.12 + r()*.25})`; g.lineWidth = 1 + r()*1.5; const x = r()*W, y = r()*H; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + 8, y - 3, x + 16 + r()*10, y); g.stroke(); } });
-function psBuildMap(){
-  const R = mulberry32(((G.seed || 1) ^ 0xB00B) >>> 0), wt = WZT_TEX.psWater().clone(); wt.wrapS = wt.wrapT = THREE.RepeatWrapping; wt.needsUpdate = true;
-  const wmat = new THREE.MeshPhongMaterial({color:0x8FD0FF, map:wt, transparent:true, opacity:.84, shininess:90, specular:0xBFE8FF, depthWrite:false}); PS.wmat = wmat;
-  for (const L of PSW.lakes) { const g = new THREE.CircleGeometry(L.r + 2.5, 64); g.rotateX(-Math.PI/2); uvScale(g, (L.r + 2.5)/6, (L.r + 2.5)/6); const m = new THREE.Mesh(g, wmat); m.position.set(L.x, L.lv, L.z); m.renderOrder = 2; m.userData.noRay = true; roundGroup.add(m); }
-  if (PSW.river) { const {sp, nrm, lv, W} = PSW.river, pos = [], uv = [], idx = [], N = sp.length - 1; let acc = 0;
-    for (let i = 0; i <= N; i++) { if (i) acc += sp[i].distanceTo(sp[i - 1]); for (const s of [-1, 1]) { pos.push(sp[i].x + nrm[i][0]*(W/2 + .8)*s, lv[i], sp[i].z + nrm[i][1]*(W/2 + .8)*s); uv.push((s + 1), acc/8); }
-      if (i < N) { const k = i*2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); } }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
-    if (g.attributes.normal.getY(0) < 0) { idx.reverse(); g.setIndex(idx); g.computeVertexNormals(); }
-    const rm = wmat.clone(); rm.map = wt.clone(); rm.map.needsUpdate = true; PS.rmat = rm; const m = new THREE.Mesh(g, rm); m.renderOrder = 2; m.userData.noRay = true; roundGroup.add(m); }
-  // giant trees: pines, oaks, birches (instanced; every trunk is solid)
-  const T = psTreeKinds(), lists = T.map(() => []), S = ISL*.55;
-  for (let k = 0, n = 0; k < 20000 && n < 1150; k++) { const x = (R()*2 - 1)*(ISL - 12), z = (R()*2 - 1)*(ISL - 12), gy = groundH(x, z);
-    const forest = .5 + .5*Math.sin(x*.016 + terrSeed)*Math.cos(z*.013 - terrSeed*2) + .25*Math.sin(x*.05 + z*.04); if (R() > forest*.9 + .05) continue;
-    if (gy > 48 || psSlope(x, z) > .55 || psWaterAt(x, z, 5) != null || Math.hypot(x + S, z) < 26 || Math.hypot(x - S, z) < 26) continue;
-    const kind = gy > 26 ? 0 : R() < .5 ? 0 : R() < .65 ? 1 : 2, s = (kind === 0 ? 1 : .9) + R()*.6; lists[kind].push([x, gy, z, s, R()*6.28, R()]); n++;
-    const b = new CANNON.Body({mass:0, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(.45*s*T[kind].tw, 4*s, .45*s*T[kind].tw))); b.position.set(x, gy + 4*s, z); b.tag = 'tree'; world.addBody(b); }
-  const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), Sv = new THREE.Vector3(), C = new THREE.Color();
-  T.forEach((K, ti) => { const L = lists[ti]; if (!L.length) return;
-    for (const [part, geo, mat, tint] of [['trunk', K.trunk, K.tmat, K.tcol], ['crown', K.crown, K.cmat, K.ccol]]) { const im = new THREE.InstancedMesh(geo, mat, L.length); im.castShadow = true; im.receiveShadow = true; im.userData.noRay = true;
-      L.forEach(([x, y, z, s, ry, c], i) => { Q.setFromEuler(new THREE.Euler(0, ry, 0)); M4.compose(V3(x, y - .3, z), Q, Sv.set(s, s, s)); im.setMatrixAt(i, M4); C.setHex(tint[Math.floor(c*tint.length)]); im.setColorAt(i, C); });
-      im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; roundGroup.add(im); } });
-  // boulders
-  { const n = 170, im = new THREE.InstancedMesh(PAIN_ROCK, new THREE.MeshToonMaterial({color:0xFFFFFF, gradientMap:TOON}), n); im.castShadow = im.receiveShadow = true; im.userData.noRay = true; let c = 0;
-    for (let k = 0; k < 3000 && c < n; k++) { const x = (R()*2 - 1)*(ISL - 10), z = (R()*2 - 1)*(ISL - 10); if (psWaterAt(x, z, 2) != null) continue; const gy = groundH(x, z), s = .6 + Math.pow(R(), 2)*3.4;
-      Q.setFromEuler(new THREE.Euler(R()*3, R()*3, R()*3)); M4.compose(V3(x, gy + s*.25, z), Q, Sv.set(s, s*.75, s)); im.setMatrixAt(c, M4); C.setHex(gy > 30 ? 0x9A9AA0 : pick([0x8A8378, 0x7A7468, 0x9A9284])); im.setColorAt(c, C); c++;
-      if (s > 1.2) { const b = new CANNON.Body({mass:0, material:PM.def}); b.addShape(new CANNON.Sphere(s*.8)); b.position.set(x, gy + s*.25, z); b.tag = 'rock'; world.addBody(b); } }
-    im.count = c; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; roundGroup.add(im); }
-  // grass and flowers across the meadows
-  { const g = new THREE.ConeGeometry(.16, .6, 3); g.translate(0, .3, 0); const n = 9000, im = new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial({color:0xFFFFFF}), n); im.userData.noRay = true; let c = 0;
-    for (let k = 0; k < 30000 && c < n; k++) { const x = (R()*2 - 1)*(ISL - 6), z = (R()*2 - 1)*(ISL - 6), gy = groundH(x, z); if (gy > 34 || psWaterAt(x, z, 1) != null) continue; const s = .7 + R()*1.1, fl = R() < .12;
-      Q.setFromEuler(new THREE.Euler((R() - .5)*.4, R()*6, (R() - .5)*.4)); M4.compose(V3(x, gy - .05, z), Q, Sv.set(fl ? .6 : s, fl ? .55 : s, fl ? .6 : s)); im.setMatrixAt(c, M4);
-      C.setHex(fl ? pick([0xFFE14D, 0xFF8AC8, 0xFFFFFF, 0xB98AFF]) : pick([0x5FA83A, 0x6CB848, 0x4E9A34, 0x7CC456])); im.setColorAt(c, C); c++; }
-    im.count = c; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; roundGroup.add(im); }
-  // the team flags at the spawns
-  for (const team of ['blue', 'red']) { const [x, z] = PSW.spawns[team][0], gy = groundH(x, z), fg = new THREE.Group();
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(.08, .1, 7, 6), M3(0x7A5A3A)); pole.position.y = 3.5; fg.add(pole);
-    const fl = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.5), new THREE.MeshLambertMaterial({color:team === 'blue' ? 0x3B82F6 : 0xE5484D, side:THREE.DoubleSide})); fl.position.set(1.2, 6.2, 0); fg.add(fl); fg.userData.flag = fl;
-    fg.position.set(x + 3, gy, z + 3); noRayAll(fg); roundGroup.add(fg); }
-}
-function psTreeKinds(){
-  if (PS.kinds) return PS.kinds; const geo = (parts) => wzaMerge(parts.map(([g, x, y, z, sx, sy, sz]) => { const q = g.index ? g.toNonIndexed() : g; q.applyMatrix4(new THREE.Matrix4().compose(V3(x, y, z), new THREE.Quaternion(), V3(sx || 1, sy || sx || 1, sz || sx || 1))); return q; }));
-  const toon = () => new THREE.MeshToonMaterial({color:0xFFFFFF, gradientMap:TOON});
-  return (PS.kinds = [
-    {n:'pine', tw:1, trunk:geo([[new THREE.CylinderGeometry(.3, .62, 8, 7), 0, 4, 0]]), crown:geo([[new THREE.ConeGeometry(3.8, 5.5, 8), 0, 6.8, 0], [new THREE.ConeGeometry(3.1, 5, 8), 0, 9.6, 0], [new THREE.ConeGeometry(2.3, 4.4, 8), 0, 12.2, 0], [new THREE.ConeGeometry(1.4, 3.6, 8), 0, 14.6, 0]]),
-      tmat:toon(), cmat:toon(), tcol:[0x6A4A30, 0x5A3E28], ccol:[0x2E6B3A, 0x2A5E34, 0x357A42, 0x23523A]},
-    {n:'oak', tw:1.3, trunk:geo([[new THREE.CylinderGeometry(.5, .85, 6, 7), 0, 3, 0], [new THREE.CylinderGeometry(.18, .3, 3.4, 5), 1.1, 5.8, 0, 1, 1, 1]]),
-      crown:geo([[new THREE.IcosahedronGeometry(3.4, 1), 0, 7.6, 0], [new THREE.IcosahedronGeometry(2.6, 1), 2.3, 6.8, 1], [new THREE.IcosahedronGeometry(2.7, 1), -2.1, 7, -1.1], [new THREE.IcosahedronGeometry(2.4, 1), .6, 9.6, -.8], [new THREE.IcosahedronGeometry(2.2, 1), -.4, 6.4, 2.2]]),
-      tmat:toon(), cmat:toon(), tcol:[0x5A4030, 0x6A4C34], ccol:[0x4E8A34, 0x5C9A3A, 0x467E2E, 0x6AA842]},
-    {n:'birch', tw:.6, trunk:geo([[new THREE.CylinderGeometry(.2, .3, 9, 6), 0, 4.5, 0]]), crown:geo([[new THREE.IcosahedronGeometry(1.9, 1), 0, 9.2, 0, 1, 1.6, 1], [new THREE.IcosahedronGeometry(1.3, 1), .9, 7.6, .4, 1, 1.4, 1], [new THREE.IcosahedronGeometry(1.3, 1), -.8, 8, -.5, 1, 1.4, 1]]),
-      tmat:toon(), cmat:toon(), tcol:[0xE8E4DA, 0xDAD6CC], ccol:[0x9CCB52, 0x8ABF48, 0xB0D45C]}
-  ]);
-}
-// the ground: grass, sand by the water, rock on the steep and high, snow on the peaks
-const _psG = [new THREE.Color(0x6CB848), new THREE.Color(0x5AA23E), new THREE.Color(0xD9C98A), new THREE.Color(0x8A847A), new THREE.Color(0xF4F6FA), new THREE.Color(0x4A8A34)];
+const psForest = (x, z) => .5 + .5*Math.sin(x*.016 + terrSeed)*Math.cos(z*.013 - terrSeed*2) + .25*Math.sin(x*.05 + z*.04);
+// the ground: lush meadows of several greens, dry patches, dark under the forests, sand and wet sand by the water, rock on the
+// steep and high, snow on the peaks (all blended, nothing in hard steps)
+const _psG = {g1:new THREE.Color(0x5E9E3E), g2:new THREE.Color(0x86BE4E), g3:new THREE.Color(0x467F30), dry:new THREE.Color(0xB4B85E), forest:new THREE.Color(0x355F28),
+  sand:new THREE.Color(0xD9C896), wet:new THREE.Color(0x8E8A62), rock:new THREE.Color(0x8F8A82), rock2:new THREE.Color(0x6A665F), snow:new THREE.Color(0xF4F7FB)};
 function psGround(c, v, x, z){
-  const h = terrH[v], n = .5 + .25*Math.sin(x*.07 + z*.05) + .25*Math.sin(x*.21 - z*.17); c.copy(_psG[1]).lerp(_psG[0], n);
-  if (Math.sin(x*.011 + terrSeed)*Math.cos(z*.009) > .45) c.lerp(_psG[5], .5);
-  const w = PSW.lakes.length ? psWaterAt(x, z, 4) : null; if (w != null && h < w + 1.2) c.lerp(_psG[2], .75);
+  const h = terrH[v], n1 = Math.sin(x*.021 + terrSeed)*Math.cos(z*.017 - terrSeed) + .5*Math.sin(x*.063 - z*.051), n2 = Math.sin(x*.0071 - z*.0093 + terrSeed*3), n3 = Math.sin(x*.11 + z*.13)*Math.sin(x*.07 - z*.09);
+  c.copy(_psG.g3).lerp(_psG.g1, smooth(-.8, .6, n1)).lerp(_psG.g2, .55*smooth(-.1, .9, n2)); c.lerp(_psG.dry, .32*smooth(.35, .95, n2*n1 + .3*n3));
+  c.lerp(_psG.forest, .5*smooth(.55, .95, psForest(x, z)));
+  const w = PSW.lakes.length ? psWaterAt(x, z, 7) : null; if (w != null) { const d = h - w; c.lerp(_psG.sand, .85*smooth(1.6, .25, d)); if (d < .1) c.lerp(_psG.wet, smooth(.1, -1, d)); }
   const i = v % TN, j = (v/TN) | 0, sl = i > 0 && i < TN - 1 && j > 0 && j < TN - 1 ? Math.hypot(terrH[v + 1] - terrH[v - 1], terrH[v + TN] - terrH[v - TN])/(2*TES) : 0;
-  if (h > 24 || sl > .7) c.lerp(_psG[3], Math.min(1, Math.max((h - 24)/12, (sl - .7)*2)));
-  if (h > 52) c.lerp(_psG[4], Math.min(1, (h - 52)/8));
-  if (((Math.floor(x/8) + Math.floor(z/8)) & 1) === 0) c.multiplyScalar(.97); return c;
+  const rk = Math.max(smooth(.5, .95, sl), smooth(24, 38, h)); if (rk > 0) c.lerp(_tc2.copy(_psG.rock).lerp(_psG.rock2, .5 + .5*n3), rk);
+  c.lerp(_psG.snow, smooth(48, 58, h + 6*n1)*(1 - smooth(.8, 1.3, sl)));
+  return c;
 }
+const _tc2 = new THREE.Color();
 function psSpawn(team){ const L = PSW.spawns[team === 'red' ? 'red' : 'blue']; const [x, z] = L.length ? L[Math.floor(Math.random()*L.length)] : [(team === 'red' ? 1 : -1)*ISL*.55, 0]; return V3(x, groundH(x, z) + .3, z); }
-/* ---------- the stream ---------- */
+/* ---------- the stream: no ceiling. c = bladder/100 (up to 1000). Faster, wider, harder for ever ---------- */
+const PS_MAXBL = 100000;
 const psPr = bl => Math.max(.04, bl/100);
-const psSpeed = c => 4 + 21*Math.pow(c, .8);   // 1x: 25 m/s, 3x: 53, 10x: 136, 30x: 323
-const psDmg = c => .1 + .4*Math.min(3, Math.sqrt(c)), psPush = c => .03 + .08*Math.min(3, c), psRad = c => .012 + .05*Math.min(3.2, Math.pow(c, .6));
+const psSpeed = c => c <= 10 ? 4 + 21*Math.pow(c, .8) : 136 + 34*Math.log2(c/10);   // 1x: 25 m/s, 10x: 136, 100x: 249, 1000x: 362
+const psDmg = c => .1 + .4*Math.sqrt(c), psPush = c => .03 + .08*Math.pow(c, .75), psRad = c => .012 + .05*Math.pow(c, .6);   // width: 1x 6 cm, 10x 21 cm, 100x 80 cm, 1000x 3.2 m
+const psFmt = bl => bl >= 9999.5 ? Math.round(bl/1000) + 'k%' : bl >= 999.5 ? (bl/1000).toFixed(1) + 'k%' : Math.round(bl) + '%';
 function psEmitter(P){ const b = P.remote ? P.root.position : P.body.position, f = P.face || 0; return V3(b.x + Math.sin(f)*.24, b.y + .88, b.z + Math.cos(f)*.24); }
-// a rival near the crosshair line: the stream goes for their chest
+// a rival (or an animal) near the crosshair line: the stream goes for them
 const _psCD = new THREE.Vector3();
 function psAssist(me){
   camera.getWorldDirection(_psCD); const o = camera.position, cands = PS.bots.filter(b => !b.dead).map(b => b.pos);
   for (const k of Object.keys(chars)) { const P = chars[k]; if (!P || P === me || P.alive === false || P.team === me.team) continue; cands.push(P.remote ? P.root.position : P.body.position); }
+  for (const a of PSA.list) if (a.st !== 'air') cands.push(a.pos);
   let best = null, bt = 1e9;
-  for (const c of cands) { const x = c.x - o.x, y = c.y + 1.1 - o.y, z = c.z - o.z, t = x*_psCD.x + y*_psCD.y + z*_psCD.z; if (t < 2 || t > 90) continue;
-    const px = x - _psCD.x*t, py = y - _psCD.y*t, pz = z - _psCD.z*t; if (Math.hypot(px, py, pz) < 1.1 + t*.035 && t < bt) { bt = t; best = V3(c.x, c.y + 1.1, c.z); } }
+  for (const c of cands) { const x = c.x - o.x, y = c.y + 1 - o.y, z = c.z - o.z, t = x*_psCD.x + y*_psCD.y + z*_psCD.z; if (t < 2 || t > 120) continue;
+    const px = x - _psCD.x*t, py = y - _psCD.y*t, pz = z - _psCD.z*t; if (Math.hypot(px, py, pz) < 1.1 + t*.03 && t < bt) { bt = t; best = V3(c.x, c.y + 1, c.z); } }
   return best ? {point:best} : null;
 }
-// the launch direction that lands the stream on the crosshair (the low arc), or the longest throw when it can't reach
-function psAim(me, pr){
-  const e = psEmitter(me), v = psSpeed(pr), h = psAssist(me) || crosshairHit(), lift = .55/(1 + 1.5*pr);
-  let T = h && h.point; if (!T) { const cd = new THREE.Vector3(); camera.getWorldDirection(cd); T = camera.position.clone().addScaledVector(cd, 400); }
+// the launch direction: the low arc onto the point when it can reach, else a real arc toward it (lifted less the stronger it is)
+function psSolve(e, T, v, lift){
   const dx = T.x - e.x, dz = T.z - e.z, D = Math.hypot(dx, dz), H = T.y - e.y, v2 = v*v, disc = v2*v2 - PS_G*(PS_G*D*D + 2*H*v2);
-  if (D < .6) return V3(Math.sin(G.yaw)*.8, -.6, Math.cos(G.yaw)*.8).normalize();
+  if (D < .6) return V3(dx || .01, -1, dz).normalize();
   const th = disc >= 0 ? Math.atan((v2 - Math.sqrt(disc))/(PS_G*D)) : clamp(Math.atan2(H, D) + lift, -.5, .75);
   return V3(dx/D*Math.cos(th), Math.sin(th), dz/D*Math.cos(th));
 }
+function psAim(me, pr){
+  const e = psEmitter(me), h = psAssist(me) || crosshairHit();
+  let T = h && h.point; if (!T) { const cd = new THREE.Vector3(); camera.getWorldDirection(cd); T = camera.position.clone().addScaledVector(cd, 400); }
+  if (Math.hypot(T.x - e.x, T.z - e.z) < .6) return V3(Math.sin(G.yaw)*.8, -.6, Math.cos(G.yaw)*.8).normalize();
+  return psSolve(e, T, psSpeed(pr), .55/(1 + 1.5*pr));
+}
+// where a stream from e lands (for the ultimates)
+function psImpact(e, d, v){
+  let x = e.x, y = e.y, z = e.z, vx = d.x*v, vy = d.y*v, vz = d.z*v; const h = Math.max(.01, Math.min(.05, 1.2/v));
+  for (let t = 0; t < 4; t += h) { vy -= PS_G*h; x += vx*h; y += vy*h; z += vz*h; if (Math.abs(x) > ISL || Math.abs(z) > ISL) break; const w = psWaterAt(x, z), g = groundH(x, z), f = w != null ? Math.max(w, g) : g; if (y <= f) return V3(x, f, z); }
+  return V3(clamp(x, -ISL, ISL), groundH(clamp(x, -ISL, ISL), clamp(z, -ISL, ISL)), clamp(z, -ISL, ISL));
+}
 const PSP = {list:[], mesh:null};
-const PST = {mesh:null, S:7};
+const PST = {mesh:null, S:9};
+const PSX = [];   // drops other effects want drawn this frame (tornado debris, rain, amber shards...)
 function psTubeMesh(){
   if (PST.mesh && PST.mesh.parent) return PST.mesh; const n = PS_MAXP*PST.S, g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n*3), 3).setUsage(THREE.DynamicDrawUsage)); g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(n*3), 3).setUsage(THREE.DynamicDrawUsage));
   g.setIndex(new THREE.BufferAttribute(new Uint32Array(n*6), 1).setUsage(THREE.DynamicDrawUsage)); g.setDrawRange(0, 0);
-  PST.mat = PST.mat || new THREE.MeshPhongMaterial({color:0xF2CF2E, emissive:0x3E2E00, specular:0xFFFFF0, shininess:110, transparent:true, opacity:.8, depthWrite:false});
+  PST.mat = PST.mat || new THREE.MeshPhongMaterial({color:0xF7D43E, emissive:0x4A3600, specular:0xFFFFF4, shininess:140, transparent:true, opacity:.78, depthWrite:false});
   PST.mesh = new THREE.Mesh(g, PST.mat);
-  PST.mesh.frustumCulled = false; PST.mesh.userData.noRay = true; roundGroup.add(PST.mesh); return PST.mesh;
+  PST.mesh.frustumCulled = false; PST.mesh.userData.noRay = true; psAdd(PST.mesh); return PST.mesh;
 }
 const PSS = [];   // splash drops
 function psDropMesh(){
-  if (PST.drops && PST.drops.parent) return PST.drops; PST.dgeo = PST.dgeo || new THREE.SphereGeometry(1, 6, 4);
-  PST.drops = new THREE.InstancedMesh(PST.dgeo, PST.mat, 3000); PST.drops.frustumCulled = false; PST.drops.userData.noRay = true; PST.drops.count = 0; roundGroup.add(PST.drops); return PST.drops;
+  if (PST.drops && PST.drops.parent) return PST.drops; PST.dgeo = PST.dgeo || new THREE.SphereGeometry(1, 8, 6);
+  PST.drops = new THREE.InstancedMesh(PST.dgeo, PST.mat, 4000); PST.drops.frustumCulled = false; PST.drops.userData.noRay = true; PST.drops.count = 0; psAdd(PST.drops); return PST.drops;
 }
 const _psUp = new THREE.Vector3(0, 1, 0), _psT = new THREE.Vector3(), _psA = new THREE.Vector3(), _psB = new THREE.Vector3(), _psM = new THREE.Matrix4(), _psQ = new THREE.Quaternion(), _psP = new THREE.Vector3(), _psS = new THREE.Vector3();
 function psDrop(D, n, x, y, z, vx, vy, vz, r){ const sp = Math.hypot(vx, vy, vz) || 1; _psT.set(vx/sp, vy/sp, vz/sp); _psQ.setFromUnitVectors(_psUp, _psT); _psM.compose(_psP.set(x, y, z), _psQ, _psS.set(r, r*(1 + Math.min(3, sp*.06)), r)); D.setMatrixAt(n, _psM); }
@@ -17467,11 +17433,12 @@ function psTubeFrame(){
   for (const p of PSP.list) { let a = by.get(p.own); if (!a) by.set(p.own, a = []); a.push(p); }
   let v = 0, ii = 0, nd = 0;
   for (const arr of by.values()) for (let k = 0; k < arr.length; k++) {
-    const p = arr[k], q = arr[k + 1], rad = psRad(p.pr);
-    if (p.t > p.br) { const u = (p.t - p.br)*.6; if (nd < 2900) psDrop(D, nd++, p.x + p.sx*u, p.y + p.sy*u*.5, p.z + p.sz*u, p.vx, p.vy, p.vz, rad*(.55 + .5*Math.abs(p.sy))); continue; }   // broken up: a drop
+    const p = arr[k], q = arr[k + 1], rad = p.rad;
+    if (p.t > p.br) { const u = (p.t - p.br)*(.6 + rad*.8); if (nd < 3800) psDrop(D, nd++, p.x + p.sx*u, p.y + p.sy*u*.5, p.z + p.sz*u, p.vx, p.vy, p.vz, rad*(.55 + .5*Math.abs(p.sy))); continue; }   // broken up: a drop
     if (v + S > PS_MAXP*S) continue;
     _psT.set(p.vx, p.vy, p.vz).normalize(); _psA.set(_psT.z, 0, -_psT.x); if (_psA.lengthSq() < 1e-6) _psA.set(1, 0, 0); _psA.normalize(); _psB.crossVectors(_psA, _psT);
-    const r = rad*(1 + .09*Math.sin(p.t*30 + p.ph))*Math.min(1, .6 + p.t*10)*(1 - .35*Math.min(1, p.t/p.br)), v0 = v;   // necking down before it breaks
+    // flares out from the body over a few widths (a huge beam doesn't start as a wall round you), wobbles, necks before it breaks
+    const r = rad*Math.min(1, .1 + p.t*p.v/(rad*7 + .3))*(1 + .09*Math.sin(p.t*30 + p.ph))*(1 - .35*Math.min(1, p.t/p.br)), v0 = v;
     for (let s2 = 0; s2 < S; s2++) { const a = s2/S*Math.PI*2, c = Math.cos(a), sn = Math.sin(a), nx = _psA.x*c + _psB.x*sn, ny = _psA.y*c + _psB.y*sn, nz = _psA.z*c + _psB.z*sn;
       P[v*3] = p.x + nx*r; P[v*3 + 1] = p.y + ny*r; P[v*3 + 2] = p.z + nz*r; N[v*3] = nx; N[v*3 + 1] = ny; N[v*3 + 2] = nz; v++; }
     if (q && q.t <= q.br && (q.x - p.x)**2 + (q.y - p.y)**2 + (q.z - p.z)**2 < p.gap*p.gap) for (let s2 = 0; s2 < S; s2++) { const a0 = v0 + s2, a1 = v0 + (s2 + 1)%S, b0 = a0 + S, b1 = a1 + S; I[ii++] = a0; I[ii++] = b0; I[ii++] = a1; I[ii++] = a1; I[ii++] = b0; I[ii++] = b1; }
@@ -17479,65 +17446,77 @@ function psTubeFrame(){
   // (an index past the last ring would read a stale vertex: drop quads that point beyond what was written)
   let jj = 0; for (let k = 0; k < ii; k += 3) if (I[k] < v && I[k + 1] < v && I[k + 2] < v) { I[jj++] = I[k]; I[jj++] = I[k + 1]; I[jj++] = I[k + 2]; }
   g.setDrawRange(0, jj); g.attributes.position.needsUpdate = g.attributes.normal.needsUpdate = g.index.needsUpdate = true;
-  for (const d of PSS) if (nd < 3000) psDrop(D, nd++, d.x, d.y, d.z, d.vx, d.vy, d.vz, d.r);
-  D.count = nd; D.instanceMatrix.needsUpdate = true;
+  for (const d of PSS) if (nd < 4000) psDrop(D, nd++, d.x, d.y, d.z, d.vx, d.vy, d.vz, d.r);
+  for (const d of PSX) if (nd < 4000) psDrop(D, nd++, d[0], d[1], d[2], d[3], d[4], d[5], d[6]);
+  PSX.length = 0; D.count = nd; D.instanceMatrix.needsUpdate = true;
 }
-function psSplash(x, y, z, vx, vz, c){ const n = Math.random() < .55 ? 1 + (Math.random() < .3*Math.min(3, c) ? 1 : 0) : 0;
-  for (let i = 0; i < n && PSS.length < 500; i++) { const a = Math.random()*Math.PI*2, h = .6 + Math.random()*1.4; PSS.push({x, y:y + .03, z, vx:Math.cos(a)*h + vx*.15, vy:1.2 + Math.random()*(1.5 + Math.min(3, c)), vz:Math.sin(a)*h + vz*.15, t:0, r:.02 + Math.random()*.025}); } }
-function psSplashFrame(dt){ for (let i = PSS.length - 1; i >= 0; i--) { const d = PSS[i]; d.t += dt; d.vy -= PS_G*dt; d.x += d.vx*dt; d.y += d.vy*dt; d.z += d.vz*dt; if (d.t > .9 || (d.vy < 0 && d.y < groundH(d.x, d.z))) PSS.splice(i, 1); } }
+function psSplash(x, y, z, vx, vz, c){ const k = Math.min(8, Math.pow(c, .3)), n = Math.random() < .55 ? 1 + Math.floor(Math.random()*k) : 0;
+  for (let i = 0; i < n && PSS.length < 700; i++) { const a = Math.random()*Math.PI*2, h = (.6 + Math.random()*1.4)*(1 + k*.4); PSS.push({x, y:y + .03, z, vx:Math.cos(a)*h + vx*.15, vy:1.2 + Math.random()*(1.5 + Math.min(3, c))*(1 + k*.3), vz:Math.sin(a)*h + vz*.15, t:0, r:(.02 + Math.random()*.025)*(1 + k*.5)}); } }
+function psSplashFrame(dt){ for (let i = PSS.length - 1; i >= 0; i--) { const d = PSS[i]; d.t += dt; d.vy -= PS_G*dt; d.x += d.vx*dt; d.y += d.vy*dt; d.z += d.vz*dt; if (d.t > 1.4 || (d.vy < 0 && d.y < groundH(d.x, d.z))) PSS.splice(i, 1); } }
+// key: whose stream this line is (a Hydra head is 'key#h1'); src: the player it comes from
 function psEmit(key, team, P, dir, pr, dt, S){
-  const rate = 55 + 60*Math.min(2, pr); S.acc = (S.acc || 0) + rate*dt; const e = psEmitter(P), v = psSpeed(pr), bv = P.remote ? (P.net ? V3(P.net.vx || 0, 0, P.net.vz || 0) : V3(0, 0, 0)) : V3(P.body.velocity.x, 0, P.body.velocity.z);
+  const rate = 55 + 60*Math.min(2, pr); S.acc = (S.acc || 0) + rate*dt; const e = psEmitter(P), v = psSpeed(pr), rad = psRad(pr), src = key.split('#')[0], bv = P.remote ? (P.net ? V3(P.net.vx || 0, 0, P.net.vz || 0) : V3(0, 0, 0)) : V3(P.body.velocity.x, 0, P.body.velocity.z);
   S.ph = S.ph || Math.random()*9; const br = .1 + .28*Math.min(4, pr);   // how long it holds together: a dribble breaks at once, a jet stays a jet
   while (S.acc >= 1 && PSP.list.length < PS_MAXP) { S.acc -= 1; const f = Math.min(dt, S.acc/rate), wb = .004 + .01*(1 - Math.min(1, pr)), wa = (G.t - f)*9 + S.ph, ox = Math.sin(wa)*wb, oy = Math.cos(wa*1.3)*wb;
-    const q = {x:e.x, y:e.y, z:e.z, vx:(dir.x + ox*dir.z)*v + bv.x, vy:(dir.y + oy)*v, vz:(dir.z - ox*dir.x)*v + bv.z, t:f, own:key, team, pr, dx:dir.x, dz:dir.z, ph:S.ph, gap:1.5 + 2.5*v/rate, br:br*(.8 + Math.random()*.4), sx:rr(-1, 1), sy:rr(-1, 1), sz:rr(-1, 1)};
+    const q = {x:e.x, y:e.y, z:e.z, vx:(dir.x + ox*dir.z)*v + bv.x, vy:(dir.y + oy)*v, vz:(dir.z - ox*dir.x)*v + bv.z, t:f, own:key, src, team, pr, v, rad, dx:dir.x, dz:dir.z, ph:S.ph, gap:1.5 + 2.5*v/rate, br:br*(.8 + Math.random()*.4), sx:rr(-1, 1), sy:rr(-1, 1), sz:rr(-1, 1)};
     q.x += q.vx*f; q.y += q.vy*f - PS_G*f*f/2; q.z += q.vz*f; q.vy -= PS_G*f; PSP.list.push(q); }   // spread over the frame: an even stream at any frame rate
 }
+// every point flies in small steps (a fast one moves metres a frame); it stops on a body, an animal, a trunk, a rock, the water or the ground
 function psParticlesFrame(dt){
   const me = localP(), meIn = me && me.alive !== false, mb = meIn ? me.body.position : null; let hitD = 0, hx = 0, hz = 0, by = null;
-  const keep = [];
-  for (const p of PSP.list) { const n = Math.min(16, Math.max(1, Math.ceil(Math.hypot(p.vx, p.vy, p.vz)*dt/.4))), h = dt/n; let gone = false;
+  psAnimalsGrid(); const keep = [];
+  for (const p of PSP.list) { const n = Math.min(24, Math.max(1, Math.ceil(Math.hypot(p.vx, p.vy, p.vz)*dt/.4))), h = dt/n, wr = Math.min(6, p.rad*.8); let gone = false;
     for (let k = 0; k < n && !gone; k++) { p.t += h; p.vy -= PS_G*h; p.x += p.vx*h; p.y += p.vy*h; p.z += p.vz*h;
       // a hit on me (on my screen) / on a rival (the host)
-      if (meIn && p.own !== G.localKey && p.team !== me.team && Math.abs(p.x - mb.x) < .5 && Math.abs(p.z - mb.z) < .5 && p.y > mb.y && p.y < mb.y + 1.95) { hitD += psDmg(p.pr); hx += p.dx*psPush(p.pr); hz += p.dz*psPush(p.pr); by = p.own; psSplash(p.x, p.y, p.z, -p.vx*.3, -p.vz*.3, p.pr); gone = true; break; }
-      if (PS.bots.length && psBotsHit(p)) { psSplash(p.x, p.y, p.z, -p.vx*.3, -p.vz*.3, p.pr); gone = true; break; }
+      if (meIn && p.src !== G.localKey && p.team !== me.team && Math.abs(p.x - mb.x) < .5 + wr && Math.abs(p.z - mb.z) < .5 + wr && p.y > mb.y - wr && p.y < mb.y + 1.95 + wr) { hitD += psDmg(p.pr); hx += p.dx*psPush(p.pr); hz += p.dz*psPush(p.pr); by = p.src; psSplash(p.x, p.y, p.z, -p.vx*.3, -p.vz*.3, p.pr); gone = true; break; }
+      if (PS.bots.length && psBotsHit(p, wr)) { psSplash(p.x, p.y, p.z, -p.vx*.3, -p.vz*.3, p.pr); gone = true; break; }
+      if (psAnimalsHit(p, wr) || psWorldHit(p, wr)) { psSplash(p.x, p.y, p.z, -p.vx*.3, -p.vz*.3, p.pr); gone = true; break; }
       const gy = groundH(p.x, p.z), w = psWaterAt(p.x, p.z), floor = w != null ? Math.max(w, gy) : gy;
-      if (p.y <= floor) { psSplash(p.x, floor, p.z, p.vx, p.vz, p.pr); if (w == null || w < gy) psPuddle(p.x, p.z, gy, .02 + .04*Math.min(2, p.pr)); gone = true; }
+      if (p.y <= floor) { psSplash(p.x, floor, p.z, p.vx, p.vz, p.pr); if (w == null || w < gy) psPuddle(p.x, p.z, gy, (.02 + .04*Math.min(2, p.pr))*(1 + Math.min(20, p.rad*4))); else psRipple(p.x, w, p.z, p.rad); gone = true; }
       else if (p.t > 4 || Math.abs(p.x) > ISL + 30 || Math.abs(p.z) > ISL + 30) gone = true; }
     if (!gone) keep.push(p); }
   PSP.list = keep; psSplashFrame(dt); psTubeFrame();
-  if (hitD > 0 && meIn) { painHurt(me, hitD, by); me.body.velocity.x += hx; me.body.velocity.z += hz; if (me.body.velocity.y < 1) me.body.velocity.y += Math.min(.3, hitD*.04); PS.soakT = Math.min(1.5, PS.soakT + hitD*.05); }
+  if (hitD > 0 && meIn) { painHurt(me, hitD, by); const L = Math.hypot(hx, hz), k = L > 30 ? 30/L : 1; me.body.velocity.x += hx*k; me.body.velocity.z += hz*k; if (me.body.velocity.y < 1) me.body.velocity.y += Math.min(.3 + L*.05, hitD*.04); PS.soakT = Math.min(1.5, PS.soakT + hitD*.05); }
 }
 // puddles where it lands (they fade)
 const PSD = {cells:new Map(), mat:null, geo:null};
 function psPuddle(x, z, gy, amt){
   const k = Math.round(x/1.6) + ',' + Math.round(z/1.6); let c = PSD.cells.get(k);
-  if (!c) { if (PSD.cells.size > 160) { const old = PSD.cells.keys().next().value; const o = PSD.cells.get(old); if (o.m.parent) o.m.parent.remove(o.m); PSD.cells.delete(old); }
-    PSD.mat = PSD.mat || new THREE.MeshPhongMaterial({color:0xD9B828, specular:0xFFFFF0, shininess:120, transparent:true, opacity:.38, depthWrite:false, polygonOffset:true, polygonOffsetFactor:-2});
-    PSD.geo = PSD.geo || new THREE.CircleGeometry(1, 14); const m = new THREE.Mesh(PSD.geo, PSD.mat), cx = Math.round(x/1.6)*1.6, cz = Math.round(z/1.6)*1.6, cy = groundH(cx, cz); m.quaternion.setFromUnitVectors(V3(0, 0, 1), V3(groundH(cx - 1, cz) - groundH(cx + 1, cz), 2, groundH(cx, cz - 1) - groundH(cx, cz + 1)).normalize()); m.position.set(cx, cy + .04, cz); m.scale.setScalar(.01); m.userData.noRay = true; roundGroup.add(m); c = {m, amt:0, t:0}; PSD.cells.set(k, c); }
-  c.amt = Math.min(6, c.amt + amt); c.t = 0; c.m.scale.setScalar(Math.min(1.3, .25 + Math.sqrt(c.amt)*.55));
+  if (!c) { if (PSD.cells.size > 220) { const old = PSD.cells.keys().next().value; const o = PSD.cells.get(old); if (o.m.parent) o.m.parent.remove(o.m); PSD.cells.delete(old); }
+    PSD.mat = PSD.mat || new THREE.MeshPhongMaterial({color:0xD9B828, specular:0xFFFFF0, shininess:160, transparent:true, opacity:.4, depthWrite:false, polygonOffset:true, polygonOffsetFactor:-2});
+    PSD.geo = PSD.geo || new THREE.CircleGeometry(1, 18); const m = new THREE.Mesh(PSD.geo, PSD.mat), cx = Math.round(x/1.6)*1.6, cz = Math.round(z/1.6)*1.6, cy = groundH(cx, cz); m.quaternion.setFromUnitVectors(V3(0, 0, 1), V3(groundH(cx - 1, cz) - groundH(cx + 1, cz), 2, groundH(cx, cz - 1) - groundH(cx, cz + 1)).normalize()); m.position.set(cx, cy + .04, cz); m.scale.setScalar(.01); m.userData.noRay = true; m.receiveShadow = true; psAdd(m); c = {m, amt:0, t:0}; PSD.cells.set(k, c); }
+  c.amt = Math.min(60, c.amt + amt); c.t = 0; c.m.scale.setScalar(Math.min(4, .25 + Math.sqrt(c.amt)*.55));
 }
 function psPuddlesFrame(dt){ for (const [k, c] of PSD.cells) { c.t += dt; if (c.t > 25) { c.m.scale.multiplyScalar(1 - dt*.6); if (c.m.scale.x < .05) { if (c.m.parent) c.m.parent.remove(c.m); PSD.cells.delete(k); } } } }
 /* ---------- the straw ---------- */
 function psStraw(key, P, on){
   let s = PS.straws[key]; if (!on) { if (s) { if (s.parent) s.parent.remove(s); delete PS.straws[key]; } return; }
   const b = P.remote ? P.root.position : P.body.position, w = psDrinkPoint(b); if (!w) { if (s && s.parent) s.visible = false; return; }
-  if (!s) { s = new THREE.Group(); PS.strawKit = PS.strawKit || [new THREE.CylinderGeometry(.035, .035, 1, 6, 1, true), new THREE.MeshLambertMaterial({color:0xFF5A8A}), new THREE.CylinderGeometry(.022, .022, 1, 6), new THREE.MeshBasicMaterial({color:0x7FD0FF})]; const K = PS.strawKit, tube = new THREE.Mesh(K[0], K[1]); tube.position.y = .5; s.add(tube);
-    const flow = new THREE.Mesh(K[2], K[3]); flow.position.y = .5; s.add(flow); s.userData.flow = flow; noRayAll(s); roundGroup.add(s); PS.straws[key] = s; }
+  if (!s) { s = new THREE.Group(); PS.strawKit = PS.strawKit || [new THREE.CylinderGeometry(.035, .035, 1, 8, 1, true), new THREE.MeshPhongMaterial({color:0xFF5A8A, shininess:80}), new THREE.CylinderGeometry(.022, .022, 1, 6), new THREE.MeshBasicMaterial({color:0x9FDCFF})]; const K = PS.strawKit, tube = new THREE.Mesh(K[0], K[1]); tube.position.y = .5; s.add(tube);
+    const flow = new THREE.Mesh(K[2], K[3]); flow.position.y = .5; s.add(flow); s.userData.flow = flow; noRayAll(s); psAdd(s); PS.straws[key] = s; }
   s.visible = true; const f = P.face, mouth = V3(b.x + Math.sin(f)*.22, b.y + 1.52, b.z + Math.cos(f)*.22), d = w.clone().sub(mouth), L = d.length();
   s.position.copy(mouth); s.quaternion.setFromUnitVectors(_psUp, d.clone().normalize()); s.scale.set(1, L, 1); s.userData.flow.scale.y = .3 + .7*((G.t*3) % 1);
 }
-/* ---------- the local player: drink, piss, overflow ---------- */
+/* ---------- the local player: drink (ever faster, up to 100 000 %), piss (it drains as fast as it is strong) ---------- */
 function psLocalFrame(dt){
-  const me = localP(); if (!me || me.alive === false) { PS.peeing = PS.drinking = false; PS.gulpT = 0; return; }
+  const me = localP(); if (!me || me.alive === false) { if (PS.peeing) psUltEnd(G.localKey); PS.peeing = PS.drinking = false; PS.gulpT = 0; PS.ult = 0; return; }
   { const b = me.body, w = psWaterAt(b.position.x, b.position.z); if (w != null && b.position.y < w - 1.25) { b.velocity.y = Math.max(b.velocity.y, Math.min(6, (w - 1.25 - b.position.y)*5)); b.velocity.x *= .97; b.velocity.z *= .97; me.slowT = Math.max(me.slowT || 0, .1); } }   /* swimming */
+  if (PS.frozenT > 0) { PS.frozenT -= dt; me.body.velocity.x = me.body.velocity.z = 0; me.slowT = Math.max(me.slowT || 0, .2); }   /* sealed in amber */
   const near = psDrinkPoint(me.body.position);
-  PS.drinking = PS.wantDrink && !!near && !PS.wantPee;
-  if (PS.drinking) { PS.gulpT = (PS.gulpT || 0) + dt; PS.bl += 25*(1 + Math.min(5, PS.gulpT*1.2))*dt; me.slowT = Math.max(me.slowT || 0, .15); PS.sipT -= dt; if (PS.sipT <= 0) { PS.sipT = .7; psGlug(); } }   // 25 %/s, up to 150 %/s
-  else PS.gulpT = 0;
-  PS.peeing = PS.wantPee && !PS.drinking && PS.bl > .5;
+  PS.drinking = PS.wantDrink && !!near && !PS.wantPee && PS.bl < PS_MAXBL;
+  if (PS.drinking) { PS.gulpT = (PS.gulpT || 0) + dt; const was = PS.bl; PS.gulpR = Math.min(25000, 25*Math.pow(1.65, PS.gulpT)); PS.bl = Math.min(PS_MAXBL, PS.bl + PS.gulpR*dt);   // 25 %/s, x1.65 every second: 100 000 % in about 15 s
+    me.slowT = Math.max(me.slowT || 0, .15); PS.sipT -= dt; if (PS.sipT <= 0) { PS.sipT = Math.max(.18, .7 - PS.gulpT*.04); psGlug(); } psUltCheck(was, PS.bl); }
+  else { PS.gulpT = 0; PS.gulpR = 0; }
+  const was = PS.peeing; PS.peeing = PS.wantPee && !PS.drinking && PS.bl > .5;
+  if (PS.peeing && !was) PS.ult = Math.min(10, Math.floor(PS.bl/10000));   // the ultimate is the charge you start with
+  if (!PS.peeing && was) { psUltEnd(G.localKey); PS.ult = 0; }
   if (PS.peeing) { PS.pr = psPr(PS.bl); PS.dir = psAim(me, PS.pr);
-    me.face = Math.atan2(PS.dir.x, PS.dir.z) - .75;   // turned toward the camera's shoulder: you see it leave you PS.bl = Math.max(0, PS.bl - (2 + 9*Math.pow(PS.pr, .6))*dt);
-    psEmit(G.localKey, me.team, me, PS.dir, PS.pr, dt, PS.streams[G.localKey] = PS.streams[G.localKey] || {}); }
+    // turned toward the camera's shoulder: you see it leave you
+    me.face = Math.atan2(PS.dir.x, PS.dir.z) - .75;
+    PS.bl = Math.max(0, PS.bl - (3 + .08*PS.bl)*dt);   // it drains as fast as it is strong: 100 % lasts ~9 s, 100 000 % about a minute
+    if (PS.pr > 50) { const k = Math.min(10, (PS.pr - 50)*.01)*dt; me.body.velocity.x -= PS.dir.x*k; me.body.velocity.z -= PS.dir.z*k; }   // a beam that big pushes you back
+    psEmit(G.localKey, me.team, me, PS.dir, PS.pr, dt, PS.streams[G.localKey] = PS.streams[G.localKey] || {});
+    if (PS.ult) psUltFrame(G.localKey, me, PS.dir, PS.pr, PS.ult, me.team, dt); }
   psStraw(G.localKey, me, PS.drinking); psSound(PS.peeing ? PS.pr : 0);
 }
 // only the player's own hand lets it out: a release anywhere (or leaving the window) stops it
@@ -17545,83 +17524,102 @@ addEventListener('mouseup', () => { PS.wantPee = false; }, true);
 addEventListener('blur', () => { PS.wantPee = PS.wantDrink = false; });
 document.addEventListener('visibilitychange', () => { if (document.hidden) PS.wantPee = PS.wantDrink = false; });
 // what everyone else sees of me (rides on the player state)
-function psState(){ const d = PS.dir; return [PS.peeing ? 1 : 0, +d.x.toFixed(3), +d.y.toFixed(3), +d.z.toFixed(3), +PS.pr.toFixed(2), PS.drinking ? 1 : 0]; }
-function psNet(id, s){ if (!Array.isArray(s)) return; const S = PS.streams[id] = PS.streams[id] || {}; S.on = !!s[0]; S.dir = V3(+s[1] || 0, +s[2] || 0, +s[3] || 1).normalize(); S.pr = clamp(+s[4] || 0, 0, 200); S.drink = !!s[5]; S.t = G.t; }
+function psState(){ const d = PS.dir; return [PS.peeing ? 1 : 0, +d.x.toFixed(3), +d.y.toFixed(3), +d.z.toFixed(3), +PS.pr.toFixed(2), PS.drinking ? 1 : 0, PS.peeing ? PS.ult : 0]; }
+function psNet(id, s){ if (!Array.isArray(s)) return; const S = PS.streams[id] = PS.streams[id] || {}; S.on = !!s[0]; S.dir = V3(+s[1] || 0, +s[2] || 0, +s[3] || 1).normalize(); S.pr = clamp(+s[4] || 0, 0, 1000); S.drink = !!s[5]; S.ult = clamp(Math.floor(+s[6] || 0), 0, 10); S.t = G.t; }
 function psRemoteFrame(dt){
-  for (const k in PS.streams) { if (k === G.localKey) continue; const S = PS.streams[k], P = chars[k];
+  for (const k in PS.streams) { if (k === G.localKey || k.includes('#')) continue; const S = PS.streams[k], P = chars[k];
     if (!P || P.alive === false || G.t - (S.t || 0) > 1) { S.on = false; S.drink = false; }
-    if (P && S.on) { P.face = Math.atan2(S.dir.x, S.dir.z); psEmit(k, P.team, P, S.dir, S.pr, dt, S); }
+    if (P && S.on) { P.face = Math.atan2(S.dir.x, S.dir.z); psEmit(k, P.team, P, S.dir, S.pr, dt, S); if (S.ult) psUltFrame(k, P, S.dir, S.pr, S.ult, P.team, dt); else if (PSUA[k]) psUltEnd(k); }
+    else if (PSUA[k]) psUltEnd(k);
     if (P) psStraw(k, P, !!S.drink); else psStraw(k, null, false); }
 }
-// the stream's sound: hiss through a band-pass, pitch and loudness with the pressure
+// the stream's sound: a quiet low trickle (deeper and fuller with the charge); a soft glug when drinking
 function psSound(pr){
   if (!actx || muted) { if (PS.snd) PS.snd.g.gain.value = 0; return; }
   if (!PS.snd) { const len = actx.sampleRate*2, buf = actx.createBuffer(1, len, actx.sampleRate), d = buf.getChannelData(0); let b = 0; for (let i = 0; i < len; i++) { b = b*.97 + (Math.random()*2 - 1)*.03; d[i] = b*6; }   // soft brown-ish noise
     const src = actx.createBufferSource(); src.buffer = buf; src.loop = true; const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = .4; const g = actx.createGain(); g.gain.value = 0;
     src.connect(f); f.connect(g); g.connect(actx.destination); src.start(); PS.snd = {src, f, g}; }
-  const t = actx.currentTime, c = Math.min(3, pr); PS.snd.g.gain.setTargetAtTime(pr > 0 ? .012 + .012*c : 0, t, .15); PS.snd.f.frequency.setTargetAtTime(350 + 250*c, t, .2);
+  const t = actx.currentTime, c = Math.min(3, pr), big = Math.min(1, Math.log10(Math.max(1, pr))/3); PS.snd.g.gain.setTargetAtTime(pr > 0 ? .012 + .012*c + .02*big : 0, t, .15); PS.snd.f.frequency.setTargetAtTime(350 + 250*c - 380*big, t, .2);
 }
 function psGlug(){
   if (!actx || muted) return; const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine';
-  o.frequency.setValueAtTime(210 + Math.random()*40, t); o.frequency.exponentialRampToValueAtTime(95, t + .13); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.035, t + .02); g.gain.exponentialRampToValueAtTime(.001, t + .16);
+  o.frequency.setValueAtTime(210 + Math.random()*40, t); o.frequency.exponentialRampToValueAtTime(95, t + .13); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.03, t + .02); g.gain.exponentialRampToValueAtTime(.001, t + .16);
   o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + .18);
+}
+// a soft low boom for the big ultimates (quiet: the stream is the show, not the noise)
+function psThump(k){
+  if (!actx || muted) return; const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine';
+  o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(32, t + .6); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.05*(k || 1), t + .03); g.gain.exponentialRampToValueAtTime(.001, t + .8);
+  o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + .85);
 }
 /* ---------- rival pissers (alone: practice) ---------- */
 function psBotsMake(n){
   PS.bots = []; for (let i = 0; i < n; i++) { const root = new THREE.Group(), rig = new THREE.Group(); root.add(rig); const body = akaBody('red', CHARS[(i + 1) % LOOK_COUNT], rig); noRayAll(root); roundGroup.add(root);
     const b = {id:i, key:'PB' + i, name:pick(['Sir Leaks-a-Lot', 'Captain Tinkle', 'Old Faithful', 'The Fire Hose', 'Lil Drizzle', 'Niagara', 'Whiz Kid', 'Golden Boy'].filter(q => !PS.bots.some(o => o.name === q))),
-      root, rig, legs:body.legs, arms:body.arms, pos:V3(0, 0, 0), face:0, hp:100, bl:40 + Math.random()*50, st:'wander', tgt:null, t:Math.random()*5, dead:false, respT:0, peeT:0, S:{}, team:'red', dir:V3(0, 0, 1), think:0, push:V3(0, 0, 0), err:V3(0, 0, 0), peeT:0};
+      root, rig, legs:body.legs, arms:body.arms, pos:V3(0, 0, 0), face:0, hp:100, bl:40 + Math.random()*50, st:'wander', tgt:null, t:Math.random()*5, dead:false, respT:0, S:{}, team:'red', dir:V3(0, 0, 1), think:0, push:V3(0, 0, 0), err:V3(0, 0, 0), peeT:0, yo:0, vy:0, frozenT:0};
     psBotSpawn(b); PS.bots.push(b); }
 }
-function psBotSpawn(b){ const s = psSpawn('red'); b.pos.set(s.x + rr(-4, 4), 0, s.z + rr(-4, 4)); b.pos.y = groundH(b.pos.x, b.pos.z); b.hp = 100; b.bl = 40 + Math.random()*40; b.dead = false; b.root.visible = true; b.st = 'wander'; b.tgt = null; }
-function psBotsHit(p){
-  for (const b of PS.bots) { if (b.dead || p.team === b.team || Math.abs(p.x - b.pos.x) > .55 || Math.abs(p.z - b.pos.z) > .55 || p.y < b.pos.y || p.y > b.pos.y + 1.95) continue;
-    b.hp -= psDmg(p.pr); b.push.x += p.dx*psPush(p.pr); b.push.z += p.dz*psPush(p.pr); b.hitT = .15;
-    if (b.hp <= 0 && !b.dead) { b.dead = true; b.respT = 4; b.root.visible = false; puff(V3(b.pos.x, b.pos.y + 1, b.pos.z), 0xF2D640, 1.2); sfx('pop'); if (p.own === G.localKey) { PS.kills++; toast(`💦 You soaked ${b.name}! (${PS.kills})`); } }
-    return true; }
+function psBotSpawn(b){ const s = psSpawn('red'); b.pos.set(s.x + rr(-4, 4), 0, s.z + rr(-4, 4)); b.pos.y = groundH(b.pos.x, b.pos.z); b.hp = 100; b.bl = 40 + Math.random()*40; b.dead = false; b.root.visible = true; b.st = 'wander'; b.tgt = null; b.yo = b.vy = 0; b.frozenT = 0; b.push.set(0, 0, 0); }
+// damage and shove a rival; src = who did it (the kill counts for them)
+function psBotHurt(b, dmg, vx, vy, vz, src){
+  if (b.dead) return; b.hp -= dmg; b.push.x = clamp(b.push.x + vx, -60, 60); b.push.z = clamp(b.push.z + vz, -60, 60); if (vy > 0) { b.vy = Math.min(40, Math.max(b.vy, 0) + vy); b.yo = Math.max(b.yo, .05); } b.hitT = .15;
+  if (b.hp <= 0) { b.dead = true; b.respT = 4; b.root.visible = false; psSplash(b.pos.x, b.pos.y + 1, b.pos.z, 0, 0, 3); if (src === G.localKey) { PS.kills++; toast(`💦 You soaked ${b.name}! (${PS.kills})`); } }
+}
+function psBotsHit(p, wr){
+  for (const b of PS.bots) { if (b.dead || p.team === b.team || Math.abs(p.x - b.pos.x) > .55 + wr || Math.abs(p.z - b.pos.z) > .55 + wr || p.y < b.pos.y + b.yo - wr || p.y > b.pos.y + b.yo + 1.95 + wr) continue;
+    psBotHurt(b, psDmg(p.pr), p.dx*psPush(p.pr), p.pr > 20 ? psPush(p.pr)*.05 : 0, p.dz*psPush(p.pr), p.src); return true; }
   return false;
 }
 function psBotsFrame(dt){
   const me = localP();
   for (const b of PS.bots) {
     if (b.dead) { b.respT -= dt; if (b.respT <= 0) psBotSpawn(b); continue; }
-    b.t += dt; b.think -= dt; const p = b.pos;
+    b.t += dt; b.think -= dt; const p = b.pos; if (b.frozenT > 0) b.frozenT -= dt;
     // decide: thirsty -> the nearest water; full enough -> the nearest enemy (me) in sight; else wander
     if (b.think <= 0) { b.think = .5 + Math.random()*.4;
       const foe = me && me.alive !== false ? me.body.position : null, dF = foe ? Math.hypot(foe.x - p.x, foe.z - p.z) : 1e9;
       if (b.bl < 25 && b.st !== 'drink') { b.st = 'thirst'; let best = null, bd = 1e9; for (const L of PSW.lakes) { const d = Math.hypot(L.x - p.x, L.z - p.z) - L.r; if (d < bd) { bd = d; best = V3(L.x, 0, L.z); } } const r = psRiverNear(p.x, p.z); if (r.d < bd) best = V3(r.x, 0, r.z); b.tgt = best; }
       else if (b.st !== 'thirst' && b.st !== 'drink' && foe && dF < 70) { b.st = 'hunt'; b.tgt = foe.clone(); }
       else if (b.st === 'hunt' || (b.st === 'wander' && (!b.tgt || Math.hypot(b.tgt.x - p.x, b.tgt.z - p.z) < 4))) { b.st = 'wander'; b.tgt = V3(clamp(p.x + rr(-60, 60), -ISL*.7, ISL*.7), 0, clamp(p.z + rr(-60, 60), -ISL*.7, ISL*.7)); } }
-    let move = 0, pee = false;
-    if (b.st === 'thirst') { const w = psDrinkPoint(p); if (w) { b.st = 'drink'; } else move = 4.5; }
-    if (b.st === 'drink') { b.bl += 40*dt; if (b.bl >= (b.goal || 150)) { b.st = 'wander'; b.tgt = null; b.goal = 100 + Math.random()*300; } }
-    if (b.st === 'hunt' && b.tgt) { const pr = psPr(b.bl), reach = Math.max(4, (psSpeed(pr)**2)/PS_G*.75), d = Math.hypot(b.tgt.x - p.x, b.tgt.z - p.z); if (d > reach*.9) { move = 5.5; b.peeT = 0; } else if (b.bl > 2) { b.peeT = (b.peeT || 0) + dt; pee = b.peeT % 2.8 < 1.6; } if (me && me.alive !== false) b.tgt.copy(me.body.position); }
-    if (b.st === 'wander') move = 3;
-    if (move && b.tgt) { const dx = b.tgt.x - p.x, dz = b.tgt.z - p.z, L = Math.hypot(dx, dz) || 1; b.face = Math.atan2(dx, dz); const sp = move*(b.bl > 100 ? .6 : 1); p.x += dx/L*sp*dt; p.z += dz/L*sp*dt; }
-    p.x = clamp(p.x + b.push.x*dt, -ISL + 10, ISL - 10); p.z = clamp(p.z + b.push.z*dt, -ISL + 10, ISL - 10); b.push.multiplyScalar(Math.exp(-4*dt)); { const w = psWaterAt(p.x, p.z); p.y = Math.max(groundH(p.x, p.z), w != null ? w - 1.3 : -1e9); }
+    let move = 0, pee = false; const stuck = b.frozenT > 0 || b.yo > 0;
+    if (!stuck) {
+      if (b.st === 'thirst') { const w = psDrinkPoint(p); if (w) { b.st = 'drink'; } else move = 4.5; }
+      if (b.st === 'drink') { b.bl += 40*dt; if (b.bl >= (b.goal || 150)) { b.st = 'wander'; b.tgt = null; b.goal = 100 + Math.random()*300; } }
+      if (b.st === 'hunt' && b.tgt) { const pr = psPr(b.bl), reach = Math.max(4, (psSpeed(pr)**2)/PS_G*.75), d = Math.hypot(b.tgt.x - p.x, b.tgt.z - p.z); if (d > reach*.9) { move = 5.5; b.peeT = 0; } else if (b.bl > 2) { b.peeT = (b.peeT || 0) + dt; pee = b.peeT % 2.8 < 1.6; } if (me && me.alive !== false) b.tgt.copy(me.body.position); }
+      if (b.st === 'wander') move = 3;
+      if (move && b.tgt) { const dx = b.tgt.x - p.x, dz = b.tgt.z - p.z, L = Math.hypot(dx, dz) || 1; b.face = Math.atan2(dx, dz); p.x += dx/L*move*dt; p.z += dz/L*move*dt; } }
+    p.x = clamp(p.x + b.push.x*dt, -ISL + 10, ISL - 10); p.z = clamp(p.z + b.push.z*dt, -ISL + 10, ISL - 10); b.push.multiplyScalar(Math.exp(-(b.yo > 0 ? .6 : 4)*dt)); { const w = psWaterAt(p.x, p.z); p.y = Math.max(groundH(p.x, p.z), w != null ? w - 1.3 : -1e9); }
+    if (b.yo > 0) { b.vy -= PS_G*dt; b.yo += b.vy*dt; if (b.yo <= 0) { b.yo = 0; b.vy = 0; } }   // thrown into the air
     if (pee && me) { const pr = psPr(b.bl), e = V3(p.x, p.y + .92, p.z), T = me.body.position, dx = T.x - e.x, dz = T.z - e.z, D = Math.hypot(dx, dz) || 1, H = T.y + 1 - e.y, v = psSpeed(pr), v2 = v*v, disc = v2*v2 - PS_G*(PS_G*D*D + 2*H*v2);
       const th = disc >= 0 ? Math.atan((v2 - Math.sqrt(disc))/(PS_G*D)) + b.err.y : .7, a = Math.atan2(dx, dz) + b.err.x; if (Math.random() < dt*1.5) b.err.set(rr(-.09, .09), rr(-.06, .06), 0); b.dir.set(Math.sin(a)*Math.cos(th), Math.sin(th), Math.cos(a)*Math.cos(th)); b.face = a;
       b.bl = Math.max(0, b.bl - (2.5 + 12*pr)*dt); psEmit(b.key, b.team, {remote:true, root:{position:p}, face:b.face, net:null}, b.dir, pr, dt, b.S); }
-    // the body: walk, lean back while pissing, sip at the water
-    b.root.position.copy(p); b.root.rotation.y = b.face; const w = move ? Math.sin(b.t*9)*.6 : 0; b.legs[0].rotation.x = w; b.legs[1].rotation.x = -w;
-    b.arms.forEach((a, i) => a.rotation.x = pee ? -.9 : move ? -w*(i ? -1 : 1) : 0); b.rig.rotation.x = pee ? -.16 : b.st === 'drink' ? .35 : 0;
-    psStraw(b.key, {remote:true, root:{position:p}, face:b.face}, b.st === 'drink');
+    // the body: walk, lean back while pissing, sip at the water; tumbling when thrown
+    b.root.position.set(p.x, p.y + b.yo, p.z); b.root.rotation.y = b.face; const w = move ? Math.sin(b.t*9)*.6 : 0; b.legs[0].rotation.x = w; b.legs[1].rotation.x = -w;
+    b.arms.forEach((a, i) => a.rotation.x = pee ? -.9 : move ? -w*(i ? -1 : 1) : 0); b.rig.rotation.x = b.yo > 0 ? b.t*9 : pee ? -.16 : b.st === 'drink' ? .35 : 0;
+    psStraw(b.key, {remote:true, root:{position:p}, face:b.face}, b.st === 'drink' && !stuck);
   }
 }
-/* ---------- the HUD: the bladder bottle ---------- */
+/* ---------- the HUD: the bladder bottle (log scale past 100 %), the ultimates found so far ---------- */
 function psHud(on){
   let el = $('psHud'); if (!on) { if (el) el.style.display = 'none'; const s = $('psSoak'); if (s) s.style.display = 'none'; return; }
-  if (!el) { el = document.createElement('div'); el.id = 'psHud'; el.style.cssText = 'position:fixed;right:18px;top:50%;transform:translateY(-50%);z-index:20;pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:6px;font:800 13px Nunito,system-ui,sans-serif;color:#fff;text-shadow:0 2px 3px #000';
-    el.innerHTML = `<div id="psLbl" style="font-size:14px">💧 Bladder</div><div style="position:relative;width:46px;height:190px;border:3px solid #fff;border-radius:14px 14px 18px 18px;background:rgba(0,0,0,.35);overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,.4)"><div id="psFill" style="position:absolute;left:0;right:0;bottom:0;height:0;background:linear-gradient(180deg,#FFF27A,#E8C020)"></div><div style="position:absolute;left:0;right:0;top:${190*(1 - 100/130)}px;border-top:2px dashed rgba(255,255,255,.8)"></div></div><div id="psPct" style="font-size:20px">0%</div><div id="psPr" style="font-size:12px;opacity:.95"></div><div id="psK" style="font-size:12px;opacity:.9"></div>`;
+  if (!el) { el = document.createElement('div'); el.id = 'psHud'; el.style.cssText = 'position:fixed;right:18px;top:50%;transform:translateY(-50%);z-index:20;pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:6px;font:800 13px Nunito,system-ui,sans-serif;color:#fff;text-shadow:0 2px 4px rgba(0,0,0,.6)';
+    const ticks = [100, 1000, 10000, 100000].map(v => `<div style="position:absolute;left:0;right:0;bottom:${psFillH(v)}%;border-top:1px solid rgba(255,255,255,.55)"></div>`).join('');
+    el.innerHTML = `<div id="psLbl" style="font-size:14px">💧 Bladder</div><div style="position:relative;width:44px;height:200px;border:2px solid rgba(255,255,255,.9);border-radius:16px 16px 20px 20px;background:linear-gradient(180deg,rgba(255,255,255,.12),rgba(0,0,0,.28));overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,.35), inset 0 0 12px rgba(255,255,255,.15);backdrop-filter:blur(3px)"><div id="psFill" style="position:absolute;left:0;right:0;bottom:0;height:0;transition:height .12s"></div>${ticks}<div style="position:absolute;left:5px;top:6px;width:6px;bottom:10px;border-radius:4px;background:linear-gradient(180deg,rgba(255,255,255,.55),rgba(255,255,255,0))"></div></div><div id="psPct" style="font-size:20px;letter-spacing:.5px">0%</div><div id="psPr" style="font-size:12px;opacity:.95;max-width:150px;text-align:center"></div><div id="psUlt" style="display:grid;grid-template-columns:repeat(5,22px);gap:3px;margin-top:2px"></div><div id="psUltN" style="font-size:11px;opacity:.95;max-width:160px;text-align:center"></div><div id="psK" style="font-size:12px;opacity:.9"></div>`;
     document.body.appendChild(el);
     const s = document.createElement('div'); s.id = 'psSoak'; s.style.cssText = 'position:fixed;inset:0;z-index:15;pointer-events:none;background:radial-gradient(ellipse at center, rgba(240,210,40,0) 40%, rgba(240,210,40,.55) 100%);opacity:0'; document.body.appendChild(s); }
-  el.style.display = 'flex'; $('psSoak').style.display = 'block';
+  el.style.display = 'flex'; $('psSoak').style.display = 'block'; PS.hudUlt = -1;
 }
+const psFillH = bl => bl <= 100 ? bl*.4 : 40 + 60*Math.log10(bl/100)/3;
 function psHudFrame(){
-  const el = $('psHud'); if (!el) return; const bl = PS.bl; $('psFill').style.height = Math.min(100, bl) + '%'; $('psFill').style.background = bl > 1000 ? 'linear-gradient(180deg,#FFFFFF,#9AF0FF)' : bl > 300 ? 'linear-gradient(180deg,#FFB040,#E8401E)' : bl > 100 ? 'linear-gradient(180deg,#FFD84A,#E89A20)' : 'linear-gradient(180deg,#FFF27A,#E8C020)';
-  $('psPct').textContent = Math.round(bl) + '%'; const pr = psPr(bl);
-  $('psPr').textContent = bl < 8 ? '💧 Dribble' : pr < .45 ? '🚿 Steady' : pr < .9 ? '💦 Strong' : pr < 2 ? '🚒 Fire hose' : pr < 5 ? '🌊 Pressure washer' : pr < 12 ? '⚡ LASER' : '☄️ UNGODLY';
+  const el = $('psHud'); if (!el) return; const bl = PS.bl, pr = psPr(bl); $('psFill').style.height = psFillH(bl) + '%';
+  $('psFill').style.background = bl > 50000 ? 'linear-gradient(180deg,#FFFFFF,#FFE27A 40%,#FF9A1E)' : bl > 10000 ? 'linear-gradient(180deg,#FFF6C8,#FFC21E)' : bl > 1000 ? 'linear-gradient(180deg,#FFE9A0,#F0A21E)' : bl > 100 ? 'linear-gradient(180deg,#FFE680,#E8B020)' : 'linear-gradient(180deg,#FFF27A,#E8C020)';
+  $('psPct').textContent = psFmt(bl);
+  $('psPr').textContent = PS.drinking && PS.gulpR > 200 ? `🥤 Gulping ${psFmt(PS.gulpR)}/s` : bl < 8 ? '💧 Dribble' : pr < .45 ? '🚿 Steady' : pr < .9 ? '💦 Strong' : pr < 2 ? '🚒 Fire hose' : pr < 5 ? '🌊 Pressure washer' : pr < 12 ? '⚡ Laser' : pr < 40 ? '☄️ Ungodly' : pr < 100 ? '🌋 Cataclysm' : '✨ ULTIMATE';
   const me = localP(), near = me && psDrinkPoint(me.body.position); $('psLbl').textContent = PS.drinking ? '🥤 Slurp…' : near ? '🥤 Hold E: drink' : '💧 Bladder';
+  const tier = PS.peeing ? PS.ult : Math.min(10, Math.floor(bl/10000)), key = tier*100 + PSU_FOUND.filter(Boolean).length;
+  if (key !== PS.hudUlt) { PS.hudUlt = key;
+    $('psUlt').innerHTML = PSU_DEFS.map((u, i) => `<div title="${PSU_FOUND[i] ? u.n : '???'} (${(i + 1)*10}k%)" style="width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font-size:13px;background:${i + 1 === tier ? 'rgba(255,214,60,.9)' : 'rgba(0,0,0,.3)'};box-shadow:${i + 1 === tier ? '0 0 10px #FFD83C' : 'none'};opacity:${PSU_FOUND[i] || i + 1 <= tier ? 1 : .55}">${PSU_FOUND[i] ? u.e : '🔒'}</div>`).join('');
+    $('psUltN').textContent = tier ? `${PSU_DEFS[tier - 1].e} ${PSU_DEFS[tier - 1].n}${PS.peeing ? '' : ' ready'}` : `next secret at ${(Math.floor(bl/10000) + 1)*10}k%`; }
   $('psK').textContent = PS.bots.length ? `💦 ${PS.kills} · 😵 ${PS.deaths}` : '';
   PS.soakT = Math.max(0, PS.soakT - .02); $('psSoak').style.opacity = Math.min(.9, PS.soakT);
 }
@@ -17633,19 +17631,573 @@ function psTray(t){
 }
 /* ---------- start, every frame, input ---------- */
 function psStart(){
-  PS.bl = 45; PS.wantPee = PS.wantDrink = PS.drinking = PS.peeing = false; PS.gulpT = 0; PSS.length = 0; PST.drops = null; PS.streams = {}; PS.kills = PS.deaths = 0; PS.soakT = 0; PS.straws = {}; PSP.list = []; PST.mesh = null; PSD.cells = new Map();
-  psBuildMap(); psHud(true); if (!NET.peer) psBotsMake(5); else PS.bots = [];
-  toast(NET.peer ? `💦 Piss Wars! Drink at any water (hold E), piss with Click. First team to ${PS_WIN} soakings wins.` : '💦 Piss Wars practice: 5 rival pissers. Hold E at water to drink, hold Click to piss. The fuller you are, the harder it goes.');
+  PS.bl = 45; PS.wantPee = PS.wantDrink = PS.drinking = PS.peeing = false; PS.gulpT = 0; PS.ult = 0; PS.frozenT = 0; PSS.length = 0; PSX.length = 0; PST.drops = null; PS.streams = {}; PS.kills = PS.deaths = 0; PS.soakT = 0; PS.straws = {}; PSP.list = []; PST.mesh = null; PSD.cells = new Map();
+  psLook(true); psBuildMap(); psHud(true); if (!NET.peer) psBotsMake(5); else PS.bots = [];
+  toast(NET.peer ? `💦 Piss Wars! Drink at any water (hold E), piss with Click. First team to ${PS_WIN} soakings wins.` : '💦 Piss Wars: hold E at water to drink (it speeds up), hold Click to piss. No limit: every 10 000 % hides a secret ultimate.');
 }
 function psFrame(dt){
   if (!psOn()) { if (PS.snd) PS.snd.g.gain.value = 0; return; }
   if (G.phase !== 'attack') return;
-  psLocalFrame(dt); psRemoteFrame(dt); if (PS.bots.length) psBotsFrame(dt); psParticlesFrame(dt); psPuddlesFrame(dt); psHudFrame();
-  if (PS.wmat && PS.wmat.map) { PS.wmat.map.offset.x += dt*.01; PS.wmat.map.offset.y += dt*.006; } if (PS.rmat && PS.rmat.map) PS.rmat.map.offset.y -= dt*.25;
+  psLocalFrame(dt); psRemoteFrame(dt); if (PS.bots.length) psBotsFrame(dt); psWorldFrame(dt); psParticlesFrame(dt); psPuddlesFrame(dt); psHudFrame();
   const me = localP(); if (me && me.alive === false && !PS.deadSeen) { PS.deadSeen = true; PS.deaths++; PS.bl = 45; } if (me && me.alive !== false) PS.deadSeen = false;
 }
 function psKeyDown(k){ if (k === 'e') { PS.wantDrink = true; return true; } return false; }
 function psKeyUp(k){ if (k === 'e') PS.wantDrink = false; }
+
+/* ---------- Piss Wars: THE LOOK. Its own light and sky while the mode runs (full resolution, no pixel grain, filmic tone mapping,
+   a gradient sky with a sun and soft clouds, smooth-shaded land with a fine grain, glossy water with shore foam, swaying trees
+   and grass); psLook(false) puts the game's own look back ---------- */
+const PSL = {on:false, saved:null, time:{value:0}, sky:null, cl:null, hiRes:false, gold:0, goldT:0, M:null, G:null,
+  hor:new THREE.Color(0xDCE9F3), horGold:new THREE.Color(0xE6B65E), fogC:new THREE.Color()};
+function psLook(on){
+  if (on === PSL.on) return; PSL.on = on;
+  if (on) {
+    PSL.saved = {hs:hemi.color.getHex(), hg:hemi.groundColor.getHex(), hi:hemi.intensity, sc:sun.color.getHex(), si:sun.intensity, fn:scene.fog.near, ff:scene.fog.far, fc:scene.fog.color.getHex(), bg:scene.background.getHex(),
+      tm:renderer.toneMapping, te:renderer.toneMappingExposure, pr:renderer.getPixelRatio(), ir:canvas.style.imageRendering, ms:sun.shadow.mapSize.x};
+    PSL.hiRes = true; renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5)); canvas.style.imageRendering = 'auto'; resize();
+    renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = .92;
+    hemi.color.setHex(0xD6E8FF); hemi.groundColor.setHex(0x4E6238); hemi.intensity = .7; sun.color.setHex(0xFFE4BE); sun.intensity = 1.3;
+    scene.fog.near = 170; scene.fog.far = 1400; scene.fog.color.copy(PSL.hor); scene.background.copy(PSL.hor);
+    PSL.hid = scene.children.filter(o => o.visible && o !== islandTop && o.material && o.material.type === 'MeshToonMaterial' && ((o.isInstancedMesh && /Cone|Cylinder|Dodecahedron|Icosahedron/.test(o.geometry.type)) || (!o.isInstancedMesh && o.material.vertexColors))); for (const o of PSL.hid) o.visible = false;
+    psShadowSize(2048); for (const c of clouds) c.visible = false; psSkyBuild(); PSL.sky.visible = PSL.cl.visible = true; islandTop.material = psTerrainMat(); PSL.gold = PSL.goldT = 0;
+  } else if (PSL.saved) {
+    const S = PSL.saved; PSL.hiRes = false; renderer.setPixelRatio(S.pr); canvas.style.imageRendering = S.ir; resize(); renderer.toneMapping = S.tm; renderer.toneMappingExposure = S.te;
+    hemi.color.setHex(S.hs); hemi.groundColor.setHex(S.hg); hemi.intensity = S.hi; sun.color.setHex(S.sc); sun.intensity = S.si; scene.fog.near = S.fn; scene.fog.far = S.ff; scene.fog.color.setHex(S.fc); scene.background.setHex(S.bg);
+    for (const o of PSL.hid || []) o.visible = true; PSL.hid = [];
+    psShadowSize(S.ms); for (const c of clouds) c.visible = true; if (PSL.sky) PSL.sky.visible = PSL.cl.visible = false; if (islandTop.material === PSL.tmat) islandTop.material = terrainMat;
+  }
+}
+function psShadowSize(n){ if (sun.shadow.mapSize.x === n) return; sun.shadow.mapSize.set(n, n); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
+function psSkyBuild(){
+  if (PSL.sky) return PSL.sky;
+  const m = new THREE.ShaderMaterial({uniforms:{top:{value:new THREE.Color(0x3A78D2)}, mid:{value:new THREE.Color(0x8FC2EE)}, hor:{value:PSL.hor.clone()}, sunDir:{value:new THREE.Vector3(40, 95, 26).normalize()}, sunCol:{value:new THREE.Color(0xFFF1D2)}, gold:{value:0}},
+    vertexShader:'varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position, 1.0); }',
+    fragmentShader:`uniform vec3 top, mid, hor, sunCol, sunDir; uniform float gold; varying vec3 vD;
+      void main(){ float h = vD.y; vec3 c = mix(mix(hor, mid, smoothstep(0.0, .22, h)), top, smoothstep(.18, .85, h)); if (h < 0.0) c = hor;
+        float s = max(dot(vD, sunDir), 0.0); c += sunCol*(pow(s, 1400.0)*3.0 + pow(s, 90.0)*.4 + pow(s, 8.0)*.14);
+        vec3 g = mix(vec3(1.0, .72, .26), vec3(1.0, .93, .66), smoothstep(-.05, .7, h)) + vec3(1.0, .9, .5)*pow(s, 6.0)*.5; c = mix(c, g*.92, gold*.9);
+        gl_FragColor = vec4(c, 1.0); }`, side:THREE.BackSide, depthWrite:false, fog:false});
+  const s = new THREE.Mesh(new THREE.SphereGeometry(4200, 32, 16), m); s.renderOrder = -10; s.frustumCulled = false; s.userData.noRay = true; scene.add(s); PSL.sky = s;
+  // soft clouds: painted puffs on sprites, high up and drifting
+  const tex = [0, 1, 2].map(() => { const c = document.createElement('canvas'); c.width = 256; c.height = 128; const x = c.getContext('2d');
+    for (let i = 0; i < 26; i++) { const px = 36 + Math.random()*184, py = 62 + (Math.random() - .5)*34 + Math.abs(px - 128)*.12, r = 16 + Math.random()*30*(1 - Math.abs(px - 128)/190), g = x.createRadialGradient(px, py - r*.2, 0, px, py, r);
+      g.addColorStop(0, 'rgba(255,255,255,.95)'); g.addColorStop(.55, 'rgba(244,247,252,.6)'); g.addColorStop(1, 'rgba(235,240,248,0)'); x.fillStyle = g; x.beginPath(); x.arc(px, py, r, 0, 7); x.fill(); }
+    const t = new THREE.CanvasTexture(c); return t; });
+  const g = new THREE.Group(); PSL.cl = g; scene.add(g);
+  for (let i = 0; i < 46; i++) { const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:tex[i % 3], transparent:true, depthWrite:false, fog:false, opacity:.75 + Math.random()*.25}));
+    const a = Math.random()*Math.PI*2, r = 250 + Math.random()*1500, w = 220 + Math.random()*320; sp.position.set(Math.cos(a)*r, 240 + Math.random()*200, Math.sin(a)*r); sp.scale.set(w, w*.45, 1); sp.userData.noRay = true; g.add(sp); }
+  return s;
+}
+// a soft tiling grain for the land (fine speckle + blotches), a tiling normal map for the water
+function psNoiseTex(kind){
+  const N = 256, c = document.createElement('canvas'); c.width = c.height = N; const x = c.getContext('2d'), img = x.createImageData(N, N), d = img.data;
+  const wrap = (f, u, v) => f(u, v) + f(u - N, v) + f(u, v - N) + f(u - N, v - N);
+  if (kind === 'ground') { const blobs = []; for (let i = 0; i < 60; i++) blobs.push([Math.random()*N, Math.random()*N, 8 + Math.random()*30, (Math.random() - .5)*.12]);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { let v = .9 + (Math.random() - .5)*.12; for (const [bx, by, br, bv] of blobs) for (const [ox, oy] of [[0, 0], [N, 0], [0, N], [N, N], [-N, 0], [0, -N]]) { const dd = Math.hypot(i - bx - ox, j - by - oy); if (dd < br) v += bv*(1 - dd/br); }
+      const k = (j*N + i)*4, q = Math.max(0, Math.min(255, v*255)); d[k] = q; d[k + 1] = q; d[k + 2] = q; d[k + 3] = 255; } }
+  else { const H = new Float32Array(N*N), waves = []; for (let i = 0; i < 14; i++) waves.push([1 + Math.floor(Math.random()*6), Math.floor((Math.random() - .5)*8), Math.random()*6.28, .3 + Math.random()]);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { let h = 0; for (const [a, b, p, w] of waves) h += Math.sin((a*i + b*j)/N*Math.PI*2 + p)*w/(a + Math.abs(b)); H[j*N + i] = h; }
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const hx = H[j*N + (i + 1) % N] - H[j*N + (i + N - 1) % N], hy = H[((j + 1) % N)*N + i] - H[((j + N - 1) % N)*N + i], k = (j*N + i)*4, nx = -hx*6, ny = -hy*6, nz = 1, l = Math.hypot(nx, ny, nz);
+      d[k] = (nx/l*.5 + .5)*255; d[k + 1] = (ny/l*.5 + .5)*255; d[k + 2] = (nz/l*.5 + .5)*255; d[k + 3] = 255; } }
+  x.putImageData(img, 0, 0); const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; return t;
+}
+function psTerrainMat(){ if (PSL.tmat) return PSL.tmat; const t = psNoiseTex('ground'); t.repeat.set(120, 120); return PSL.tmat = new THREE.MeshPhongMaterial({vertexColors:true, map:t, shininess:6, specular:0x101010}); }
+// wind: a sway that grows with the height above h0 (each tree/blade a little out of step)
+function psWind(mat, amp, h0){
+  mat.onBeforeCompile = sh => { sh.uniforms.uT = PSL.time; sh.vertexShader = 'uniform float uT;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+    float wh = max(0.0, position.y - ${h0.toFixed(2)});
+    #ifdef USE_INSTANCING
+    vec2 wp = vec2(instanceMatrix[3][0], instanceMatrix[3][2]);
+    #else
+    vec2 wp = vec2(0.0);
+    #endif
+    float wph = wp.x*.05 + wp.y*.043;
+    transformed.x += (sin(uT*1.4 + wph) + .45*sin(uT*3.3 + wph*2.3))*wh*${amp.toFixed(4)};
+    transformed.z += (cos(uT*1.15 + wph*1.2) + .3*sin(uT*2.7 + wph))*wh*${(amp*.7).toFixed(4)};`); };
+  mat.customProgramCacheKey = () => 'psWind' + amp + ':' + h0; return mat;
+}
+// build one geometry from parts {g, p:[x,y,z], s:[sx,sy,sz], r:[rx,ry,rz], c: hex or [bottom, top], jit}, with vertex colours
+function psMerge(parts){
+  const P = [], N = [], C = [], col = new THREE.Color(), c2 = new THREE.Color(), m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+  for (const pt of parts) { const g = pt.g.index ? pt.g.toNonIndexed() : pt.g.clone(), r = pt.r || [0, 0, 0], s = pt.s || [1], p = pt.p || [0, 0, 0];
+    m.compose(new THREE.Vector3(p[0], p[1], p[2]), q.setFromEuler(e.set(r[0], r[1], r[2])), new THREE.Vector3(s[0], s[1] == null ? s[0] : s[1], s[2] == null ? s[0] : s[2])); g.applyMatrix4(m);
+    const pos = g.attributes.position, nor = g.attributes.normal; g.computeBoundingBox(); const y0 = g.boundingBox.min.y, y1 = g.boundingBox.max.y;
+    for (let i = 0; i < pos.count; i++) { P.push(pos.getX(i), pos.getY(i), pos.getZ(i)); if (pt.up) N.push(0, 1, 0); else N.push(nor.getX(i), nor.getY(i), nor.getZ(i));
+      if (Array.isArray(pt.c)) col.setHex(pt.c[0]).lerp(c2.setHex(pt.c[1]), (pos.getY(i) - y0)/((y1 - y0) || 1)); else col.setHex(pt.c == null ? 0xFFFFFF : pt.c);
+      if (pt.jit) col.multiplyScalar(1 - pt.jit*Math.random()); C.push(col.r, col.g, col.b); } }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3)); g.computeBoundingSphere(); return g;
+}
+function psAdd(...a){ for (const o of a) { o.userData.outlined = true; roundGroup.add(o); } }
+const psLam = (o) => new THREE.MeshLambertMaterial(Object.assign({vertexColors:true}, o || {}));
+/* ---------- the map: water, trees, rocks, reeds and lilies, grass, flowers, animals ---------- */
+const PSTR = {list:[], ims:[], grid:new Map(), fly:[], shaking:new Set(), dirty:new Set(), leaves:[], leafIM:null};
+const PSRK = {list:[], im:null, moving:new Set()};
+function psGridAdd(grid, o, x, z, inf, c){ for (let i = Math.floor((x - inf)/c); i <= Math.floor((x + inf)/c); i++) for (let j = Math.floor((z - inf)/c); j <= Math.floor((z + inf)/c); j++) { const k = i*4096 + j; let a = grid.get(k); if (!a) grid.set(k, a = []); a.push(o); } }
+const psGridAt = (grid, x, z, c) => grid.get(Math.floor(x/c)*4096 + Math.floor(z/c));
+// water within half a metre (a grid at 2.5 m: grass, reeds and animals ask it often)
+function psWM(x, z){ const W = PSW.wm; if (!W) return psWaterAt(x, z, .5) != null; const i = Math.round((x + ISL)/2.5), j = Math.round((z + ISL)/2.5); if (i < 0 || j < 0 || i >= W.n || j >= W.n) return false; return W.a[j*W.n + i] === 1; }
+function psWaterCol(c, d){ if (d < .3) return c.setHex(0xF2FAF8).lerp(_tc2.setHex(0x7AD4CC), smooth(0, .3, d)); if (d < 2.2) return c.setHex(0x7AD4CC).lerp(_tc2.setHex(0x2E92B4), smooth(.3, 2.2, d)); return c.setHex(0x2E92B4).lerp(_tc2.setHex(0x1A5A88), smooth(2.2, 6, d)); }
+function psWaterMat(){ if (PSL.wmat) return PSL.wmat; const nt = psNoiseTex('water'); return PSL.wmat = new THREE.MeshPhongMaterial({color:0xFFFFFF, vertexColors:true, normalMap:nt, normalScale:new THREE.Vector2(.5, .5), shininess:220, specular:0xFFFFFF, transparent:true, opacity:.9, depthWrite:false}); }
+function psBuildMap(){
+  const R = mulberry32(((G.seed || 1) ^ 0xB00B) >>> 0), M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), Sv = new THREE.Vector3(), C = new THREE.Color(), E = new THREE.Euler();
+  terrGeo.computeVertexNormals();   // the land is smooth-shaded in this mode
+  { const n = Math.ceil(ISL*2/2.5) + 1, a = new Uint8Array(n*n); for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) a[j*n + i] = psWaterAt(-ISL + i*2.5, -ISL + j*2.5, .5) != null ? 1 : 0; PSW.wm = {n, a}; }
+  // water: rings out to the shore (the colour follows the depth: deep blue, turquoise shallows, white foam at the edge)
+  const wmat = psWaterMat();
+  for (const L of PSW.lakes) { const R0 = L.r + 4, rings = [0, .2, .4, .58, .72, .82, .89, .94, .97, 1, 1.04, 1.09], seg = 96, pos = [], col = [], uv = [], idx = [];
+    for (let i = 0; i < rings.length; i++) for (let s = 0; s < seg; s++) { const a = s/seg*Math.PI*2, r = R0*rings[i], x = L.x + Math.cos(a)*r, z = L.z + Math.sin(a)*r; pos.push(x - L.x, 0, z - L.z); uv.push(x/11, z/11); psWaterCol(C, L.lv - groundH(x, z)); col.push(C.r, C.g, C.b); }
+    for (let i = 0; i < rings.length - 1; i++) for (let s = 0; s < seg; s++) { const a = i*seg + s, b = i*seg + (s + 1)%seg; idx.push(a, b, a + seg, b, b + seg, a + seg); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+    if (g.attributes.normal.getY(seg*3) < 0) { idx.reverse(); g.setIndex(idx); g.computeVertexNormals(); }
+    const m = new THREE.Mesh(g, wmat); m.position.set(L.x, L.lv, L.z); m.renderOrder = 2; m.userData.noRay = true; m.receiveShadow = true; psAdd(m); }
+  if (PSW.river) { const {sp, nrm, lv, W} = PSW.river, pos = [], col = [], uv = [], idx = [], NN = sp.length - 1, across = [-1.2, -1, -.75, -.4, 0, .4, .75, 1, 1.2], A = across.length; let acc = 0;
+    for (let i = 0; i <= NN; i++) { if (i) acc += sp[i].distanceTo(sp[i - 1]); for (const s of across) { const x = sp[i].x + nrm[i][0]*(W/2 + .8)*s, z = sp[i].z + nrm[i][1]*(W/2 + .8)*s; pos.push(x, lv[i], z); uv.push(s*1.2, acc/11); psWaterCol(C, lv[i] - groundH(x, z)); col.push(C.r, C.g, C.b); }
+      if (i < NN) for (let k = 0; k < A - 1; k++) { const a = i*A + k; idx.push(a, a + A, a + 1, a + 1, a + A, a + A + 1); } }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+    if (g.attributes.normal.getY(A*3 + 4) < 0) { idx.reverse(); g.setIndex(idx); g.computeVertexNormals(); }
+    const rm = wmat.clone(); rm.normalMap = wmat.normalMap.clone(); rm.normalMap.needsUpdate = true; PSL.rmat = rm; const m = new THREE.Mesh(g, rm); m.renderOrder = 2; m.userData.noRay = true; psAdd(m); }
+  // reeds along the shores, lilies on the ponds
+  { const reedG = psMerge([0, 1, 2, 3, 4].map(i => ({g:new THREE.ConeGeometry(.035, 1.6 + i*.25, 4), p:[Math.cos(i*1.3)*.18, .8 + i*.12, Math.sin(i*1.3)*.18], r:[(i - 2)*.06, 0, (i % 2 - .5)*.12], c:[0x4A5A26, 0xA8B058]}))),
+      L = []; for (const P of PSW.lakes) for (let k = 0; k < P.r*4; k++) { const a = R()*Math.PI*2, r = P.r + (R() - .2)*3.2, x = P.x + Math.cos(a)*r, z = P.z + Math.sin(a)*r, d = P.lv - groundH(x, z); if (d > -.25 && d < .7) L.push([x, z, P.lv]); }
+    const im = new THREE.InstancedMesh(reedG, psWind(psLam(), .05, 0), L.length); im.userData.noRay = true;
+    L.forEach(([x, z, lv], i) => { M4.compose(new THREE.Vector3(x, Math.max(groundH(x, z), lv - .6), z), Q.setFromEuler(E.set(0, R()*6, 0)), Sv.setScalar(.7 + R()*.6)); im.setMatrixAt(i, M4); }); psAdd(im);
+    const lilyG = psMerge([{g:new THREE.CircleGeometry(.55, 14, .3, 5.9), r:[-Math.PI/2, 0, 0], c:0x4E8E3A, up:1}]), flG = psMerge([{g:new THREE.SphereGeometry(.16, 8, 6), p:[.1, .1, 0], s:[1, .6, 1], c:0xFFB8D8}]), lil = [];
+    for (const P of PSW.lakes) for (let k = 0; k < (P.big ? 40 : 14); k++) { const a = R()*Math.PI*2, r = Math.sqrt(R())*P.r*.85, x = P.x + Math.cos(a)*r, z = P.z + Math.sin(a)*r; if (P.lv - groundH(x, z) > .4) lil.push([x, z, P.lv]); }
+    const li = new THREE.InstancedMesh(lilyG, psLam(), lil.length), fi = new THREE.InstancedMesh(flG, psLam(), lil.length); li.userData.noRay = fi.userData.noRay = true; let nf = 0;
+    lil.forEach(([x, z, lv], i) => { M4.compose(new THREE.Vector3(x, lv + .03, z), Q.setFromEuler(E.set(0, R()*6, 0)), Sv.setScalar(.6 + R()*.9)); li.setMatrixAt(i, M4); if (R() < .3) fi.setMatrixAt(nf++, M4); }); fi.count = nf; psAdd(li, fi); }
+  // trees (instanced, every trunk solid, every tree remembered: it shakes, drops leaves, can be torn out and thrown)
+  const T = psTreeKinds(), lists = T.map(() => []), S = ISL*.55; PSTR.list = []; PSTR.ims = []; PSTR.grid = new Map(); PSTR.fly = []; PSTR.shaking = new Set(); PSTR.dirty = new Set(); PSTR.leaves = []; PSTR.leafIM = null;
+  for (let k = 0, n = 0; k < 24000 && n < 1300; k++) { const x = (R()*2 - 1)*(ISL - 12), z = (R()*2 - 1)*(ISL - 12), gy = groundH(x, z), f = psForest(x, z); if (R() > f*.9 + .05) continue;
+    if (gy > 48 || psSlope(x, z) > .55 || psWaterAt(x, z, 5) != null || Math.hypot(x + S, z) < 26 || Math.hypot(x - S, z) < 26) continue;
+    const kind = gy > 26 ? 0 : R() < .45 ? 0 : R() < .62 ? 1 : 2, big = kind === 1 && R() < .12, s = big ? 1.8 + R()*.7 : (kind === 0 ? 1 : .9) + R()*.6, K = T[kind];
+    const t = {k:kind, K, i:lists[kind].length, x, y:gy, z, s, ry:R()*6.28, tint:K.ccol[Math.floor(R()*K.ccol.length)], ttint:K.tcol[Math.floor(R()*K.tcol.length)], alive:true, shake:0, f:0, hpF:(kind === 1 ? 26 : 16)*s*s};
+    const b = new CANNON.Body({mass:0, material:PM.def}); b.addShape(new CANNON.Box(new CANNON.Vec3(.45*s*K.tw, 4*s, .45*s*K.tw))); b.position.set(x, gy + 4*s, z); b.tag = 'tree'; world.addBody(b); t.body = b;
+    lists[kind].push(t); PSTR.list.push(t); psGridAdd(PSTR.grid, t, x, z, 4.5 + 3*s, 10); n++; }
+  T.forEach((K, ti) => { const L = lists[ti]; const pair = {};
+    for (const [part, geo, mat] of [['trunk', K.trunk, K.tmat], ['crown', K.crown, K.cmat]]) { const im = new THREE.InstancedMesh(geo, mat, Math.max(1, L.length)); im.castShadow = true; im.receiveShadow = true; im.userData.noRay = true; im.count = L.length;
+      L.forEach((t, i) => { psTreeM(t, 0, 0, M4); im.setMatrixAt(i, M4); im.setColorAt(i, C.setHex(part === 'trunk' ? t.ttint : t.tint)); });
+      im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; psAdd(im); pair[part] = im; }
+    PSTR.ims[ti] = pair; });
+  // boulders (they roll when the stream is strong enough)
+  { const n = 190, im = new THREE.InstancedMesh(PAIN_ROCK, new THREE.MeshLambertMaterial({color:0xFFFFFF, flatShading:true}), n); im.castShadow = im.receiveShadow = true; im.userData.noRay = true; let c = 0; PSRK.list = []; PSRK.im = im; PSRK.moving = new Set();
+    for (let k = 0; k < 3000 && c < n; k++) { const x = (R()*2 - 1)*(ISL - 10), z = (R()*2 - 1)*(ISL - 10); if (psWaterAt(x, z, 2) != null) continue; const gy = groundH(x, z), s = .5 + Math.pow(R(), 2)*3.4;
+      const r = {i:c, x, y:gy + s*.25, z, s, q:new THREE.Quaternion().setFromEuler(E.set(R()*3, R()*3, R()*3)), vel:new THREE.Vector3(), body:null};
+      M4.compose(new THREE.Vector3(x, r.y, z), r.q, Sv.set(s, s*.75, s)); im.setMatrixAt(c, M4); C.setHex(gy > 30 ? 0xA4A3A6 : pick([0x948C80, 0x837C70, 0xA0988A, 0x8A8A7E])); im.setColorAt(c, C);
+      if (s > 1.2) { const b = new CANNON.Body({mass:0, material:PM.def}); b.addShape(new CANNON.Sphere(s*.8)); b.position.set(x, r.y, z); b.tag = 'rock'; world.addBody(b); r.body = b; }
+      PSRK.list.push(r); psGridAdd(PSTR.grid, r, x, z, s + 4, 10); c++; }
+    im.count = c; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; psAdd(im); }
+  psGrassBuild();
+  // the team flags at the spawns
+  for (const team of ['blue', 'red']) { const [x, z] = PSW.spawns[team][0], gy = groundH(x, z), fg = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(.08, .1, 7, 8), new THREE.MeshPhongMaterial({color:0xC8C2B4, shininess:80})); pole.position.y = 3.5; fg.add(pole);
+    const fl = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.5, 8, 1), new THREE.MeshLambertMaterial({color:team === 'blue' ? 0x3B82F6 : 0xE5484D, side:THREE.DoubleSide})); fl.position.set(1.2, 6.2, 0); fg.add(fl); fg.userData.flag = fl;
+    fg.position.set(x + 3, gy, z + 3); noRayAll(fg); psAdd(fg); }
+  psAnimalsBuild(R);
+  PSUA_reset();
+}
+function psTreeM(t, tx, tz, M){ return M.compose(_psP.set(t.x, t.y - .3, t.z), _psQ.setFromEuler(_psE.set(tx, t.ry, tz)), _psS.setScalar(t.s)); }
+const _psE = new THREE.Euler();
+function psTreeKinds(){
+  if (PS.kinds2) return PS.kinds2; const I = (r, d) => new THREE.IcosahedronGeometry(r, d == null ? 1 : d);
+  const pine = {n:'pine', tw:1,
+    trunk:psMerge([{g:new THREE.CylinderGeometry(.26, .62, 9.5, 10), p:[0, 4.75, 0], c:[0x3C2A1C, 0x6E4E34], jit:.15}]),
+    crown:psMerge([0, 1, 2, 3, 4, 5].map(i => ({g:new THREE.ConeGeometry(4.3 - i*.66, 4.4 - i*.28, 12, 2), p:[0, 5.6 + i*1.95, 0], r:[0, i*.7, 0], c:[0x6E7A70, 0xFFFFFF], jit:.12}))),
+    tcol:[0xFFFFFF, 0xE8DCD0], ccol:[0x2E6E3E, 0x2A6438, 0x377C46, 0x22553A, 0x3F803C, 0x2D5E40]};
+  const blobs = [[0, 8.4, 0, 3.4], [2.5, 7.4, 1, 2.6], [-2.3, 7.6, -1.2, 2.8], [.7, 10.4, -.8, 2.5], [-.6, 7, 2.4, 2.4], [1.6, 9.4, 1.8, 2.2], [-1.9, 9.6, .9, 2.3], [2.2, 8.6, -2, 2.2], [-.2, 11.6, .3, 1.9]];
+  const oak = {n:'oak', tw:1.3,
+    trunk:psMerge([{g:new THREE.CylinderGeometry(.42, .9, 7, 10), p:[0, 3.5, 0], c:[0x3A2A1E, 0x5C4430], jit:.15}, {g:new THREE.CylinderGeometry(.16, .3, 3.6, 7), p:[1, 6.4, 0], r:[0, 0, -.7], c:0x5C4430, jit:.12}, {g:new THREE.CylinderGeometry(.14, .28, 3.2, 7), p:[-.9, 6.6, .4], r:[.3, 0, .7], c:0x5C4430, jit:.12}]),
+    crown:psMerge(blobs.map(([x, y, z, r]) => ({g:I(1), p:[x, y, z], s:[r, r*.86, r], c:[0x828A7C, 0xFFFFFF], jit:.08}))),
+    tcol:[0xFFFFFF, 0xEADCCC], ccol:[0x4E8A34, 0x5C9A3A, 0x467E2E, 0x6AA842, 0x86A83A, 0x5A8F30, 0xA8A03A]};
+  const birch = {n:'birch', tw:.6,
+    trunk:psMerge([{g:new THREE.CylinderGeometry(.19, .3, 10.5, 9, 14), p:[0, 5.25, 0], c:0xF0EDE6, jit:.55}]),
+    crown:psMerge([[0, 9.6, 0, 1.6], [.9, 8.2, .4, 1.2], [-.8, 8.5, -.5, 1.25], [.2, 11.2, -.2, 1.1], [-.4, 7.4, .6, 1]].map(([x, y, z, r]) => ({g:I(1), p:[x, y, z], s:[r, r*1.55, r], c:[0x8C9480, 0xFFFFFF], jit:.08}))),
+    tcol:[0xFFFFFF, 0xF4F0E8], ccol:[0x9CCB52, 0x8ABF48, 0xB0D45C, 0xC8C850, 0x94C04A]};
+  for (const K of [pine, oak, birch]) { K.tmat = psLam(); K.cmat = psWind(psLam(), K.n === 'birch' ? .02 : .012, 3); }
+  return (PS.kinds2 = [pine, oak, birch]);
+}
+/* ---------- grass and flowers: a field of swaying blades that follows the camera (the colour of the land under it) ---------- */
+const PSGF = {T:120, n:26000, nf:2600, im:null, fl:null, cx:1e9, cz:1e9, off:null, foff:null};
+function psGrassBuild(){
+  const P = []; for (let b = 0; b < 5; b++) { const a = b/5*Math.PI*2 + Math.random(), r = .05 + Math.random()*.12, x0 = Math.cos(a)*r, z0 = Math.sin(a)*r, h = .2 + Math.random()*.3, w = .022 + Math.random()*.018, la = a + (Math.random() - .5), lean = .2 + Math.random()*.3;
+    const sx = Math.cos(la + Math.PI/2)*w, sz = Math.sin(la + Math.PI/2)*w, mx = x0 + Math.cos(la)*lean*h*.35, mz = z0 + Math.sin(la)*lean*h*.35, tx = x0 + Math.cos(la)*lean*h, tz = z0 + Math.sin(la)*lean*h;
+    const L0 = [x0 - sx, 0, z0 - sz], R0 = [x0 + sx, 0, z0 + sz], L1 = [mx - sx*.7, h*.5, mz - sz*.7], R1 = [mx + sx*.7, h*.5, mz + sz*.7], Tp = [tx, h, tz];
+    P.push([L0, R0, L1], [R0, R1, L1], [L1, R1, Tp]); }
+  const pos = [], nor = [], col = []; for (const tri of P) for (const v of tri) { pos.push(...v); nor.push(0, 1, 0); const k = .42 + .62*(v[1]/.5); col.push(k, k, k); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  PSGF.im = new THREE.InstancedMesh(g, psWind(psLam({side:THREE.DoubleSide}), .3, 0), PSGF.n); PSGF.im.userData.noRay = true; PSGF.im.frustumCulled = false; PSGF.im.receiveShadow = true;
+  const fg = psMerge([...[0, 1, 2, 3, 4].map(i => ({g:new THREE.SphereGeometry(.07, 6, 4), p:[Math.cos(i*1.257)*.08, 0, Math.sin(i*1.257)*.08], s:[1, .35, 1], c:0xFFFFFF})), {g:new THREE.SphereGeometry(.045, 6, 4), p:[0, .02, 0], c:0xFFE070}]);
+  PSGF.fl = new THREE.InstancedMesh(fg, psWind(psLam(), .22, -.6), PSGF.nf); PSGF.fl.userData.noRay = true; PSGF.fl.frustumCulled = false;
+  PSGF.off = new Float32Array(PSGF.n*4); for (let i = 0; i < PSGF.n; i++) PSGF.off.set([Math.random()*PSGF.T, Math.random()*PSGF.T, Math.random()*6.28, .7 + Math.random()*.6], i*4);
+  PSGF.foff = new Float32Array(PSGF.nf*4); const fc = [0xFFFFFF, 0xFFD84A, 0xFF8AC8, 0xB98AFF, 0x8AC8FF, 0xFF7A5A]; PSGF.fcol = []; for (let i = 0; i < PSGF.nf; i++) { PSGF.foff.set([Math.random()*PSGF.T, Math.random()*PSGF.T, Math.random()*6.28, .8 + Math.random()*.5], i*4); PSGF.fcol.push(fc[Math.floor(Math.random()*fc.length)]); }
+  psAdd(PSGF.im, PSGF.fl); PSGF.cx = 1e9; psGrassUpdate();
+}
+function psGrassUpdate(){
+  const c = camera.position; if (Math.hypot(c.x - PSGF.cx, c.z - PSGF.cz) < 10 || !PSGF.im) return; PSGF.cx = c.x; PSGF.cz = c.z;
+  const T = PSGF.T, M = _psM, col = terrGeo.attributes.color, C = new THREE.Color(), zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  const place = (ox, oz) => { const x = ox + T*Math.round((c.x - ox)/T), z = oz + T*Math.round((c.z - oz)/T); return [x, z]; };
+  const ok = (x, z, y) => Math.abs(x) < ISL - 4 && Math.abs(z) < ISL - 4 && y < 40 && !psWM(x, z);
+  for (let i = 0; i < PSGF.n; i++) { const o = PSGF.off, [x, z] = place(o[i*4], o[i*4 + 1]), y = groundH(x, z);
+    if (!ok(x, z, y)) { PSGF.im.setMatrixAt(i, zero); continue; }
+    const v = Math.round((x + ISL)/TES) + Math.round((z + ISL)/TES)*TN, s = o[i*4 + 3]*(1 - .45*smooth(26, 38, y)); M.compose(_psP.set(x, y - .03, z), _psQ.setFromEuler(_psE.set(0, o[i*4 + 2], 0)), _psS.set(s, s, s)); PSGF.im.setMatrixAt(i, M);
+    C.setRGB(col.getX(v)*1.02, col.getY(v)*1.08, col.getZ(v)*.95); PSGF.im.setColorAt(i, C); }
+  for (let i = 0; i < PSGF.nf; i++) { const o = PSGF.foff, [x, z] = place(o[i*4], o[i*4 + 1]), y = groundH(x, z);
+    if (!ok(x, z, y) || y > 26 || psForest(x, z) > .8) { PSGF.fl.setMatrixAt(i, zero); continue; }
+    const s = o[i*4 + 3]; M.compose(_psP.set(x, y + .3*s + .15, z), _psQ.setFromEuler(_psE.set(0, o[i*4 + 2], 0)), _psS.set(s, s, s)); PSGF.fl.setMatrixAt(i, M); PSGF.fl.setColorAt(i, C.setHex(PSGF.fcol[i])); }
+  PSGF.im.instanceMatrix.needsUpdate = PSGF.fl.instanceMatrix.needsUpdate = true; if (PSGF.im.instanceColor) PSGF.im.instanceColor.needsUpdate = true; if (PSGF.fl.instanceColor) PSGF.fl.instanceColor.needsUpdate = true;
+}
+/* ---------- everything the stream touches: trees shake and lose leaves, strong streams tear them out and throw them; rocks roll;
+   water ripples ---------- */
+function psWorldHit(p, wr){
+  const arr = psGridAt(PSTR.grid, p.x, p.z, 10); if (!arr) return false;
+  for (const o of arr) {
+    if (o.K) { if (!o.alive) continue; const dx = p.x - o.x, dz = p.z - o.z, d2 = dx*dx + dz*dz, tr = .5*o.s*o.K.tw + wr;
+      if (d2 < tr*tr && p.y < o.y + 9*o.s && p.y > o.y - 1) { psTreeHit(o, p); return true; }
+      if (d2 < 9*o.s*o.s && p.y > o.y + 5*o.s && p.y < o.y + 13*o.s) { o.shake = Math.min(1.2, o.shake + .015 + wr*.02); PSTR.shaking.add(o); if (Math.random() < .04) psLeaf(o); } }
+    else if (o.q) { const dx = p.x - o.x, dy = p.y - o.y, dz = p.z - o.z, rr0 = o.s*.8 + wr; if (dx*dx + dy*dy + dz*dz < rr0*rr0) { psRockPush(o, p.dx*psPush(p.pr), 0, p.dz*psPush(p.pr), p.pr); return true; } } }
+  return false;
+}
+function psTreeHit(t, p){
+  t.shake = Math.min(1.2, t.shake + .06 + Math.min(.4, psPush(p.pr)*.03)); PSTR.shaking.add(t); if (Math.random() < .25) psLeaf(t);
+  if (p.pr >= 3) { t.f += psPush(p.pr); if (t.f > t.hpF) { const k = Math.min(60, 5 + Math.sqrt(p.pr)*2.5); psUproot(t, p.dx*k, 5 + Math.min(30, k*.5), p.dz*k); } }
+}
+function psTreesNear(c, R, fn){ const R2 = R*R; for (const t of PSTR.list) if (t.alive && (t.x - c.x)*(t.x - c.x) + (t.z - c.z)*(t.z - c.z) < R2) fn(t); }
+function psRocksNear(c, R, fn){ const R2 = R*R; for (const r of PSRK.list) if ((r.x - c.x)*(r.x - c.x) + (r.z - c.z)*(r.z - c.z) < R2) fn(r); }
+function psUproot(t, vx, vy, vz){
+  if (!t.alive) return; t.alive = false; const pr = PSTR.ims[t.k], Z = new THREE.Matrix4().makeScale(0, 0, 0); pr.trunk.setMatrixAt(t.i, Z); pr.crown.setMatrixAt(t.i, Z); PSTR.dirty.add(t.k); PSTR.shaking.delete(t);
+  if (t.body && t.body.world) world.removeBody(t.body);
+  for (let i = 0; i < 6; i++) psLeaf(t);
+  if (PSTR.fly.length >= 90) { const old = PSTR.fly.find(f => f.landed) || PSTR.fly[0]; if (old.g.parent) old.g.parent.remove(old.g); PSTR.fly.splice(PSTR.fly.indexOf(old), 1); }
+  const g = new THREE.Group(), K = t.K, cm = psFlyMat(K, t.tint), tr = new THREE.Mesh(K.trunk, K.tmat), cr = new THREE.Mesh(K.crown, cm); tr.castShadow = cr.castShadow = true; g.add(tr, cr); g.scale.setScalar(t.s);
+  g.position.set(t.x, t.y, t.z); g.rotation.set(0, t.ry, 0); noRayAll(g); tr.castShadow = cr.castShadow = true; psAdd(g);
+  PSTR.fly.push({g, vel:new THREE.Vector3(vx, vy, vz), w:new THREE.Vector3(rr(-2, 2), rr(-1, 1), rr(-2, 2)), landed:false, t:0, s:t.s});
+  psSplash(t.x, t.y, t.z, 0, 0, 6);
+}
+function psFlyMat(K, hex){ K.fly = K.fly || {}; return K.fly[hex] || (K.fly[hex] = psWind(psLam({color:hex}), K.n === 'birch' ? .02 : .012, 3)); }
+function psRockPush(r, vx, vy, vz, c){ if (c < 2) return; const m = r.s*r.s*.6 + .4; r.vel.x += vx/m; r.vel.y += vy/m; r.vel.z += vz/m; PSRK.moving.add(r); }
+function psLeaf(t){ if (PSTR.leaves.length > 500) return; const a = Math.random()*6.283, r = Math.random()*3*t.s; PSTR.leaves.push({x:t.x + Math.cos(a)*r, y:t.y + (6 + Math.random()*5)*t.s, z:t.z + Math.sin(a)*r, vx:rr(-1, 1), vz:rr(-1, 1), t:0, ph:Math.random()*6, col:t.tint}); }
+const PSRP = [];
+function psRipple(x, y, z, rad){
+  if (PSRP.length > 40 || Math.random() > .18) return; PSL.G = PSL.G || psFxGeo();
+  const m = new THREE.Mesh(PSL.G.ring, PSL.M.ripple); m.rotation.x = -Math.PI/2; m.position.set(x, y + .04, z); m.userData.noRay = true; psAdd(m); PSRP.push({m, t:0, s:.6 + Math.min(10, rad*3)});
+}
+function psThingsFrame(dt){
+  // shaking trees settle; their instances are rewritten only while they move
+  for (const t of PSTR.shaking) { t.shake *= Math.exp(-2.6*dt); const a = Math.sin(G.t*16 + t.i)*t.shake*.07, b = Math.cos(G.t*13 + t.i*1.7)*t.shake*.05;
+    if (t.shake < .01) { PSTR.shaking.delete(t); psTreeM(t, 0, 0, _psM); } else psTreeM(t, a, b, _psM); const pr = PSTR.ims[t.k]; pr.trunk.setMatrixAt(t.i, _psM); pr.crown.setMatrixAt(t.i, _psM); PSTR.dirty.add(t.k); }
+  for (const k of PSTR.dirty) { const pr = PSTR.ims[k]; pr.trunk.instanceMatrix.needsUpdate = pr.crown.instanceMatrix.needsUpdate = true; } PSTR.dirty.clear();
+  // thrown trees: fly, tumble, bounce, lie down
+  for (const f of PSTR.fly) { if (f.landed) continue; f.t += dt; const g = f.g; f.vel.y -= PS_G*dt; g.position.addScaledVector(f.vel, dt); g.rotation.x += f.w.x*dt; g.rotation.y += f.w.y*dt; g.rotation.z += f.w.z*dt;
+    g.position.x = clamp(g.position.x, -ISL - 20, ISL + 20); g.position.z = clamp(g.position.z, -ISL - 20, ISL + 20); const gy = groundH(g.position.x, g.position.z);
+    if (g.position.y < gy && f.vel.y < 0) { g.position.y = gy; if (f.vel.length() > 7) { f.vel.y *= -.3; f.vel.x *= .55; f.vel.z *= .55; f.w.multiplyScalar(.5); psSplash(g.position.x, gy, g.position.z, 0, 0, 4); } else { f.landed = true; g.rotation.set((Math.sin(g.rotation.x) >= 0 ? 1 : -1)*Math.PI/2, g.rotation.y, 0); g.position.y = gy + .4*f.s; } } }
+  // rolling rocks
+  for (const r of PSRK.moving) { r.vel.y -= PS_G*dt; r.x += r.vel.x*dt; r.y += r.vel.y*dt; r.z += r.vel.z*dt; r.x = clamp(r.x, -ISL + 3, ISL - 3); r.z = clamp(r.z, -ISL + 3, ISL - 3); const gy = groundH(r.x, r.z) + r.s*.25;
+    if (r.y < gy) { r.y = gy; if (r.vel.y < -4) r.vel.y *= -.3; else r.vel.y = 0; const fr = Math.exp(-1.6*dt); r.vel.x *= fr; r.vel.z *= fr; }
+    const sp = Math.hypot(r.vel.x, r.vel.z); if (sp > .01) { _psA.set(r.vel.z, 0, -r.vel.x).normalize(); _psQ.setFromAxisAngle(_psA, sp/r.s*dt); r.q.premultiply(_psQ); }
+    _psM.compose(_psP.set(r.x, r.y, r.z), r.q, _psS.set(r.s, r.s*.75, r.s)); PSRK.im.setMatrixAt(r.i, _psM); PSRK.im.instanceMatrix.needsUpdate = true; if (r.body) r.body.position.set(r.x, r.y, r.z);
+    if (sp < .15 && r.y <= gy + .01) { PSRK.moving.delete(r); r.vel.set(0, 0, 0); psGridAdd(PSTR.grid, r, r.x, r.z, r.s + 4, 10); } }
+  // falling leaves
+  if (!PSTR.leafIM || !PSTR.leafIM.parent) { PSTR.leafIM = new THREE.InstancedMesh(new THREE.PlaneGeometry(.28, .2), psLam({side:THREE.DoubleSide, vertexColors:false}), 520); PSTR.leafIM.userData.noRay = true; PSTR.leafIM.frustumCulled = false; psAdd(PSTR.leafIM); }
+  let n = 0; const LI = PSTR.leafIM, C = _psC;
+  for (let i = PSTR.leaves.length - 1; i >= 0; i--) { const l = PSTR.leaves[i]; l.t += dt; l.x += (l.vx + Math.sin(l.t*2 + l.ph)*1.2)*dt; l.z += (l.vz + Math.cos(l.t*1.7 + l.ph))*dt; l.y -= 1.3*dt; if (l.t > 9 || l.y < groundH(l.x, l.z)) { PSTR.leaves.splice(i, 1); continue; }
+    if (n < 520) { _psM.compose(_psP.set(l.x, l.y, l.z), _psQ.setFromEuler(_psE.set(l.t*3 + l.ph, l.t*2, l.t*2.5)), _psS.set(1, 1, 1)); LI.setMatrixAt(n, _psM); LI.setColorAt(n, C.setHex(l.col)); n++; } }
+  LI.count = n; LI.instanceMatrix.needsUpdate = true; if (LI.instanceColor) LI.instanceColor.needsUpdate = true;
+  // ripples on the water
+  for (let i = PSRP.length - 1; i >= 0; i--) { const r = PSRP[i]; r.t += dt; const u = r.t/1.1; r.m.scale.setScalar(.3 + r.s*u); if (u >= 1) { if (r.m.parent) r.m.parent.remove(r.m); PSRP.splice(i, 1); } }
+}
+const _psC = new THREE.Color();
+/* ---------- the animals: deer, sheep, cows, rabbits, ducks on the water, birds in the sky. They graze and wander, run from
+   people, get soaked (tinted gold), knocked over, thrown through the air by a strong stream, and get back up ---------- */
+const PSA = {list:[], kinds:{}, grid:new Map()};
+const PSA_DEF = {
+  deer:{n:16, sp:8, walk:1.6, flee:20, r:.75, h:1.9, mass:5, hab:'land', legs:[[.2, .95, .55], [-.2, .95, .55], [.2, .95, -.5], [-.2, .95, -.5]], legL:.95, legC:[0x2A2018, 0x9C6B40]},
+  sheep:{n:30, sp:5, walk:1, flee:12, r:.7, h:1.3, mass:4, hab:'land', herd:true, legs:[[.2, .55, .32], [-.2, .55, .32], [.2, .55, -.32], [-.2, .55, -.32]], legL:.55, legC:[0x1E1A18, 0x3A3430]},
+  cow:{n:12, sp:4.2, walk:.9, flee:9, r:1.1, h:1.9, mass:12, hab:'land', herd:true, legs:[[.34, .85, .72], [-.34, .85, .72], [.34, .85, -.72], [-.34, .85, -.72]], legL:.85, legC:[0x222018, 0xF2F0EA]},
+  rabbit:{n:26, sp:9, walk:2.2, flee:10, r:.32, h:.65, mass:1, hab:'land', hop:true, legs:[]},
+  duck:{n:20, sp:3, walk:.8, flee:11, r:.4, h:.5, mass:.8, hab:'water', legs:[]},
+  bird:{n:30, sp:13, r:.45, h:.3, mass:.5, hab:'sky', wings:[[.07, 0, 0], [-.07, 0, 0]]}
+};
+function psAnimalGeo(k){
+  const S = (r, w, h) => new THREE.SphereGeometry(r, w || 14, h || 10), Cy = (a, b, h, n) => new THREE.CylinderGeometry(a, b, h, n || 8), Co = (r, h, n) => new THREE.ConeGeometry(r, h, n || 8);
+  if (k === 'deer') return psMerge([{g:S(1), p:[0, 1.25, 0], s:[.4, .42, .82], c:0x9C6B40}, {g:S(1), p:[0, 1.1, 0], s:[.33, .26, .62], c:0xE6D2B2}, {g:Cy(.12, .18, .8), p:[0, 1.62, .62], r:[.55, 0, 0], c:0x9C6B40},
+    {g:S(1), p:[0, 2, .9], s:[.16, .17, .3], c:0x9C6B40}, {g:S(1), p:[0, 1.94, 1.16], s:[.08, .07, .08], c:0x2A1E16}, {g:Co(.07, .3, 6), p:[.13, 2.16, .82], r:[0, 0, -.7], s:[1, 1, .45], c:0x8C5E38}, {g:Co(.07, .3, 6), p:[-.13, 2.16, .82], r:[0, 0, .7], s:[1, 1, .45], c:0x8C5E38},
+    {g:Cy(.025, .035, .55, 5), p:[.1, 2.4, .82], r:[0, 0, -.35], c:0xCDBB98}, {g:Cy(.025, .035, .55, 5), p:[-.1, 2.4, .82], r:[0, 0, .35], c:0xCDBB98}, {g:Cy(.02, .025, .3, 5), p:[.22, 2.55, .9], r:[.6, 0, -.3], c:0xCDBB98}, {g:Cy(.02, .025, .3, 5), p:[-.22, 2.55, .9], r:[.6, 0, .3], c:0xCDBB98},
+    {g:S(1), p:[0, 1.42, -.8], s:[.09, .14, .07], c:0xFAF6EE}]);
+  if (k === 'sheep') { const parts = []; for (let i = 0; i < 11; i++) { const a = i/11*Math.PI*2; parts.push({g:new THREE.IcosahedronGeometry(1, 1), p:[Math.cos(a)*.26, .86 + Math.sin(i*2.1)*.13, Math.sin(a)*.4], s:[.32 + (i % 3)*.04], c:[0xD8D2C4, 0xFBF8F0], jit:.05}); }
+    parts.push({g:new THREE.IcosahedronGeometry(1, 1), p:[0, 1.04, 0], s:[.4, .3, .5], c:0xFBF8F0}, {g:S(1), p:[0, .98, .6], s:[.16, .19, .26], c:0x2E2824}, {g:S(1), p:[.17, 1.04, .55], s:[.1, .04, .06], c:0x2E2824}, {g:S(1), p:[-.17, 1.04, .55], s:[.1, .04, .06], c:0x2E2824}, {g:S(1), p:[0, 1.12, .52], s:[.16, .08, .14], c:0xF4F0E6}); return psMerge(parts); }
+  if (k === 'cow') return psMerge([{g:S(1), p:[0, 1.25, 0], s:[.6, .58, 1.12], c:0xF4F2EC}, {g:S(1), p:[.42, 1.4, .2], s:[.22, .3, .36], c:0x1E1C1A}, {g:S(1), p:[-.4, 1.2, -.42], s:[.24, .32, .3], c:0x1E1C1A}, {g:S(1), p:[.2, 1.75, -.3], s:[.3, .1, .28], c:0x1E1C1A},
+    {g:S(1), p:[0, 1.42, 1.18], s:[.3, .32, .38], c:0xF4F2EC}, {g:S(1), p:[0, 1.3, 1.46], s:[.24, .18, .14], c:0xF0B4B0}, {g:Co(.05, .26, 6), p:[.2, 1.74, 1.12], r:[0, 0, -1], c:0xEDE3C8}, {g:Co(.05, .26, 6), p:[-.2, 1.74, 1.12], r:[0, 0, 1], c:0xEDE3C8},
+    {g:S(1), p:[.3, 1.6, 1.05], s:[.14, .05, .08], c:0x1E1C1A}, {g:S(1), p:[-.3, 1.6, 1.05], s:[.14, .05, .08], c:0x1E1C1A}, {g:S(1), p:[0, .8, -.3], s:[.18, .12, .18], c:0xF0B4B0}, {g:Cy(.03, .03, .8, 5), p:[0, 1.15, -1.1], r:[.3, 0, 0], c:0xF4F2EC}]);
+  if (k === 'rabbit') return psMerge([{g:S(1), p:[0, .27, 0], s:[.22, .22, .3], c:0xB49C84}, {g:S(1), p:[0, .23, .04], s:[.17, .14, .22], c:0xE8DCCC}, {g:S(1), p:[0, .46, .24], s:[.15, .15, .17], c:0xB49C84}, {g:S(1), p:[.06, .7, .2], r:[-.2, 0, -.15], s:[.045, .2, .03], c:0xB49C84}, {g:S(1), p:[-.06, .7, .2], r:[-.2, 0, .15], s:[.045, .2, .03], c:0xB49C84},
+    {g:S(1), p:[0, .3, -.3], s:[.08], c:0xFFFFFF}, {g:S(1), p:[0, .44, .4], s:[.035], c:0x3A2A2A}]);
+  if (k === 'duck') return psMerge([{g:S(1), p:[0, .12, 0], s:[.22, .17, .34], c:0x8A6E52}, {g:S(1), p:[0, .2, -.06], s:[.18, .1, .22], c:0x5A4636}, {g:Cy(.07, .09, .14, 8), p:[0, .3, .2], c:0xFFFFFF}, {g:S(1), p:[0, .42, .24], s:[.12, .12, .14], c:0x1E7A44}, {g:S(1), p:[0, .4, .38], s:[.06, .025, .08], c:0xF2B02E}, {g:Co(.06, .16, 6), p:[0, .2, -.36], r:[-1.9, 0, 0], c:0x5A4636}]);
+  return psMerge([{g:S(1), p:[0, 0, 0], s:[.08, .08, .2], c:0x3A3C46}, {g:S(1), p:[0, .03, .18], s:[.06], c:0x3A3C46}, {g:Co(.025, .08, 5), p:[0, .03, .27], r:[Math.PI/2, 0, 0], c:0xE8B030}, {g:Co(.06, .16, 5), p:[0, 0, -.22], r:[-Math.PI/2, 0, 0], s:[1, 1, .3], c:0x2A2C34}]);   // bird
+}
+function psAnimalsBuild(R){
+  PSA.list = []; PSA.kinds = {};
+  for (const k of Object.keys(PSA_DEF)) { const D = PSA_DEF[k], body = new THREE.InstancedMesh(psAnimalGeo(k), psLam(), D.n); body.castShadow = true; body.receiveShadow = true; body.userData.noRay = true; body.frustumCulled = false; psAdd(body);
+    let limbs = null, L = 0;
+    if (D.legs && D.legs.length) { L = D.legs.length; limbs = new THREE.InstancedMesh(psMerge([{g:new THREE.CylinderGeometry(.075, .05, 1, 7), p:[0, -.5, 0], c:D.legC}]), psLam(), D.n*L); limbs.castShadow = true; }
+    if (D.wings) { L = 2; limbs = new THREE.InstancedMesh(psMerge([{g:new THREE.BoxGeometry(.5, .02, .2), p:[.27, 0, 0], c:[0x2A2C34, 0x4A4C58]}, {g:new THREE.BoxGeometry(.2, .018, .16), p:[.6, 0, -.03], c:0x2A2C34}]), psLam({side:THREE.DoubleSide}), D.n*2); }
+    if (limbs) { limbs.userData.noRay = true; limbs.frustumCulled = false; psAdd(limbs); }
+    PSA.kinds[k] = {D, body, limbs, L};
+    const herd = []; const flocks = [];
+    for (let i = 0; i < D.n; i++) { const a = {k, D, i, pos:new THREE.Vector3(), vel:new THREE.Vector3(), face:R()*6.28, st:'graze', t:R()*9, think:R()*4, tgt:null, wet:0, scare:0, hitAcc:0, spin:new THREE.Vector3(), rx:0, rz:0, downT:0, frozen:0, s:.85 + R()*.3, sw:0, from:null};
+      if (D.hab === 'land') { let x = 0, z = 0; for (let tries = 0; tries < 200; tries++) { if (D.herd && herd.length && R() < .8) { const h = herd[Math.floor(R()*herd.length)]; x = h[0] + (R() - .5)*16; z = h[1] + (R() - .5)*16; } else { x = (R()*2 - 1)*(ISL - 30); z = (R()*2 - 1)*(ISL - 30); }
+          if (!psWM(x, z) && groundH(x, z) < 30 && psSlope(x, z) < .4) break; } herd.push([x, z]); a.pos.set(x, groundH(x, z), z); }
+      else if (D.hab === 'water') { const L0 = PSW.lakes[Math.floor(R()*PSW.lakes.length)], an = R()*6.28, r = Math.sqrt(R())*L0.r*.7; a.lake = L0; a.pos.set(L0.x + Math.cos(an)*r, L0.lv, L0.z + Math.sin(an)*r); }
+      else { if (!flocks.length || i % 10 === 0) flocks.push([(R()*2 - 1)*ISL*.6, (R()*2 - 1)*ISL*.6, 30 + R()*40, 40 + R()*40]); const f = flocks[flocks.length - 1]; a.home = f; a.ang = R()*6.28 + i*.3; a.alt = f[3] + (R() - .5)*6; a.rad = f[2] + (R() - .5)*8; a.st = 'fly';
+        a.pos.set(f[0] + Math.cos(a.ang)*a.rad, groundH(f[0], f[1]) + a.alt, f[1] + Math.sin(a.ang)*a.rad); }
+      PSA.list.push(a); } }
+}
+// a grid of where the animals are (for the stream's hit test), rebuilt every frame
+function psAnimalsGrid(){ PSA.grid.clear(); for (const a of PSA.list) psGridAdd(PSA.grid, a, a.pos.x, a.pos.z, a.D.r*a.s + 4, 8); }
+function psAnimalsHit(p, wr){
+  const arr = psGridAt(PSA.grid, p.x, p.z, 8); if (!arr) return false;
+  for (const a of arr) { const r = a.D.r*a.s + wr; if (Math.abs(p.x - a.pos.x) > r || Math.abs(p.z - a.pos.z) > r || p.y < a.pos.y - wr - .2 || p.y > a.pos.y + a.D.h*a.s + wr) continue;
+    a.wet = Math.min(1, a.wet + .04 + .03*Math.min(4, Math.pow(p.pr, .3))); a.scare = 7; a.from = V3(p.x - p.dx*6, 0, p.z - p.dz*6);
+    const push = psPush(p.pr); a.hitAcc += push; psAnimalPush(a, p.dx*push*.8/a.D.mass, 0, p.dz*push*.8/a.D.mass);
+    if (a.st !== 'air' && (a.hitAcc > a.D.mass*1.6 || a.D.hab === 'sky')) { const k = Math.min(70, a.hitAcc*2.2/Math.sqrt(a.D.mass)); psAnimalPush(a, p.dx*k, Math.min(45, 3 + k*.7), p.dz*k); }
+    return true; }
+  return false;
+}
+function psAnimalPush(a, vx, vy, vz){
+  a.vel.x += vx; a.vel.y += vy; a.vel.z += vz; a.scare = Math.max(a.scare, 5);
+  if (a.st !== 'air' && (vy > 1.5 || Math.hypot(a.vel.x, a.vel.z) > 14)) { a.st = 'air'; a.vel.y = Math.max(a.vel.y, 3); a.spin.set(rr(-4, 4), rr(-3, 3), rr(-4, 4)); }
+}
+function psAnimalsFrame(dt){
+  const ppl = []; for (const k of Object.keys(chars)) { const P = chars[k]; if (P && P.alive !== false) ppl.push(P.remote ? P.root.position : P.body.position); } for (const b of PS.bots) if (!b.dead) ppl.push(b.pos);
+  for (const a of PSA.list) { const D = a.D; a.t += dt; a.scare -= dt; a.wet = Math.max(0, a.wet - dt/40); a.hitAcc *= Math.exp(-1.5*dt); let speed = 0;
+    if (a.frozen > 0) { a.frozen -= dt; continue; }
+    if (a.st === 'air') { a.vel.y -= PS_G*dt; a.pos.addScaledVector(a.vel, dt); a.rx += a.spin.x*dt; a.rz += a.spin.z*dt; a.face += a.spin.y*dt; a.pos.x = clamp(a.pos.x, -ISL + 5, ISL - 5); a.pos.z = clamp(a.pos.z, -ISL + 5, ISL - 5);
+      const w = psWaterAt(a.pos.x, a.pos.z), gy = groundH(a.pos.x, a.pos.z), fl = D.hab === 'water' && w != null ? w : Math.max(gy, w != null ? w - .3 : -1e9);
+      if (a.pos.y <= fl && a.vel.y < 0) { a.pos.y = fl; if (a.vel.length() > 9) { a.vel.y *= -.35; a.vel.x *= .5; a.vel.z *= .5; psSplash(a.pos.x, fl, a.pos.z, 0, 0, 3); }
+        else { a.vel.set(0, 0, 0); a.st = 'down'; a.downT = 1 + Math.random()*1.4; a.rx = 0; a.rz = (Math.random() < .5 ? 1 : -1)*Math.PI/2; if (D.hab === 'water' && w != null) { a.rz = 0; a.st = 'swim'; } } } }
+    else if (a.st === 'down') { a.downT -= dt; if (a.downT <= 0) { a.rz = 0; a.st = D.hab === 'sky' ? 'rise' : 'flee'; a.scare = 5; } }
+    else if (D.hab === 'sky') { const f = a.home, base = groundH(f[0], f[1]);
+      if (a.st === 'rise') { a.pos.y += 9*dt; a.pos.x += Math.sin(a.face)*6*dt; a.pos.z += Math.cos(a.face)*6*dt; if (a.pos.y > base + a.alt - 3) a.st = 'fly'; }
+      else { a.ang += (D.sp/a.rad)*dt*(a.scare > 0 ? 1.8 : 1); const tx = f[0] + Math.cos(a.ang)*a.rad, tz = f[1] + Math.sin(a.ang)*a.rad, ty = base + a.alt + Math.sin(a.ang*2 + a.i)*3;
+        const dx = tx - a.pos.x, dz = tz - a.pos.z; a.pos.x += dx*Math.min(1, dt*2); a.pos.z += dz*Math.min(1, dt*2); a.pos.y += (ty - a.pos.y)*Math.min(1, dt*1.5); a.face = Math.atan2(-Math.sin(a.ang), Math.cos(a.ang)); }
+      a.vel.multiplyScalar(Math.exp(-2*dt)); a.pos.addScaledVector(a.vel, dt); a.sw = Math.sin(a.t*(a.st === 'rise' ? 22 : 13) + a.i)*.9; }
+    else { // on the ground or the water
+      a.think -= dt; let threat = null, td = D.flee; for (const q of ppl) { const d = Math.hypot(q.x - a.pos.x, q.z - a.pos.z); if (d < td) { td = d; threat = q; } }
+      if (a.scare > 0 && a.from) threat = threat || a.from;
+      if (threat) { a.st = 'flee'; const ax = a.pos.x - threat.x, az = a.pos.z - threat.z; a.want = Math.atan2(ax, az); }
+      else if (a.st === 'flee' || a.think <= 0) { a.think = 2 + Math.random()*5; if (Math.random() < .55) a.st = D.hab === 'water' ? 'swim' : 'graze'; else { a.st = 'walk'; a.want = a.face + rr(-1.6, 1.6); } }
+      speed = a.st === 'flee' ? D.sp : a.st === 'walk' ? D.walk : D.hab === 'water' ? .3 : 0;
+      if (a.want != null && speed) { let dd = a.want - a.face; dd = Math.atan2(Math.sin(dd), Math.cos(dd)); a.face += clamp(dd, -4*dt, 4*dt); }
+      if (speed) { const nx = a.pos.x + Math.sin(a.face)*speed*dt, nz = a.pos.z + Math.cos(a.face)*speed*dt, wet = psWM(nx, nz);
+        const bad = Math.abs(nx) > ISL - 15 || Math.abs(nz) > ISL - 15 || (D.hab === 'land' ? (wet || psSlope(nx, nz) > .6) : (!wet || Math.hypot(nx - a.lake.x, nz - a.lake.z) > a.lake.r - 1));
+        if (bad) { a.want = a.face + Math.PI*(.6 + Math.random()*.8); a.face += 2*dt*3; } else { a.pos.x = nx; a.pos.z = nz; } }
+      a.pos.x += a.vel.x*dt; a.pos.z += a.vel.z*dt; a.vel.x *= Math.exp(-3*dt); a.vel.z *= Math.exp(-3*dt); a.vel.y = 0;
+      if (D.hab === 'water') { const w = psWaterAt(a.pos.x, a.pos.z); a.pos.y = (w != null ? w : groundH(a.pos.x, a.pos.z)) - .04 + Math.sin(a.t*2 + a.i)*.02; }
+      else { const w = psWaterAt(a.pos.x, a.pos.z), gy = groundH(a.pos.x, a.pos.z); a.pos.y = w != null && w - 1 > gy ? w - 1 : gy; }
+      a.sw += dt*speed*(D.hop ? 2.4 : 3.2); a.rx += ((a.st === 'graze' ? .22 : 0) - a.rx)*Math.min(1, dt*3); }
+  }
+  // draw: bodies, legs/wings
+  const M = _psM, ML = new THREE.Matrix4(), MR = new THREE.Matrix4(), Q = _psQ, C = _psC, gold = new THREE.Color(0xF0C83A);
+  for (const k of Object.keys(PSA.kinds)) { const {D, body, limbs, L} = PSA.kinds[k]; let i = 0;
+    for (const a of PSA.list) { if (a.k !== k) continue; const hop = D.hop && a.st !== 'air' && a.st !== 'down' && (a.st === 'flee' || a.st === 'walk') ? Math.abs(Math.sin(a.sw*2.2))*.35 : 0;
+      MR.compose(_psP.set(a.pos.x, a.pos.y + hop, a.pos.z), Q.setFromEuler(_psE.set(a.rx, a.face, a.rz, 'YXZ')), _psS.setScalar(a.s)); body.setMatrixAt(i, MR); body.setColorAt(i, C.setRGB(1, 1, 1).lerp(gold, a.wet*.6));
+      if (limbs) for (let j = 0; j < L; j++) { let lm;
+        if (D.wings) { const fl = a.st === 'down' ? 0 : a.sw*(j ? -1 : 1); lm = ML.compose(_psT.set(D.wings[j][0], D.wings[j][1], D.wings[j][2]), _psQ.setFromEuler(_psE.set(0, 0, fl, 'XYZ')), _psS.set(j ? -1 : 1, 1, 1)); }
+        else { const sw = a.st === 'air' ? Math.sin(a.t*14 + j)*.8 : Math.sin(a.sw + (j === 0 || j === 3 ? 0 : Math.PI))*Math.min(.7, .15 + (a.st === 'flee' ? .55 : a.st === 'walk' ? .3 : 0)); lm = ML.compose(_psT.set(D.legs[j][0], D.legs[j][1], D.legs[j][2]), _psQ.setFromEuler(_psE.set(sw, 0, 0, 'XYZ')), _psS.set(1, D.legL, 1)); }
+        M.multiplyMatrices(MR, lm); limbs.setMatrixAt(i*L + j, M); if (!D.wings) limbs.setColorAt(i*L + j, C); }
+      i++; }
+    body.instanceMatrix.needsUpdate = true; if (body.instanceColor) body.instanceColor.needsUpdate = true; if (limbs) { limbs.instanceMatrix.needsUpdate = true; if (limbs.instanceColor) limbs.instanceColor.needsUpdate = true; } }
+}
+/* ---------- who an effect can reach: me (on my screen; the others judge themselves), the rival bots, the animals, thrown trees ---------- */
+function psVictims(c, R, team, src){
+  const out = [], R2 = R*R, me = localP(), d2 = q => (q.x - c.x)*(q.x - c.x) + (q.z - c.z)*(q.z - c.z);
+  if (me && me.alive !== false && src !== G.localKey && me.team !== team) { const b = me.body.position; if (d2(b) < R2 && Math.abs(b.y - c.y) < R + 25) out.push({k:'me', p:b, P:me, d:Math.sqrt(d2(b))}); }
+  for (const b of PS.bots) if (!b.dead && b.team !== team && d2(b.pos) < R2) out.push({k:'bot', p:b.pos, b, d:Math.sqrt(d2(b.pos))});
+  for (const a of PSA.list) if (d2(a.pos) < R2) out.push({k:'ani', p:a.pos, a, d:Math.sqrt(d2(a.pos))});
+  for (const f of PSTR.fly) if (d2(f.g.position) < R2) out.push({k:'fly', p:f.g.position, f, d:Math.sqrt(d2(f.g.position))});
+  return out;
+}
+function psHitV(v, dmg, vx, vy, vz, src){
+  if (v.k === 'me') { if (dmg > 0) painHurt(v.P, dmg, src); const bv = v.P.body.velocity; bv.x = clamp(bv.x + vx, -55, 55); bv.y = clamp(bv.y + vy, -55, 55); bv.z = clamp(bv.z + vz, -55, 55); if (dmg > 0) PS.soakT = Math.min(1.5, PS.soakT + .15); }
+  else if (v.k === 'bot') psBotHurt(v.b, dmg, vx, vy, vz, src);
+  else if (v.k === 'ani') { v.a.wet = Math.min(1, v.a.wet + .1); psAnimalPush(v.a, vx, vy, vz); }
+  else if (v.k === 'fly') { v.f.vel.x += vx; v.f.vel.y += vy; v.f.vel.z += vz; v.f.landed = false; }
+}
+const psTag = v => v.P || v.b || v.a || v.f;
+function psBlast(c, R, dmg, push, up, team, src, treeF){
+  for (const v of psVictims(c, R, team, src)) { const dx = v.p.x - c.x, dz = v.p.z - c.z, d = Math.hypot(dx, dz) || .01, k = 1 - d/R; psHitV(v, dmg*k, dx/d*push*k, up*k, dz/d*push*k, src); }
+  if (treeF) psTreesNear(c, R, t => { const dx = t.x - c.x, dz = t.z - c.z, d = Math.hypot(dx, dz) || .01, k = 1 - d/R; if (treeF*k > t.hpF*.5) psUproot(t, dx/d*push*k*.6, up*k*.6 + 4, dz/d*push*k*.6); else { t.shake = 1.2; PSTR.shaking.add(t); } });
+  psRocksNear(c, R, r => { const dx = r.x - c.x, dz = r.z - c.z, d = Math.hypot(dx, dz) || .01, k = 1 - d/R; psRockPush(r, dx/d*push*k*2, up*k, dz/d*push*k*2, 10); });
+}
+/* ---------- effects: meshes with a life ---------- */
+const PSFX = [];
+function psFx(o){ PSFX.push(o); return o; }
+function psFxFrame(dt){ for (let i = PSFX.length - 1; i >= 0; i--) { const f = PSFX[i]; f.t += dt; const keep = f.upd ? f.upd(dt, f) !== false : true; if (!keep || f.t >= f.life) { if (f.m && f.m.parent) f.m.parent.remove(f.m); if (f.end) f.end(f); if (f.disp) f.disp.forEach(g => g.dispose()); PSFX.splice(i, 1); } } }
+function psFxGeo(){
+  const cyl = new THREE.CylinderGeometry(1, 1, 1, 40, 1, true); cyl.translate(0, .5, 0);
+  const add = (c, o) => new THREE.MeshBasicMaterial({color:c, transparent:true, opacity:o, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide, fog:false});
+  const glowTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'), g = x.createRadialGradient(64, 64, 0, 64, 64, 64); g.addColorStop(0, 'rgba(255,248,210,1)'); g.addColorStop(.25, 'rgba(255,214,90,.7)'); g.addColorStop(1, 'rgba(255,170,40,0)'); x.fillStyle = g; x.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); })();
+  PSL.M = {
+    gold:new THREE.MeshPhongMaterial({color:0xF7D43E, emissive:0x6A4C00, specular:0xFFFFF0, shininess:150, transparent:true, opacity:.75, depthWrite:false, side:THREE.DoubleSide}),
+    wave:new THREE.MeshPhongMaterial({color:0xFFE170, emissive:0x5A4000, specular:0xFFFFFF, shininess:180, transparent:true, opacity:.5, depthWrite:false, side:THREE.DoubleSide}),
+    bolt:add(0xFFF8D8, 1), boltGlow:add(0xFFC840, .35), ripple:new THREE.MeshBasicMaterial({color:0xFFFFFF, transparent:true, opacity:.45, depthWrite:false}),
+    amber:new THREE.MeshPhongMaterial({color:0xFFB21E, emissive:0x5A3000, specular:0xFFFFFF, shininess:220, transparent:true, opacity:.55, flatShading:true, depthWrite:false}),
+    cloud:new THREE.MeshLambertMaterial({color:0xA89458, emissive:0x000000, transparent:true, opacity:.94}),
+    beamCore:add(0xFFFDF0, .95), beamGlow:add(0xFFD24A, .4), beamHalo:add(0xFFB020, .14), ringAdd:add(0xFFE48A, .7),
+    scorch:new THREE.MeshBasicMaterial({color:0x2A1E08, transparent:true, opacity:.6, depthWrite:false, polygonOffset:true, polygonOffsetFactor:-3}),
+    black:new THREE.MeshBasicMaterial({color:0x000000}), horizon:add(0xFFB830, .35), disk:add(0xFFD060, .8), shock:add(0xFFD86A, .5),
+    sun:new THREE.MeshBasicMaterial({color:0xFFF6D0, fog:false}), sunGlow:new THREE.SpriteMaterial({map:glowTex, blending:THREE.AdditiveBlending, depthWrite:false, transparent:true, fog:false})};
+  // the tornado: an open funnel with streaks painted round it (the texture scrolls: it spins)
+  const st = document.createElement('canvas'); st.width = 256; st.height = 128; const sx = st.getContext('2d');
+  for (let i = 0; i < 46; i++) { const x0 = Math.random()*256, y0 = Math.random()*128, L = 40 + Math.random()*120, a = .25 + Math.random()*.5; const g = sx.createLinearGradient(x0, y0, x0 + L, y0 - L*.35); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(.5, `rgba(255,250,220,${a})`); g.addColorStop(1, 'rgba(255,255,255,0)');
+    sx.strokeStyle = g; sx.lineWidth = 2 + Math.random()*7; for (const ox of [-256, 0, 256]) { sx.beginPath(); sx.moveTo(x0 + ox, y0); sx.lineTo(x0 + ox + L, y0 - L*.35); sx.stroke(); } }
+  const stt = new THREE.CanvasTexture(st); stt.wrapS = stt.wrapT = THREE.RepeatWrapping; stt.repeat.set(3, 2);
+  PSL.M.funnel = new THREE.MeshBasicMaterial({color:0xFFD45A, map:stt, transparent:true, opacity:.8, depthWrite:false, side:THREE.DoubleSide});
+  PSL.M.funnel2 = new THREE.MeshBasicMaterial({color:0xFFF0B0, map:stt.clone(), transparent:true, opacity:.55, depthWrite:false, side:THREE.DoubleSide, blending:THREE.AdditiveBlending}); PSL.M.funnel2.map.needsUpdate = true; PSL.M.funnel2.map.repeat.set(2, 3);
+  const funnel = new THREE.CylinderGeometry(14, 1.4, 42, 48, 12, true); funnel.translate(0, 21, 0);
+  return {cyl, funnel, ring:new THREE.RingGeometry(.82, 1, 64), sph:new THREE.SphereGeometry(1, 32, 16), dome:new THREE.SphereGeometry(1, 48, 20, 0, Math.PI*2, 0, Math.PI/2), ico:new THREE.IcosahedronGeometry(1, 1), circle:new THREE.CircleGeometry(1, 28)};
+}
+/* ---------- THE ULTIMATES: every 10 000 % hides one. The charge you start pissing with decides which one comes out ---------- */
+const PSU_DEFS = [
+  {n:'Golden Geyser', e:'🌋', d:'The ground erupts in golden geysers where it lands.'},
+  {n:'Thunder Stream', e:'⚡', d:'Lightning leaps from the splash to everything nearby.'},
+  {n:'Tidal Wave', e:'🌊', d:'Golden waves roll out from where it lands.'},
+  {n:'Hydra', e:'🐉', d:'The stream grows four more heads that hunt on their own.'},
+  {n:'Golden Tornado', e:'🌪️', d:'A tornado follows your aim and swallows the land.'},
+  {n:'Piss Storm', e:'⛈️', d:'A golden storm cloud rains on whatever you aim at.'},
+  {n:'Amber Prison', e:'🍯', d:'Whatever it touches is sealed in amber.'},
+  {n:'Orbital Beam', e:'🛰️', d:'The sky answers: a beam from orbit follows your aim.'},
+  {n:'Golden Singularity', e:'🕳️', d:'A black hole of piss swallows the valley, then bursts.'},
+  {n:'GOLDEN APOCALYPSE', e:'☀️', d:'A golden sun falls. The valley is washed away.'}
+];
+const PSU_FOUND = (() => { try { const a = JSON.parse(localStorage.getItem('ca-ps-ult') || '[]'); return PSU_DEFS.map((_, i) => !!a[i]); } catch (e) { return PSU_DEFS.map(() => false); } })();
+function psUltCheck(was, now){
+  for (let i = 1; i <= 10; i++) { const th = i*10000; if (was >= th || now < th) continue; const u = PSU_DEFS[i - 1];
+    if (!PSU_FOUND[i - 1]) { PSU_FOUND[i - 1] = true; try { localStorage.setItem('ca-ps-ult', JSON.stringify(PSU_FOUND)); } catch (e) {} psBanner(`🔓 Secret ultimate ${i}/10 unlocked`, `${u.e} ${u.n}`, u.d + ' Piss to unleash it.'); flash(.3, .9); psThump(.5); }
+    else toast(`${u.e} ${u.n} ready (${i*10}k%)`); }
+}
+function psBanner(a, b, c){
+  let el = $('psBanner'); if (!el) { el = document.createElement('div'); el.id = 'psBanner'; el.style.cssText = 'position:fixed;left:50%;top:18%;transform:translateX(-50%);z-index:40;pointer-events:none;text-align:center;font-family:Nunito,system-ui,sans-serif;transition:opacity .6s, transform .6s;opacity:0'; document.body.appendChild(el); }
+  el.innerHTML = `<div style="font:800 14px Nunito,system-ui,sans-serif;letter-spacing:3px;text-transform:uppercase;color:#FFF4C8;text-shadow:0 2px 6px rgba(0,0,0,.6)">${a}</div><div style="font:900 46px Nunito,system-ui,sans-serif;background:linear-gradient(180deg,#FFFBE6,#FFD54A 55%,#E89A10);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 3px 8px rgba(120,70,0,.55))">${b}</div><div style="font:700 15px Nunito,system-ui,sans-serif;color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.7);margin-top:4px">${c}</div>`;
+  el.style.opacity = '1'; el.style.transform = 'translateX(-50%) scale(1)'; clearTimeout(psBanner.t); psBanner.t = setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateX(-50%) scale(.96)'; }, 4200);
+}
+const PSUA = {}, PSAMB = [];
+function PSUA_reset(){ for (const k of Object.keys(PSUA)) delete PSUA[k]; PSAMB.length = 0; PSFX.length = 0; PSRP.length = 0; PSL.goldT = 0; PSL.G = PSL.G || psFxGeo(); }
+function psUltFrame(key, P, dir, c, tier, team, dt){
+  let o = PSUA[key]; if (o && o.k !== tier) { psUltEnd(key); o = null; }
+  if (!PSL.G) PSL.G = psFxGeo();
+  const e = psEmitter(P), imp = psImpact(e, dir, psSpeed(c));
+  if (!o) { o = PSUA[key] = {k:tier, t:0, cd:0, key, team, S:[{}, {}, {}, {}], fx:null, imp}; o.P = P; o.c = c; if (PSU[tier - 1].start) PSU[tier - 1].start(o); }
+  o.t += dt; o.P = P; o.team = team; o.c = c; o.e = e; o.imp = imp; o.dir = dir;
+  PSU[tier - 1].frame(o, dt);
+}
+function psUltEnd(key){ const o = PSUA[key]; if (!o) return; delete PSUA[key]; const U = PSU[o.k - 1]; if (U.end) U.end(o); if (o.fx && o.fx.parent) o.fx.parent.remove(o.fx); }
+const psFollow = (from, to, sp, dt) => { const d = _psT.copy(to).sub(from), L = d.length(); if (L > .05) from.addScaledVector(d, Math.min(1, sp*dt/L)); return from; };
+function psGeyser(p, o, k){
+  const m = new THREE.Mesh(PSL.G.cyl, PSL.M.gold); m.position.copy(p); m.scale.set(1.2*k, .01, 1.2*k); m.userData.noRay = true; psAdd(m);
+  psBlast(p, 5*k, 12, 5, 26*k, o.team, o.key, 80);
+  psFx({t:0, life:1.2, m, upd(dt, f){ const s = Math.sin(Math.PI*Math.min(1, f.t/f.life)); m.scale.y = 18*k*s + .01; m.scale.x = m.scale.z = (1 + .6*s)*k;
+    for (let i = 0; i < 3; i++) if (PSS.length < 700) PSS.push({x:p.x + rr(-1, 1)*k, y:p.y + m.scale.y, z:p.z + rr(-1, 1)*k, vx:rr(-5, 5), vy:rr(2, 9), vz:rr(-5, 5), t:0, r:.08 + Math.random()*.12}); }});
+}
+function psBolt(a, b){
+  const d = b.clone().sub(a), L = d.length(), n = Math.max(4, Math.ceil(L/2.2)), side = new THREE.Vector3(-d.z, 0, d.x).normalize(), up = new THREE.Vector3().crossVectors(d, side).normalize(), pts = [];
+  if (!isFinite(side.x)) side.set(1, 0, 0);
+  for (let i = 0; i <= n; i++) { const t = i/n, j = (i === 0 || i === n) ? 0 : L*.07*(1 - Math.abs(t - .5)); pts.push(a.clone().addScaledVector(d, t).addScaledVector(side, rr(-j, j)).addScaledVector(up, rr(-j, j))); }
+  const path = new THREE.CurvePath(); for (let i = 0; i < n; i++) path.add(new THREE.LineCurve3(pts[i], pts[i + 1]));
+  const g1 = new THREE.TubeGeometry(path, n*2, .09, 5, false), g2 = new THREE.TubeGeometry(path, n*2, .4, 6, false), m = new THREE.Group(); m.add(new THREE.Mesh(g1, PSL.M.bolt), new THREE.Mesh(g2, PSL.M.boltGlow)); noRayAll(m); psAdd(m);
+  psFx({t:0, life:.16, m, disp:[g1, g2], upd(){ m.visible = Math.random() < .85; }});
+}
+function psScorch(p, r){ if (PSFX.filter(f => f.scorch).length > 50) return; const m = new THREE.Mesh(PSL.G.circle, PSL.M.scorch); m.rotation.x = -Math.PI/2; m.position.set(p.x + rr(-1, 1), groundH(p.x, p.z) + .06, p.z + rr(-1, 1)); m.scale.setScalar(r); m.userData.noRay = true; psAdd(m); psFx({t:0, life:30, m, scorch:true}); }
+// a ring (wave, shockwave) that hits each thing once as its front passes
+function psFront(c, R, life, o, mesh, H, onHit, onTree){
+  const hit = new Set(), trees = new Set(); psAdd(mesh); mesh.userData.noRay = true; mesh.position.copy(c);
+  return psFx({t:0, life, m:mesh, upd(dt, f){ const u = f.t/life, r = Math.max(.5, R*(1 - (1 - u)*(1 - u))); H(r, u);
+    for (const v of psVictims(c, r + 3, o.team, o.key)) { const tg = psTag(v); if (hit.has(tg) || v.d < r - 5) continue; hit.add(tg); onHit(v, r); }
+    psTreesNear(c, r + 2, t => { if (trees.has(t) || Math.hypot(t.x - c.x, t.z - c.z) < r - 5) return; trees.add(t); onTree(t, r); });
+    for (let i = 0; i < 10; i++) { const a = Math.random()*6.283; PSX.push([c.x + Math.cos(a)*r, groundH(c.x + Math.cos(a)*r, c.z + Math.sin(a)*r) + Math.random()*2, c.z + Math.sin(a)*r, Math.cos(a)*4, 3, Math.sin(a)*4, .12 + .12*Math.random()]); } }});
+}
+const PSU = [
+  // 1 Golden Geyser
+  {frame(o, dt){ o.cd -= dt; if (o.cd > 0) return; o.cd = .26; const a = Math.random()*6.283, r = Math.random()*9, x = o.imp.x + Math.cos(a)*r, z = o.imp.z + Math.sin(a)*r; psGeyser(V3(x, groundH(x, z), z), o, 1 + Math.min(1, o.c/400)); }},
+  // 2 Thunder Stream
+  {frame(o, dt){ o.cd -= dt; if (o.cd > 0) return; o.cd = .17; const top = V3(o.imp.x, o.imp.y + 1, o.imp.z);
+    const vs = psVictims(o.imp, 42, o.team, o.key).filter(v => v.k !== 'fly').sort((a, b) => a.d - b.d).slice(0, 5);
+    for (const v of vs) { const T = V3(v.p.x, v.p.y + 1, v.p.z); psBolt(top, T); const dx = T.x - top.x, dz = T.z - top.z, d = Math.hypot(dx, dz) || 1; psHitV(v, 22, dx/d*9, 7, dz/d*9, o.key); }
+    if (vs.length < 3) { const a = Math.random()*6.28, r = 6 + Math.random()*24, x = o.imp.x + Math.cos(a)*r, z = o.imp.z + Math.sin(a)*r; psBolt(top, V3(x, groundH(x, z), z)); }
+    if (Math.random() < .4) psBolt(V3(o.imp.x + rr(-8, 8), o.imp.y + 80, o.imp.z + rr(-8, 8)), top);
+    psTreesNear(o.imp, 32, t => { if (Math.random() < .025) { psBolt(top, V3(t.x, t.y + 6*t.s, t.z)); t.shake = 1.2; PSTR.shaking.add(t); for (let i = 0; i < 4; i++) psLeaf(t); } }); }},
+  // 3 Tidal Wave
+  {frame(o, dt){ o.cd -= dt; if (o.cd > 0) return; o.cd = 1.2; const c = o.imp.clone(), m = new THREE.Mesh(PSL.G.cyl, PSL.M.wave);
+    psFront(c, 50, 2.5, o, m, (r, u) => { m.scale.set(r, 4.5*(1 - u) + .4, r); m.position.y = c.y - .6; },
+      (v, r) => { const dx = v.p.x - c.x, dz = v.p.z - c.z, d = Math.hypot(dx, dz) || 1, k = 1 - r/55; psHitV(v, 18*k + 4, dx/d*(22*k + 6), 8*k + 3, dz/d*(22*k + 6), o.key); },
+      (t, r) => { const dx = t.x - c.x, dz = t.z - c.z, d = Math.hypot(dx, dz) || 1; if (r < 40) psUproot(t, dx/d*14, 6, dz/d*14); else { t.shake = 1.2; PSTR.shaking.add(t); } }); }},
+  // 4 Hydra
+  {frame(o, dt){ const P = o.P, b = P.remote ? P.root.position : P.body.position, vs = psVictims(b, 160, o.team, o.key).filter(v => v.k !== 'fly').sort((x, y) => x.d - y.d).slice(0, 4);
+    for (let i = 0; i < 4; i++) { const v = vs[i]; let dir; if (v) dir = psSolve(o.e, V3(v.p.x, v.p.y + 1, v.p.z), psSpeed(o.c*.6), .25); else { const a = Math.atan2(o.dir.x, o.dir.z) + (i - 1.5)*.55 + Math.sin(o.t*2 + i)*.25; dir = V3(Math.sin(a)*.9, .32 + .12*Math.sin(o.t*3 + i), Math.cos(a)*.9).normalize(); }
+      psEmit(o.key + '#h' + i, o.team, P, dir, o.c*.6, dt, o.S[i]); } }},
+  // 5 Golden Tornado
+  {start(o){ const g = new THREE.Group(), a = new THREE.Mesh(PSL.G.funnel, PSL.M.funnel), b = new THREE.Mesh(PSL.G.funnel, PSL.M.funnel2); b.scale.set(.7, .96, .7); g.add(a, b); noRayAll(g); psAdd(g); o.fx = g; o.tp = o.imp.clone(); },
+   frame(o, dt){ const g = o.fx; psFollow(o.tp, o.imp, 17, dt); o.tp.y = groundH(o.tp.x, o.tp.z); g.position.copy(o.tp); const k = Math.min(1, o.t/1.4); g.scale.set(.3 + .7*k, .2 + .8*k, .3 + .7*k);
+     g.children[0].rotation.y += dt*3.2; g.children[1].rotation.y -= dt*4.5; PSL.M.funnel.map.offset.x -= dt*.9; PSL.M.funnel2.map.offset.x += dt*1.3; g.rotation.z = Math.sin(o.t*1.3)*.06; g.rotation.x = Math.cos(o.t*1.1)*.05;
+     for (let i = 0; i < 60; i++) { const h = Math.random()*40*k, a = o.t*5 + Math.random()*6.283, r = (1.6 + h*.3)*(.85 + Math.random()*.3); PSX.push([o.tp.x + Math.cos(a)*r, o.tp.y + h, o.tp.z + Math.sin(a)*r, -Math.sin(a)*5, 2, Math.cos(a)*5, .08 + Math.random()*.14]); }
+     for (let i = 0; i < 14; i++) { const a = Math.random()*6.283, r = 2 + Math.random()*7; PSX.push([o.tp.x + Math.cos(a)*r, o.tp.y + Math.random()*1.2, o.tp.z + Math.sin(a)*r, -Math.sin(a)*3, 1, Math.cos(a)*3, .12 + Math.random()*.12]); }
+     const R = 22*k; for (const v of psVictims(o.tp, R, o.team, o.key)) { const dx = v.p.x - o.tp.x, dz = v.p.z - o.tp.z, dd = Math.hypot(dx, dz) || .1, f = 1 - dd/R; psHitV(v, 10*dt*f, (-dz/dd*42 - dx/dd*24)*f*dt, 52*f*dt, (dx/dd*42 - dz/dd*24)*f*dt, o.key); }
+     psTreesNear(o.tp, 11*k, t => { const dx = t.x - o.tp.x, dz = t.z - o.tp.z, d = Math.hypot(dx, dz) || 1; psUproot(t, -dz/d*12, 16, dx/d*12); });
+     psRocksNear(o.tp, 10*k, r => psRockPush(r, rr(-6, 6), 12, rr(-6, 6), 10)); }},
+  // 6 Piss Storm
+  {start(o){ const g = new THREE.Group(); for (let i = 0; i < 16; i++) { const m = new THREE.Mesh(PSL.G.sph, PSL.M.cloud), a = Math.random()*6.283, r = Math.random()*13; m.position.set(Math.cos(a)*r, rr(-2, 3), Math.sin(a)*r); m.scale.set(rr(5, 9), rr(3, 5), rr(5, 9)); g.add(m); } noRayAll(g); psAdd(g); o.fx = g; o.cp = o.imp.clone(); },
+   frame(o, dt){ psFollow(o.cp, o.imp, 14, dt); const g = o.fx, y = o.cp.y + 34, k = Math.min(1, o.t/1.2); g.position.set(o.cp.x, y, o.cp.z); g.rotation.y += dt*.2; g.scale.setScalar(.2 + .8*k);
+     PSL.M.cloud.emissive.setHex(Math.random() < .05 ? 0x9A8430 : 0x000000);
+     for (let i = 0; i < 110*k; i++) { const a = Math.random()*6.283, r = Math.sqrt(Math.random())*22, x = o.cp.x + Math.cos(a)*r, z = o.cp.z + Math.sin(a)*r, gy = groundH(x, z); PSX.push([x, gy + Math.random()*(y - gy), z, 0, -40, 0, .045]); }
+     o.cd -= dt; if (o.cd <= 0) { o.cd = .08; for (let i = 0; i < 3; i++) { const a = Math.random()*6.283, r = Math.sqrt(Math.random())*22, x = o.cp.x + Math.cos(a)*r, z = o.cp.z + Math.sin(a)*r, gy = groundH(x, z), w = psWaterAt(x, z); if (w != null && w > gy) psRipple(x, w, z, .4); else psPuddle(x, z, gy, .4); psSplash(x, gy, z, 0, 0, 2); } }
+     if (Math.random() < dt*1.4) { const a = Math.random()*6.283, r = Math.random()*20, x = o.cp.x + Math.cos(a)*r, z = o.cp.z + Math.sin(a)*r, p = V3(x, groundH(x, z), z); psBolt(V3(o.cp.x, y - 2, o.cp.z), p); psBlast(p, 6, 20, 8, 8, o.team, o.key, 40); }
+     for (const v of psVictims(o.cp, 22, o.team, o.key)) psHitV(v, 14*dt, 0, 0, 0, o.key); }},
+  // 7 Amber Prison
+  {frame(o, dt){ for (const v of psVictims(o.imp, 10, o.team, o.key)) psAmber(v, o);
+     for (let i = 0; i < 16; i++) { const a = Math.random()*6.283, r = Math.random()*9; PSX.push([o.imp.x + Math.cos(a)*r, o.imp.y + Math.random()*2.5, o.imp.z + Math.sin(a)*r, 0, 2, 0, .06]); } }},
+  // 8 Orbital Beam
+  {start(o){ const g = new THREE.Group(), core = new THREE.Mesh(PSL.G.cyl, PSL.M.beamCore), glow = new THREE.Mesh(PSL.G.cyl, PSL.M.beamGlow), halo = new THREE.Mesh(PSL.G.cyl, PSL.M.beamHalo), ring = new THREE.Mesh(PSL.G.ring, PSL.M.ringAdd);
+     core.scale.set(1.4, 900, 1.4); glow.scale.set(4.5, 900, 4.5); halo.scale.set(9.5, 900, 9.5); ring.rotation.x = -Math.PI/2; g.add(core, glow, halo, ring); g.userData.ring = ring; noRayAll(g); psAdd(g); o.fx = g; o.bp = o.imp.clone(); o.sc = 0; },
+   frame(o, dt){ psFollow(o.bp, o.imp, 45, dt); o.bp.y = groundH(o.bp.x, o.bp.z); const g = o.fx, k = Math.min(1, o.t/.5), w = k*(1 + .08*Math.sin(o.t*40)); g.position.copy(o.bp); g.scale.set(w, 1, w);
+     const ring = g.userData.ring, rt = (o.t*2) % 1; ring.scale.setScalar((2 + rt*24)/Math.max(.01, w)); ring.position.y = .4; PSL.M.ringAdd.opacity = .7*(1 - rt);
+     for (const v of psVictims(o.bp, 11, o.team, o.key)) { const dx = v.p.x - o.bp.x, dz = v.p.z - o.bp.z, dd = Math.hypot(dx, dz) || .1, f = 1 - dd/11; psHitV(v, 85*dt*f, dx/dd*34*f*dt, 46*f*dt, dz/dd*34*f*dt, o.key); }
+     psTreesNear(o.bp, 12, t => psUproot(t, (t.x - o.bp.x)*.9, 20, (t.z - o.bp.z)*.9)); psRocksNear(o.bp, 10, r => psRockPush(r, rr(-4, 4), 18, rr(-4, 4), 10));
+     o.sc -= dt; if (o.sc <= 0) { o.sc = .22; psScorch(o.bp, 2.5 + Math.random()*2.5); shakeAt(o.bp, .2, 160); }
+     for (let i = 0; i < 30; i++) { const a = Math.random()*6.283, r = 1.5 + Math.random()*5; PSX.push([o.bp.x + Math.cos(a)*r, o.bp.y + Math.random()*3, o.bp.z + Math.sin(a)*r, Math.cos(a)*4, 7, Math.sin(a)*4, .1 + Math.random()*.16]); } }},
+  // 9 Golden Singularity
+  {start(o){ const g = new THREE.Group(), core = new THREE.Mesh(PSL.G.sph, PSL.M.black), hz = new THREE.Mesh(PSL.G.sph, PSL.M.horizon), disk = new THREE.Mesh(PSL.G.ring, PSL.M.disk); hz.scale.setScalar(1.3); disk.rotation.x = -Math.PI/2 + .35; disk.scale.setScalar(3.4); g.add(core, hz, disk); g.userData.disk = disk; noRayAll(g); psAdd(g); o.fx = g; o.bh = o.imp.clone(); },
+   frame(o, dt){ psFollow(o.bh, o.imp, 9, dt); const R = 1.5 + Math.min(6, o.t*.9), c = V3(o.bh.x, groundH(o.bh.x, o.bh.z) + R + 4, o.bh.z); o.c3 = c; const g = o.fx; g.position.copy(c); g.scale.setScalar(R); g.userData.disk.rotation.z += dt*2.5;
+     for (const v of psVictims(c, 64, o.team, o.key)) { const dx = c.x - v.p.x, dy = c.y - v.p.y, dz = c.z - v.p.z, dd = Math.hypot(dx, dy, dz) || .1, f = 1 - dd/64, pull = (16 + 50*f)*dt; psHitV(v, dd < R + 2 ? 45*dt : 0, dx/dd*pull*2, dy/dd*pull*2 + 20*dt*f, dz/dd*pull*2, o.key); }
+     psTreesNear(c, 38, t => { const d = Math.hypot(t.x - c.x, t.z - c.z); if (Math.random() < dt*2.5*(1 - d/38)) psUproot(t, (c.x - t.x)*.5, 12, (c.z - t.z)*.5); });
+     psRocksNear(c, 30, r => { if (Math.random() < dt) psRockPush(r, (c.x - r.x)*.5, 10, (c.z - r.z)*.5, 10); });
+     for (let i = 0; i < 70; i++) { const a = o.t*3 + Math.random()*6.283, r = R*(1.6 + Math.random()*4.5), h = (Math.random() - .5)*R*.5; PSX.push([c.x + Math.cos(a)*r, c.y + h + Math.sin(a)*r*.34, c.z + Math.sin(a)*r, -Math.sin(a)*6, 0, Math.cos(a)*6, .07 + Math.random()*.12]); } },
+   end(o){ const c = o.c3 || o.imp; psBlast(c, 72, 55, 58, 30, o.team, o.key, 1e9); const m = new THREE.Mesh(PSL.G.sph, PSL.M.shock); m.position.copy(c); m.userData.noRay = true; psAdd(m); psFx({t:0, life:1.1, m, upd(dt, f){ const u = f.t/f.life; m.scale.setScalar(72*u); PSL.M.shock.opacity = .55*(1 - u); }});
+     flash(.45, .9); psThump(1.2); shakeAt(c, 1, 320); }},
+  // 10 GOLDEN APOCALYPSE
+  {start(o){ PSL.goldT = 1; const g = new THREE.Group(), s = new THREE.Mesh(PSL.G.sph, PSL.M.sun), gl = new THREE.Sprite(PSL.M.sunGlow); s.scale.setScalar(16); gl.scale.set(190, 190, 1); g.add(s, gl); noRayAll(g); psAdd(g); o.fx = g; o.cd = 1.5; o.sp = o.imp.clone(); psBanner('☀️ The valley trembles', 'GOLDEN APOCALYPSE', 'Hold on.'); },
+   frame(o, dt){ psFollow(o.sp, o.imp, 22, dt); const g = o.fx, h = 130 - 70*Math.min(1, o.t/3); g.position.set(o.sp.x, groundH(o.sp.x, o.sp.z) + h, o.sp.z); g.children[0].scale.setScalar(16 + Math.sin(o.t*6)*.8);
+     for (let i = 0; i < 60; i++) { const a = Math.random()*6.283, r = Math.random()*60; PSX.push([o.sp.x + Math.cos(a)*r, g.position.y - Math.random()*h, o.sp.z + Math.sin(a)*r, 0, -50, 0, .06]); }
+     for (const v of psVictims(o.sp, 45, o.team, o.key)) psHitV(v, 12*dt, 0, 0, 0, o.key);
+     o.cd -= dt; if (o.cd <= 0) { o.cd = 4.2; const c = V3(o.sp.x, groundH(o.sp.x, o.sp.z), o.sp.z), m = new THREE.Mesh(PSL.G.dome, PSL.M.shock);
+       psFront(c, 200, 2.6, o, m, (r, u) => { m.scale.set(r, r*.42, r); PSL.M.shock.opacity = .55*(1 - u); }, (v, r) => { const dx = v.p.x - c.x, dz = v.p.z - c.z, d = Math.hypot(dx, dz) || 1, k = 1 - r/260; psHitV(v, 75*k, dx/d*48*k, 30*k, dz/d*48*k, o.key); },
+         (t, r) => { const dx = t.x - c.x, dz = t.z - c.z, d = Math.hypot(dx, dz) || 1, k = 1 - r/260; psUproot(t, dx/d*32*k, 14*k + 5, dz/d*32*k); });
+       psRocksNear(c, 120, r => { const dx = r.x - c.x, dz = r.z - c.z, d = Math.hypot(dx, dz) || 1; psRockPush(r, dx/d*30, 16, dz/d*30, 10); });
+       flash(.55, 1.3); psThump(1.6); shakeAt(c, 1.4, 700); } },
+   end(o){ PSL.goldT = 0; }}
+];
+function psAmber(v, o){
+  const tg = psTag(v); if (!tg || PSAMB.includes(tg)) return; PSAMB.push(tg);
+  const m = new THREE.Mesh(PSL.G.ico, PSL.M.amber), sz = v.k === 'ani' ? v.a.D.h*v.a.s*.75 + .45 : v.k === 'fly' ? 5 : 1.25; m.userData.noRay = true; psAdd(m);
+  psFx({t:0, life:3.4, m, upd(dt, f){ const p = v.p, g = Math.min(1, f.t*5); m.position.set(p.x, p.y + sz*.8, p.z); m.scale.set(sz*g, sz*1.3*g, sz*g); m.rotation.y += dt*.3;
+      if (v.k === 'me') { PS.frozenT = Math.max(PS.frozenT || 0, .1); painHurt(v.P, 8*dt, o.key); } else if (v.k === 'bot') { v.b.frozenT = .15; v.b.push.set(0, 0, 0); psBotHurt(v.b, 8*dt, 0, 0, 0, o.key); } else if (v.k === 'ani') { v.a.frozen = .15; v.a.wet = 1; } else if (v.k === 'fly') v.f.vel.multiplyScalar(.85); },
+    end(){ const i = PSAMB.indexOf(tg); if (i >= 0) PSAMB.splice(i, 1); const p = v.p; for (let k = 0; k < 22; k++) if (PSS.length < 700) PSS.push({x:p.x, y:p.y + sz*.8, z:p.z, vx:rr(-6, 6), vy:rr(2, 9), vz:rr(-6, 6), t:0, r:.06 + Math.random()*.12}); }});
+}
+/* ---------- every frame ---------- */
+function psWorldFrame(dt){
+  PSL.time.value += dt;
+  if (PSL.sky) { PSL.sky.position.copy(camera.position); PSL.gold += (PSL.goldT - PSL.gold)*Math.min(1, dt*1.2); PSL.sky.material.uniforms.gold.value = PSL.gold;
+    PSL.fogC.copy(PSL.hor).lerp(PSL.horGold, PSL.gold); scene.fog.color.copy(PSL.fogC); scene.background.copy(PSL.fogC); hemi.color.setHex(0xD6E8FF).lerp(_psC.setHex(0xFFD890), PSL.gold); sun.color.setHex(0xFFE4BE).lerp(_psC.setHex(0xFFC060), PSL.gold);
+    for (const c of PSL.cl.children) { c.position.x += dt*3; if (c.position.x > 1800) c.position.x -= 3600; } }
+  if (PSL.wmat && PSL.wmat.normalMap) { PSL.wmat.normalMap.offset.x += dt*.012; PSL.wmat.normalMap.offset.y += dt*.008; } if (PSL.rmat && PSL.rmat.normalMap) PSL.rmat.normalMap.offset.y -= dt*.18;
+  psGrassUpdate(); psAnimalsFrame(dt); psThingsFrame(dt); psFxFrame(dt);
+}
 
 /* ===================================== WORLD: rain, nature, an unbreakable ground =====================================
    The ground never changes shape any more: craterAt() only scorches it (colour), World Severance leaves a glowing
@@ -19657,7 +20209,7 @@ function cameraBoom(piv, want){
   if (WZI.walls.length && G.pvp && G.mode === 'wiz') best = wzaBoom(piv, dx, dy, dz, best);   /* Wizards: building walls */
   return best < L ? Math.max(.7, best - .35) : L;
 }
-function resize(){ if (PIXEL.on) { const pr = 1/pixelScale(); if (pr !== MAX_PR) { MAX_PR = MIN_PR = pr; renderer.setPixelRatio(pr); } } const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w/h; G.baseFov = w < h ? 68 : 55; camera.fov = G.baseFov; camera.updateProjectionMatrix(); }
+function resize(){ if (PIXEL.on && !PSL.hiRes) { const pr = 1/pixelScale(); if (pr !== MAX_PR) { MAX_PR = MIN_PR = pr; renderer.setPixelRatio(pr); } } const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w/h; G.baseFov = w < h ? 68 : 55; camera.fov = G.baseFov; camera.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
 
 const CAM = {ok:false, px:0, py:0, pz:0, len:-1};
