@@ -299,7 +299,7 @@ if (!window.THREE || !window.CANNON) {
   document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p>The 3D engine could not load. Check your connection and reload the page.</p></div>';
   return;
 }
-const GAME_VERSION = '2026-10-29.1';   // bump on every deploy: stale copies reload themselves (see the end of this script)
+const GAME_VERSION = '2026-10-29.2';   // bump on every deploy: stale copies reload themselves (see the end of this script)
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
@@ -414,7 +414,7 @@ let renderer;
 try { renderer = new THREE.WebGLRenderer({canvas, antialias:!PIXEL.on}); }
 catch (e) {
   // Chrome blocks 3D in a tab after a graphics-driver reset; a reload in the same tab doesn't clear it, a new tab does
-  document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p><b>3D graphics are blocked in this tab.</b></p><p>This happens after your graphics driver resets (for example when you switch windows, tabs or graphics cards). Close this tab and open the game link again. If that doesn’t help, turn on <i>Use graphics acceleration when available</i> in your browser’s settings.</p></div>';
+  document.getElementById('overlay').innerHTML = '<div class="panel sticker"><p><b>3D graphics are blocked in this tab.</b></p><p>This happens after your graphics driver resets (for example when you switch windows, tabs or graphics cards). Close this tab and open the game link again. If that doesn’t help, turn on <i>Use graphics acceleration when available</i> in your browser’s settings.</p><p><button class="btn primary" onclick="window.open(location.href.split(&quot;#&quot;)[0], &quot;_blank&quot;)">Open the game in a new tab</button></p></div>';
   return;
 }
 // the GPU can reset while the tab is in the background; tell the player instead of showing a frozen picture
@@ -674,7 +674,9 @@ function removeObj(o){
 function clearRound(){
   objs.forEach(removeObj); objs = [];
   fx.forEach(f => roundGroup.remove(f.mesh)); fx = [];
+  const geos = new Set(); roundGroup.traverse(o => { if (o.geometry && o.geometry !== terrGeo) geos.add(o.geometry); });
   while (roundGroup.children.length) roundGroup.remove(roundGroup.children[0]);
+  geos.forEach(g => g.dispose());
   world.bodies.slice().forEach(b => { if (b !== groundBody && !b.isTerrain) world.removeBody(b); });
   world.constraints.slice().forEach(c => world.removeConstraint(c));
 }
@@ -17274,16 +17276,18 @@ function wzAssistBtn(Pp){ const b = document.createElement('button'); b.classNam
 
 /* ===================================== PISS WARS =====================================
    PvP in a big valley: 700 x 700 m (the terrain grid is stretched to 5 m a cell for this mode only: setWorldScale), with a wall of
-   mountains all round and peaks inside, a river, a lake and ponds, and giant trees. Everyone carries a bladder (0..130 %): hold E
-   at any water to drink it through a straw; hold Click to piss where you aim. The fuller the bladder, the farther, harder and
-   thicker the stream (and the faster it drains); over 100 % you waddle, at 125 % it all comes out on its own, spraying round.
+   mountains all round and peaks inside, a river, a lake and ponds, and giant trees. Everyone carries a bladder with no top: hold E
+   at any water to drink through a straw (the longer you hold, the faster you gulp); hold Click to piss where you aim. The more
+   you drank, the faster, thicker and harder the stream: a short droopy arc, a big arc, then a dead-straight beam. Only the
+   player decides when it comes out. The stream is liquid: a glossy tube from the body that breaks into drops (a weak one soon,
+   a strong one late), splashes where it lands and leaves puddles lying on the slope.
    Hits soak (damage) and push; soaked through = knocked out. Teams by colour (online, one colour for all = split in two);
    alone: rival pissers to practise on. Streams travel in the player state ('st' .ps), each screen draws them and judges the
    hits on its own player (the host on the rivals), like every other power. */
 const psOn = () => G.pvp && G.mode === 'piss';
 const PS_MAP = {name:'Golden Valley', e:'💦', d:'A wide green valley under the mountains. Drink up.'};
-const PS_WIN = 20, PS_G = 14, PS_MAXP = 2400;
-const PS = {bl:40, wantPee:false, wantDrink:false, drinking:false, peeing:false, burstT:0, pr:0, dir:V3(0, 0, 1), streams:{}, sendT:0, kills:0, deaths:0, soakT:0, straws:{}, hud:null, snd:null, bots:[], sipT:0, overT:0};
+const PS_WIN = 20, PS_G = 22, PS_MAXP = 2400;   // (a heavy, fast fall: low gravity looks floaty)
+const PS = {bl:40, wantPee:false, wantDrink:false, drinking:false, peeing:false, pr:0, dir:V3(0, 0, 1), streams:{}, sendT:0, kills:0, deaths:0, soakT:0, straws:{}, hud:null, snd:null, bots:[], sipT:0, overT:0};
 const PSW = {lakes:[], river:null, spawns:{blue:[], red:[]}, peaks:[]};
 /* ---------- the world, bigger for this mode (k = 2.5: 700 m a side; the grid keeps its 141 x 141 points) ---------- */
 const WSC = {k:1, outer:null};
@@ -17418,9 +17422,10 @@ function psGround(c, v, x, z){
 }
 function psSpawn(team){ const L = PSW.spawns[team === 'red' ? 'red' : 'blue']; const [x, z] = L.length ? L[Math.floor(Math.random()*L.length)] : [(team === 'red' ? 1 : -1)*ISL*.55, 0]; return V3(x, groundH(x, z) + .3, z); }
 /* ---------- the stream ---------- */
-const psPr = bl => clamp(bl/100, .04, 1.3);
-const psSpeed = pr => 3 + 20*pr;
-function psEmitter(P, face){ const b = P.remote ? P.root.position : P.body.position, f = face != null ? face : P.face; return V3(b.x + Math.sin(f)*.38, b.y + .9, b.z + Math.cos(f)*.38); }
+const psPr = bl => Math.max(.04, bl/100);
+const psSpeed = c => 4 + 21*Math.pow(c, .8);   // 1x: 25 m/s, 3x: 53, 10x: 136, 30x: 323
+const psDmg = c => .1 + .4*Math.min(3, Math.sqrt(c)), psPush = c => .03 + .08*Math.min(3, c), psRad = c => .012 + .05*Math.min(3.2, Math.pow(c, .6));
+function psEmitter(P){ const b = P.remote ? P.root.position : P.body.position, f = P.face || 0; return V3(b.x + Math.sin(f)*.24, b.y + .88, b.z + Math.cos(f)*.24); }
 // a rival near the crosshair line: the stream goes for their chest
 const _psCD = new THREE.Vector3();
 function psAssist(me){
@@ -17433,11 +17438,12 @@ function psAssist(me){
 }
 // the launch direction that lands the stream on the crosshair (the low arc), or the longest throw when it can't reach
 function psAim(me, pr){
-  const e = psEmitter(me), v = psSpeed(pr), h = psAssist(me) || crosshairHit(), yaw = G.yaw;
-  if (h) { const T = h.point, dx = T.x - e.x, dz = T.z - e.z, D = Math.hypot(dx, dz), H = T.y - e.y, v2 = v*v, disc = v2*v2 - PS_G*(PS_G*D*D + 2*H*v2);
-    if (D > .6 && disc >= 0) { const th = Math.atan((v2 - Math.sqrt(disc))/(PS_G*D)); return V3(dx/D*Math.cos(th), Math.sin(th), dz/D*Math.cos(th)); }
-    if (D > .6) { const th = clamp(Math.atan2(H, D) + .3, .12, .42); return V3(dx/D*Math.cos(th), Math.sin(th), dz/D*Math.cos(th)); } }
-  const th = Math.max(-.6, Math.min(.42, G.pitch + .2)); return V3(Math.sin(yaw)*Math.cos(th), Math.sin(th), Math.cos(yaw)*Math.cos(th));
+  const e = psEmitter(me), v = psSpeed(pr), h = psAssist(me) || crosshairHit(), lift = .55/(1 + 1.5*pr);
+  let T = h && h.point; if (!T) { const cd = new THREE.Vector3(); camera.getWorldDirection(cd); T = camera.position.clone().addScaledVector(cd, 400); }
+  const dx = T.x - e.x, dz = T.z - e.z, D = Math.hypot(dx, dz), H = T.y - e.y, v2 = v*v, disc = v2*v2 - PS_G*(PS_G*D*D + 2*H*v2);
+  if (D < .6) return V3(Math.sin(G.yaw)*.8, -.6, Math.cos(G.yaw)*.8).normalize();
+  const th = disc >= 0 ? Math.atan((v2 - Math.sqrt(disc))/(PS_G*D)) : clamp(Math.atan2(H, D) + lift, -.5, .75);
+  return V3(dx/D*Math.cos(th), Math.sin(th), dz/D*Math.cos(th));
 }
 const PSP = {list:[], mesh:null};
 const PST = {mesh:null, S:7};
@@ -17445,84 +17451,102 @@ function psTubeMesh(){
   if (PST.mesh && PST.mesh.parent) return PST.mesh; const n = PS_MAXP*PST.S, g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n*3), 3).setUsage(THREE.DynamicDrawUsage)); g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(n*3), 3).setUsage(THREE.DynamicDrawUsage));
   g.setIndex(new THREE.BufferAttribute(new Uint32Array(n*6), 1).setUsage(THREE.DynamicDrawUsage)); g.setDrawRange(0, 0);
-  PST.mesh = new THREE.Mesh(g, new THREE.MeshPhongMaterial({color:0xF4D531, emissive:0x5E4A00, specular:0xFFFBE0, shininess:70, transparent:true, opacity:.9}));
+  PST.mat = PST.mat || new THREE.MeshPhongMaterial({color:0xF2CF2E, emissive:0x3E2E00, specular:0xFFFFF0, shininess:110, transparent:true, opacity:.8, depthWrite:false});
+  PST.mesh = new THREE.Mesh(g, PST.mat);
   PST.mesh.frustumCulled = false; PST.mesh.userData.noRay = true; roundGroup.add(PST.mesh); return PST.mesh;
 }
-const _psUp = new THREE.Vector3(0, 1, 0), _psT = new THREE.Vector3(), _psA = new THREE.Vector3(), _psB = new THREE.Vector3();
+const PSS = [];   // splash drops
+function psDropMesh(){
+  if (PST.drops && PST.drops.parent) return PST.drops; PST.dgeo = PST.dgeo || new THREE.SphereGeometry(1, 6, 4);
+  PST.drops = new THREE.InstancedMesh(PST.dgeo, PST.mat, 3000); PST.drops.frustumCulled = false; PST.drops.userData.noRay = true; PST.drops.count = 0; roundGroup.add(PST.drops); return PST.drops;
+}
+const _psUp = new THREE.Vector3(0, 1, 0), _psT = new THREE.Vector3(), _psA = new THREE.Vector3(), _psB = new THREE.Vector3(), _psM = new THREE.Matrix4(), _psQ = new THREE.Quaternion(), _psP = new THREE.Vector3(), _psS = new THREE.Vector3();
+function psDrop(D, n, x, y, z, vx, vy, vz, r){ const sp = Math.hypot(vx, vy, vz) || 1; _psT.set(vx/sp, vy/sp, vz/sp); _psQ.setFromUnitVectors(_psUp, _psT); _psM.compose(_psP.set(x, y, z), _psQ, _psS.set(r, r*(1 + Math.min(3, sp*.06)), r)); D.setMatrixAt(n, _psM); }
 function psTubeFrame(){
-  const mesh = psTubeMesh(), g = mesh.geometry, P = g.attributes.position.array, N = g.attributes.normal.array, I = g.index.array, S = PST.S, by = new Map();
+  const mesh = psTubeMesh(), D = psDropMesh(), g = mesh.geometry, P = g.attributes.position.array, N = g.attributes.normal.array, I = g.index.array, S = PST.S, by = new Map();
   for (const p of PSP.list) { let a = by.get(p.own); if (!a) by.set(p.own, a = []); a.push(p); }
-  let v = 0, ii = 0;
+  let v = 0, ii = 0, nd = 0;
   for (const arr of by.values()) for (let k = 0; k < arr.length; k++) {
-    const p = arr[k], q = arr[k + 1]; if (v + S > PS_MAXP*S) break;
+    const p = arr[k], q = arr[k + 1], rad = psRad(p.pr);
+    if (p.t > p.br) { const u = (p.t - p.br)*.6; if (nd < 2900) psDrop(D, nd++, p.x + p.sx*u, p.y + p.sy*u*.5, p.z + p.sz*u, p.vx, p.vy, p.vz, rad*(.55 + .5*Math.abs(p.sy))); continue; }   // broken up: a drop
+    if (v + S > PS_MAXP*S) continue;
     _psT.set(p.vx, p.vy, p.vz).normalize(); _psA.set(_psT.z, 0, -_psT.x); if (_psA.lengthSq() < 1e-6) _psA.set(1, 0, 0); _psA.normalize(); _psB.crossVectors(_psA, _psT);
-    const r = (.011 + .062*Math.min(1.2, p.pr))*(1 + .09*Math.sin(p.t*30 + p.ph))*Math.min(1, .45 + p.t*12), v0 = v;
+    const r = rad*(1 + .09*Math.sin(p.t*30 + p.ph))*Math.min(1, .6 + p.t*10)*(1 - .35*Math.min(1, p.t/p.br)), v0 = v;   // necking down before it breaks
     for (let s2 = 0; s2 < S; s2++) { const a = s2/S*Math.PI*2, c = Math.cos(a), sn = Math.sin(a), nx = _psA.x*c + _psB.x*sn, ny = _psA.y*c + _psB.y*sn, nz = _psA.z*c + _psB.z*sn;
       P[v*3] = p.x + nx*r; P[v*3 + 1] = p.y + ny*r; P[v*3 + 2] = p.z + nz*r; N[v*3] = nx; N[v*3 + 1] = ny; N[v*3 + 2] = nz; v++; }
-    if (q && (q.x - p.x)**2 + (q.y - p.y)**2 + (q.z - p.z)**2 < 2.2) for (let s2 = 0; s2 < S; s2++) { const a0 = v0 + s2, a1 = v0 + (s2 + 1)%S, b0 = a0 + S, b1 = a1 + S; I[ii++] = a0; I[ii++] = b0; I[ii++] = a1; I[ii++] = a1; I[ii++] = b0; I[ii++] = b1; }
+    if (q && q.t <= q.br && (q.x - p.x)**2 + (q.y - p.y)**2 + (q.z - p.z)**2 < p.gap*p.gap) for (let s2 = 0; s2 < S; s2++) { const a0 = v0 + s2, a1 = v0 + (s2 + 1)%S, b0 = a0 + S, b1 = a1 + S; I[ii++] = a0; I[ii++] = b0; I[ii++] = a1; I[ii++] = a1; I[ii++] = b0; I[ii++] = b1; }
   }
   // (an index past the last ring would read a stale vertex: drop quads that point beyond what was written)
   let jj = 0; for (let k = 0; k < ii; k += 3) if (I[k] < v && I[k + 1] < v && I[k + 2] < v) { I[jj++] = I[k]; I[jj++] = I[k + 1]; I[jj++] = I[k + 2]; }
   g.setDrawRange(0, jj); g.attributes.position.needsUpdate = g.attributes.normal.needsUpdate = g.index.needsUpdate = true;
+  for (const d of PSS) if (nd < 3000) psDrop(D, nd++, d.x, d.y, d.z, d.vx, d.vy, d.vz, d.r);
+  D.count = nd; D.instanceMatrix.needsUpdate = true;
 }
+function psSplash(x, y, z, vx, vz, c){ const n = Math.random() < .55 ? 1 + (Math.random() < .3*Math.min(3, c) ? 1 : 0) : 0;
+  for (let i = 0; i < n && PSS.length < 500; i++) { const a = Math.random()*Math.PI*2, h = .6 + Math.random()*1.4; PSS.push({x, y:y + .03, z, vx:Math.cos(a)*h + vx*.15, vy:1.2 + Math.random()*(1.5 + Math.min(3, c)), vz:Math.sin(a)*h + vz*.15, t:0, r:.02 + Math.random()*.025}); } }
+function psSplashFrame(dt){ for (let i = PSS.length - 1; i >= 0; i--) { const d = PSS[i]; d.t += dt; d.vy -= PS_G*dt; d.x += d.vx*dt; d.y += d.vy*dt; d.z += d.vz*dt; if (d.t > .9 || (d.vy < 0 && d.y < groundH(d.x, d.z))) PSS.splice(i, 1); } }
 function psEmit(key, team, P, dir, pr, dt, S){
-  const rate = 55 + 60*pr; S.acc = (S.acc || 0) + rate*dt; const e = psEmitter(P, Math.atan2(dir.x, dir.z)), v = psSpeed(pr), bv = P.remote ? (P.net ? V3(P.net.vx || 0, 0, P.net.vz || 0) : V3(0, 0, 0)) : V3(P.body.velocity.x, 0, P.body.velocity.z);
-  while (S.acc >= 1 && PSP.list.length < PS_MAXP) { S.acc -= 1; S.ph = S.ph || Math.random()*9; const wb = .005 + .012*(1 - Math.min(1, pr)), wa = G.t*9 + S.ph - S.acc/rate*9, ox = Math.sin(wa)*wb, oy = Math.cos(wa*1.3)*wb;
-    PSP.list.push({x:e.x, y:e.y, z:e.z, vx:(dir.x + ox*dir.z)*v + bv.x*.6, vy:(dir.y + oy)*v, vz:(dir.z - ox*dir.x)*v + bv.z*.6, t:0, own:key, team, pr, dx:dir.x, dz:dir.z, ph:S.ph});
-    { const q = PSP.list[PSP.list.length - 1], f = Math.min(dt, S.acc/rate); q.x += q.vx*f; q.y += q.vy*f - PS_G*f*f/2; q.z += q.vz*f; q.vy -= PS_G*f; q.t = f; } }   // spread over the frame: an even stream at any frame rate
+  const rate = 55 + 60*Math.min(2, pr); S.acc = (S.acc || 0) + rate*dt; const e = psEmitter(P), v = psSpeed(pr), bv = P.remote ? (P.net ? V3(P.net.vx || 0, 0, P.net.vz || 0) : V3(0, 0, 0)) : V3(P.body.velocity.x, 0, P.body.velocity.z);
+  S.ph = S.ph || Math.random()*9; const br = .1 + .28*Math.min(4, pr);   // how long it holds together: a dribble breaks at once, a jet stays a jet
+  while (S.acc >= 1 && PSP.list.length < PS_MAXP) { S.acc -= 1; const f = Math.min(dt, S.acc/rate), wb = .004 + .01*(1 - Math.min(1, pr)), wa = (G.t - f)*9 + S.ph, ox = Math.sin(wa)*wb, oy = Math.cos(wa*1.3)*wb;
+    const q = {x:e.x, y:e.y, z:e.z, vx:(dir.x + ox*dir.z)*v + bv.x, vy:(dir.y + oy)*v, vz:(dir.z - ox*dir.x)*v + bv.z, t:f, own:key, team, pr, dx:dir.x, dz:dir.z, ph:S.ph, gap:1.5 + 2.5*v/rate, br:br*(.8 + Math.random()*.4), sx:rr(-1, 1), sy:rr(-1, 1), sz:rr(-1, 1)};
+    q.x += q.vx*f; q.y += q.vy*f - PS_G*f*f/2; q.z += q.vz*f; q.vy -= PS_G*f; PSP.list.push(q); }   // spread over the frame: an even stream at any frame rate
 }
 function psParticlesFrame(dt){
-  const me = localP(), meIn = me && me.alive !== false, mb = meIn ? me.body.position : null; let n = 0, hitD = 0, hx = 0, hz = 0, by = null;
+  const me = localP(), meIn = me && me.alive !== false, mb = meIn ? me.body.position : null; let hitD = 0, hx = 0, hz = 0, by = null;
   const keep = [];
-  for (const p of PSP.list) { p.t += dt; p.vy -= PS_G*dt; p.x += p.vx*dt; p.y += p.vy*dt; p.z += p.vz*dt;
-    // a hit on me (on my screen) / on a rival (the host)
-    if (meIn && p.own !== G.localKey && p.team !== me.team && Math.abs(p.x - mb.x) < .5 && Math.abs(p.z - mb.z) < .5 && p.y > mb.y && p.y < mb.y + 1.95) { hitD += .1 + .4*p.pr; hx += p.dx*(.03 + .09*p.pr); hz += p.dz*(.03 + .09*p.pr); by = p.own; continue; }
-    if (PS.bots.length && psBotsHit(p)) continue;
-    const gy = groundH(p.x, p.z), w = psWaterAt(p.x, p.z), floor = w != null ? Math.max(w, gy) : gy;
-    if (p.y <= floor || p.t > 3) { if (p.y <= floor && Math.random() < .12) puff(V3(p.x, floor + .05, p.z), w != null && w >= gy ? 0xD8F0A8 : 0xF2D640, .1 + .1*p.pr); if (w == null || w < gy) psPuddle(p.x, p.z, gy, .02 + .04*p.pr); continue; }
-    keep.push(p); }
-  PSP.list = keep; psTubeFrame();
+  for (const p of PSP.list) { const n = Math.min(16, Math.max(1, Math.ceil(Math.hypot(p.vx, p.vy, p.vz)*dt/.4))), h = dt/n; let gone = false;
+    for (let k = 0; k < n && !gone; k++) { p.t += h; p.vy -= PS_G*h; p.x += p.vx*h; p.y += p.vy*h; p.z += p.vz*h;
+      // a hit on me (on my screen) / on a rival (the host)
+      if (meIn && p.own !== G.localKey && p.team !== me.team && Math.abs(p.x - mb.x) < .5 && Math.abs(p.z - mb.z) < .5 && p.y > mb.y && p.y < mb.y + 1.95) { hitD += psDmg(p.pr); hx += p.dx*psPush(p.pr); hz += p.dz*psPush(p.pr); by = p.own; psSplash(p.x, p.y, p.z, -p.vx*.3, -p.vz*.3, p.pr); gone = true; break; }
+      if (PS.bots.length && psBotsHit(p)) { psSplash(p.x, p.y, p.z, -p.vx*.3, -p.vz*.3, p.pr); gone = true; break; }
+      const gy = groundH(p.x, p.z), w = psWaterAt(p.x, p.z), floor = w != null ? Math.max(w, gy) : gy;
+      if (p.y <= floor) { psSplash(p.x, floor, p.z, p.vx, p.vz, p.pr); if (w == null || w < gy) psPuddle(p.x, p.z, gy, .02 + .04*Math.min(2, p.pr)); gone = true; }
+      else if (p.t > 4 || Math.abs(p.x) > ISL + 30 || Math.abs(p.z) > ISL + 30) gone = true; }
+    if (!gone) keep.push(p); }
+  PSP.list = keep; psSplashFrame(dt); psTubeFrame();
   if (hitD > 0 && meIn) { painHurt(me, hitD, by); me.body.velocity.x += hx; me.body.velocity.z += hz; if (me.body.velocity.y < 1) me.body.velocity.y += Math.min(.3, hitD*.04); PS.soakT = Math.min(1.5, PS.soakT + hitD*.05); }
 }
 // puddles where it lands (they fade)
-const PSD = {cells:new Map(), mat:null};
+const PSD = {cells:new Map(), mat:null, geo:null};
 function psPuddle(x, z, gy, amt){
   const k = Math.round(x/1.6) + ',' + Math.round(z/1.6); let c = PSD.cells.get(k);
   if (!c) { if (PSD.cells.size > 160) { const old = PSD.cells.keys().next().value; const o = PSD.cells.get(old); if (o.m.parent) o.m.parent.remove(o.m); PSD.cells.delete(old); }
-    PSD.mat = PSD.mat || new THREE.MeshBasicMaterial({color:0xE8CC30, transparent:true, opacity:.55, depthWrite:false, polygonOffset:true, polygonOffsetFactor:-2});
-    const m = new THREE.Mesh(new THREE.CircleGeometry(1, 14), PSD.mat); m.rotation.x = -Math.PI/2; m.position.set(Math.round(x/1.6)*1.6, gy + .06, Math.round(z/1.6)*1.6); m.scale.setScalar(.01); m.userData.noRay = true; roundGroup.add(m); c = {m, amt:0, t:0}; PSD.cells.set(k, c); }
-  c.amt = Math.min(6, c.amt + amt); c.t = 0; c.m.scale.setScalar(Math.min(2.4, .4 + Math.sqrt(c.amt)*.9));
+    PSD.mat = PSD.mat || new THREE.MeshPhongMaterial({color:0xD9B828, specular:0xFFFFF0, shininess:120, transparent:true, opacity:.38, depthWrite:false, polygonOffset:true, polygonOffsetFactor:-2});
+    PSD.geo = PSD.geo || new THREE.CircleGeometry(1, 14); const m = new THREE.Mesh(PSD.geo, PSD.mat), cx = Math.round(x/1.6)*1.6, cz = Math.round(z/1.6)*1.6, cy = groundH(cx, cz); m.quaternion.setFromUnitVectors(V3(0, 0, 1), V3(groundH(cx - 1, cz) - groundH(cx + 1, cz), 2, groundH(cx, cz - 1) - groundH(cx, cz + 1)).normalize()); m.position.set(cx, cy + .04, cz); m.scale.setScalar(.01); m.userData.noRay = true; roundGroup.add(m); c = {m, amt:0, t:0}; PSD.cells.set(k, c); }
+  c.amt = Math.min(6, c.amt + amt); c.t = 0; c.m.scale.setScalar(Math.min(1.3, .25 + Math.sqrt(c.amt)*.55));
 }
 function psPuddlesFrame(dt){ for (const [k, c] of PSD.cells) { c.t += dt; if (c.t > 25) { c.m.scale.multiplyScalar(1 - dt*.6); if (c.m.scale.x < .05) { if (c.m.parent) c.m.parent.remove(c.m); PSD.cells.delete(k); } } } }
 /* ---------- the straw ---------- */
 function psStraw(key, P, on){
   let s = PS.straws[key]; if (!on) { if (s) { if (s.parent) s.parent.remove(s); delete PS.straws[key]; } return; }
   const b = P.remote ? P.root.position : P.body.position, w = psDrinkPoint(b); if (!w) { if (s && s.parent) s.visible = false; return; }
-  if (!s) { s = new THREE.Group(); const tube = new THREE.Mesh(new THREE.CylinderGeometry(.035, .035, 1, 6, 1, true), new THREE.MeshLambertMaterial({color:0xFF5A8A})); tube.position.y = .5; s.add(tube);
-    const flow = new THREE.Mesh(new THREE.CylinderGeometry(.022, .022, 1, 6), new THREE.MeshBasicMaterial({color:0x7FD0FF})); flow.position.y = .5; s.add(flow); s.userData.flow = flow; noRayAll(s); roundGroup.add(s); PS.straws[key] = s; }
+  if (!s) { s = new THREE.Group(); PS.strawKit = PS.strawKit || [new THREE.CylinderGeometry(.035, .035, 1, 6, 1, true), new THREE.MeshLambertMaterial({color:0xFF5A8A}), new THREE.CylinderGeometry(.022, .022, 1, 6), new THREE.MeshBasicMaterial({color:0x7FD0FF})]; const K = PS.strawKit, tube = new THREE.Mesh(K[0], K[1]); tube.position.y = .5; s.add(tube);
+    const flow = new THREE.Mesh(K[2], K[3]); flow.position.y = .5; s.add(flow); s.userData.flow = flow; noRayAll(s); roundGroup.add(s); PS.straws[key] = s; }
   s.visible = true; const f = P.face, mouth = V3(b.x + Math.sin(f)*.22, b.y + 1.52, b.z + Math.cos(f)*.22), d = w.clone().sub(mouth), L = d.length();
   s.position.copy(mouth); s.quaternion.setFromUnitVectors(_psUp, d.clone().normalize()); s.scale.set(1, L, 1); s.userData.flow.scale.y = .3 + .7*((G.t*3) % 1);
 }
 /* ---------- the local player: drink, piss, overflow ---------- */
 function psLocalFrame(dt){
-  const me = localP(); if (!me || me.alive === false) { PS.peeing = PS.drinking = false; PS.burstT = 0; return; }
+  const me = localP(); if (!me || me.alive === false) { PS.peeing = PS.drinking = false; PS.gulpT = 0; return; }
   { const b = me.body, w = psWaterAt(b.position.x, b.position.z); if (w != null && b.position.y < w - 1.25) { b.velocity.y = Math.max(b.velocity.y, Math.min(6, (w - 1.25 - b.position.y)*5)); b.velocity.x *= .97; b.velocity.z *= .97; me.slowT = Math.max(me.slowT || 0, .1); } }   /* swimming */
   const near = psDrinkPoint(me.body.position);
-  PS.drinking = PS.wantDrink && !!near && PS.burstT <= 0 && !PS.wantPee;
-  if (PS.drinking) { const was = PS.bl; PS.bl = Math.min(130, PS.bl + 20*dt); me.slowT = Math.max(me.slowT || 0, .15); PS.sipT -= dt; if (PS.sipT <= 0) { PS.sipT = .45; sfx('pop'); } if (was < 100 && PS.bl >= 100) toast('🥤 Full! Any more and you\'ll waddle… and at 125% it all comes out.'); }
-  if (PS.bl >= 125 && PS.burstT <= 0) { PS.burstT = 3; toast('💦 OVERFLOW! It\'s all coming out!'); sfx('boom'); }
-  if (PS.bl > 100) me.slowT = Math.max(me.slowT || 0, .1);
-  PS.peeing = (PS.wantPee && !PS.drinking) || PS.burstT > 0;
-  if (PS.peeing) { PS.pr = psPr(PS.bl);
-    if (PS.burstT > 0) { PS.burstT -= dt; const a = G.t*7; PS.dir = V3(Math.sin(a)*.8, .6, Math.cos(a)*.8).normalize(); PS.pr = 1.3; if (PS.burstT <= 0) PS.bl = Math.min(PS.bl, 60); }
-    else PS.dir = psAim(me, PS.pr);
-    me.face = Math.atan2(PS.dir.x, PS.dir.z) + .9; if (PS.burstT <= 0) PS.bl = Math.max(0, PS.bl - (2.5 + 12*PS.pr)*dt);
+  PS.drinking = PS.wantDrink && !!near && !PS.wantPee;
+  if (PS.drinking) { PS.gulpT = (PS.gulpT || 0) + dt; PS.bl += 25*(1 + Math.min(5, PS.gulpT*1.2))*dt; me.slowT = Math.max(me.slowT || 0, .15); PS.sipT -= dt; if (PS.sipT <= 0) { PS.sipT = .7; psGlug(); } }   // 25 %/s, up to 150 %/s
+  else PS.gulpT = 0;
+  PS.peeing = PS.wantPee && !PS.drinking && PS.bl > .5;
+  if (PS.peeing) { PS.pr = psPr(PS.bl); PS.dir = psAim(me, PS.pr);
+    me.face = Math.atan2(PS.dir.x, PS.dir.z) - .75;   // turned toward the camera's shoulder: you see it leave you PS.bl = Math.max(0, PS.bl - (2 + 9*Math.pow(PS.pr, .6))*dt);
     psEmit(G.localKey, me.team, me, PS.dir, PS.pr, dt, PS.streams[G.localKey] = PS.streams[G.localKey] || {}); }
   psStraw(G.localKey, me, PS.drinking); psSound(PS.peeing ? PS.pr : 0);
 }
+// only the player's own hand lets it out: a release anywhere (or leaving the window) stops it
+addEventListener('mouseup', () => { PS.wantPee = false; }, true);
+addEventListener('blur', () => { PS.wantPee = PS.wantDrink = false; });
+document.addEventListener('visibilitychange', () => { if (document.hidden) PS.wantPee = PS.wantDrink = false; });
 // what everyone else sees of me (rides on the player state)
 function psState(){ const d = PS.dir; return [PS.peeing ? 1 : 0, +d.x.toFixed(3), +d.y.toFixed(3), +d.z.toFixed(3), +PS.pr.toFixed(2), PS.drinking ? 1 : 0]; }
-function psNet(id, s){ if (!Array.isArray(s)) return; const S = PS.streams[id] = PS.streams[id] || {}; S.on = !!s[0]; S.dir = V3(+s[1] || 0, +s[2] || 0, +s[3] || 1).normalize(); S.pr = clamp(+s[4] || 0, 0, 1.3); S.drink = !!s[5]; S.t = G.t; }
+function psNet(id, s){ if (!Array.isArray(s)) return; const S = PS.streams[id] = PS.streams[id] || {}; S.on = !!s[0]; S.dir = V3(+s[1] || 0, +s[2] || 0, +s[3] || 1).normalize(); S.pr = clamp(+s[4] || 0, 0, 200); S.drink = !!s[5]; S.t = G.t; }
 function psRemoteFrame(dt){
   for (const k in PS.streams) { if (k === G.localKey) continue; const S = PS.streams[k], P = chars[k];
     if (!P || P.alive === false || G.t - (S.t || 0) > 1) { S.on = false; S.drink = false; }
@@ -17532,10 +17556,15 @@ function psRemoteFrame(dt){
 // the stream's sound: hiss through a band-pass, pitch and loudness with the pressure
 function psSound(pr){
   if (!actx || muted) { if (PS.snd) PS.snd.g.gain.value = 0; return; }
-  if (!PS.snd) { const len = actx.sampleRate*2, buf = actx.createBuffer(1, len, actx.sampleRate), d = buf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random()*2 - 1;
-    const src = actx.createBufferSource(); src.buffer = buf; src.loop = true; const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.2; const g = actx.createGain(); g.gain.value = 0;
+  if (!PS.snd) { const len = actx.sampleRate*2, buf = actx.createBuffer(1, len, actx.sampleRate), d = buf.getChannelData(0); let b = 0; for (let i = 0; i < len; i++) { b = b*.97 + (Math.random()*2 - 1)*.03; d[i] = b*6; }   // soft brown-ish noise
+    const src = actx.createBufferSource(); src.buffer = buf; src.loop = true; const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = .4; const g = actx.createGain(); g.gain.value = 0;
     src.connect(f); f.connect(g); g.connect(actx.destination); src.start(); PS.snd = {src, f, g}; }
-  const t = actx.currentTime; PS.snd.g.gain.setTargetAtTime(pr > 0 ? .05 + .09*Math.min(1, pr) : 0, t, .06); PS.snd.f.frequency.setTargetAtTime(700 + 1500*Math.min(1.3, pr), t, .08);
+  const t = actx.currentTime, c = Math.min(3, pr); PS.snd.g.gain.setTargetAtTime(pr > 0 ? .012 + .012*c : 0, t, .15); PS.snd.f.frequency.setTargetAtTime(350 + 250*c, t, .2);
+}
+function psGlug(){
+  if (!actx || muted) return; const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine';
+  o.frequency.setValueAtTime(210 + Math.random()*40, t); o.frequency.exponentialRampToValueAtTime(95, t + .13); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.035, t + .02); g.gain.exponentialRampToValueAtTime(.001, t + .16);
+  o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + .18);
 }
 /* ---------- rival pissers (alone: practice) ---------- */
 function psBotsMake(n){
@@ -17547,7 +17576,7 @@ function psBotsMake(n){
 function psBotSpawn(b){ const s = psSpawn('red'); b.pos.set(s.x + rr(-4, 4), 0, s.z + rr(-4, 4)); b.pos.y = groundH(b.pos.x, b.pos.z); b.hp = 100; b.bl = 40 + Math.random()*40; b.dead = false; b.root.visible = true; b.st = 'wander'; b.tgt = null; }
 function psBotsHit(p){
   for (const b of PS.bots) { if (b.dead || p.team === b.team || Math.abs(p.x - b.pos.x) > .55 || Math.abs(p.z - b.pos.z) > .55 || p.y < b.pos.y || p.y > b.pos.y + 1.95) continue;
-    b.hp -= .1 + .4*p.pr; b.push.x += p.dx*(.03 + .09*p.pr); b.push.z += p.dz*(.03 + .09*p.pr); b.hitT = .15;
+    b.hp -= psDmg(p.pr); b.push.x += p.dx*psPush(p.pr); b.push.z += p.dz*psPush(p.pr); b.hitT = .15;
     if (b.hp <= 0 && !b.dead) { b.dead = true; b.respT = 4; b.root.visible = false; puff(V3(b.pos.x, b.pos.y + 1, b.pos.z), 0xF2D640, 1.2); sfx('pop'); if (p.own === G.localKey) { PS.kills++; toast(`💦 You soaked ${b.name}! (${PS.kills})`); } }
     return true; }
   return false;
@@ -17565,7 +17594,7 @@ function psBotsFrame(dt){
       else if (b.st === 'hunt' || (b.st === 'wander' && (!b.tgt || Math.hypot(b.tgt.x - p.x, b.tgt.z - p.z) < 4))) { b.st = 'wander'; b.tgt = V3(clamp(p.x + rr(-60, 60), -ISL*.7, ISL*.7), 0, clamp(p.z + rr(-60, 60), -ISL*.7, ISL*.7)); } }
     let move = 0, pee = false;
     if (b.st === 'thirst') { const w = psDrinkPoint(p); if (w) { b.st = 'drink'; } else move = 4.5; }
-    if (b.st === 'drink') { b.bl = Math.min(110, b.bl + 20*dt); if (b.bl >= 95) { b.st = 'wander'; b.tgt = null; } }
+    if (b.st === 'drink') { b.bl += 40*dt; if (b.bl >= (b.goal || 150)) { b.st = 'wander'; b.tgt = null; b.goal = 100 + Math.random()*300; } }
     if (b.st === 'hunt' && b.tgt) { const pr = psPr(b.bl), reach = Math.max(4, (psSpeed(pr)**2)/PS_G*.75), d = Math.hypot(b.tgt.x - p.x, b.tgt.z - p.z); if (d > reach*.9) { move = 5.5; b.peeT = 0; } else if (b.bl > 2) { b.peeT = (b.peeT || 0) + dt; pee = b.peeT % 2.8 < 1.6; } if (me && me.alive !== false) b.tgt.copy(me.body.position); }
     if (b.st === 'wander') move = 3;
     if (move && b.tgt) { const dx = b.tgt.x - p.x, dz = b.tgt.z - p.z, L = Math.hypot(dx, dz) || 1; b.face = Math.atan2(dx, dz); const sp = move*(b.bl > 100 ? .6 : 1); p.x += dx/L*sp*dt; p.z += dz/L*sp*dt; }
@@ -17589,9 +17618,9 @@ function psHud(on){
   el.style.display = 'flex'; $('psSoak').style.display = 'block';
 }
 function psHudFrame(){
-  const el = $('psHud'); if (!el) return; const bl = PS.bl; $('psFill').style.height = (Math.min(130, bl)/130*100) + '%'; $('psFill').style.background = bl > 100 ? 'linear-gradient(180deg,#FFB040,#E86A20)' : 'linear-gradient(180deg,#FFF27A,#E8C020)';
+  const el = $('psHud'); if (!el) return; const bl = PS.bl; $('psFill').style.height = Math.min(100, bl) + '%'; $('psFill').style.background = bl > 1000 ? 'linear-gradient(180deg,#FFFFFF,#9AF0FF)' : bl > 300 ? 'linear-gradient(180deg,#FFB040,#E8401E)' : bl > 100 ? 'linear-gradient(180deg,#FFD84A,#E89A20)' : 'linear-gradient(180deg,#FFF27A,#E8C020)';
   $('psPct').textContent = Math.round(bl) + '%'; const pr = psPr(bl);
-  $('psPr').textContent = PS.burstT > 0 ? '💥 OVERFLOW' : bl > 100 ? '😖 Desperate' : bl < 8 ? '💧 Dribble' : pr < .45 ? '🚿 Steady' : pr < .8 ? '💦 Strong' : '🚒 FIRE HOSE';
+  $('psPr').textContent = bl < 8 ? '💧 Dribble' : pr < .45 ? '🚿 Steady' : pr < .9 ? '💦 Strong' : pr < 2 ? '🚒 Fire hose' : pr < 5 ? '🌊 Pressure washer' : pr < 12 ? '⚡ LASER' : '☄️ UNGODLY';
   const me = localP(), near = me && psDrinkPoint(me.body.position); $('psLbl').textContent = PS.drinking ? '🥤 Slurp…' : near ? '🥤 Hold E: drink' : '💧 Bladder';
   $('psK').textContent = PS.bots.length ? `💦 ${PS.kills} · 😵 ${PS.deaths}` : '';
   PS.soakT = Math.max(0, PS.soakT - .02); $('psSoak').style.opacity = Math.min(.9, PS.soakT);
@@ -17604,7 +17633,7 @@ function psTray(t){
 }
 /* ---------- start, every frame, input ---------- */
 function psStart(){
-  PS.bl = 45; PS.wantPee = PS.wantDrink = PS.drinking = PS.peeing = false; PS.burstT = 0; PS.streams = {}; PS.kills = PS.deaths = 0; PS.soakT = 0; PS.straws = {}; PSP.list = []; PST.mesh = null; PSD.cells = new Map();
+  PS.bl = 45; PS.wantPee = PS.wantDrink = PS.drinking = PS.peeing = false; PS.gulpT = 0; PSS.length = 0; PST.drops = null; PS.streams = {}; PS.kills = PS.deaths = 0; PS.soakT = 0; PS.straws = {}; PSP.list = []; PST.mesh = null; PSD.cells = new Map();
   psBuildMap(); psHud(true); if (!NET.peer) psBotsMake(5); else PS.bots = [];
   toast(NET.peer ? `💦 Piss Wars! Drink at any water (hold E), piss with Click. First team to ${PS_WIN} soakings wins.` : '💦 Piss Wars practice: 5 rival pissers. Hold E at water to drink, hold Click to piss. The fuller you are, the harder it goes.');
 }
@@ -19199,7 +19228,7 @@ function showPvPTitle(){
     for (const [id, k] of [['mEgg','egg'],['mTD','td'],['mSiege','siege'],['mWiz','wiz'],['mPiss','piss']]) $(id).style.outline = m === k ? '4px solid var(--yolk)' : 'none';
     $('hostB').disabled = m === 'swarm' || !online; $('hostB').title = m === 'swarm' ? 'Swarm mode is single-player: use Practice alone' : '';
     $('modeDesc').textContent = m === 'egg' ? `Alpha Mode: one player defends the egg with 20 protection powers and builds for as long as they like, then presses Ready. Everyone else attacks until the egg breaks or they give up. Everyone takes a turn defending.`
-      : m === 'piss' ? 'Piss Wars (PvP): a huge valley with mountains, a river, a lake and ponds. Drink at any water through a straw (hold E), then piss on your rivals (hold Click). The more you drink, the farther and harder it goes: over 100% you waddle, at 125% it all comes out. Soak them through to knock them out. Two colours: team against team. Alone: rival pissers to practise on.'
+      : m === 'piss' ? 'Piss Wars (PvP): a huge valley with mountains, a river, a lake and ponds. Drink at any water through a straw (hold E), then piss on your rivals (hold Click). There is no limit: the more you drink, the faster, thicker and harder it goes, from a droopy arc to a big arc to a dead-straight beam. Soak them through to knock them out. Two colours: team against team. Alone: rival pissers to practise on.'
       : m === 'wiz' ? 'Wizards: every spell is a magic circle you draw with the mouse, once, and keep for the whole match. Trace it neatly and it is strong, sloppily and it is weak; while you draw you stand still and can be hit. Bigger spells have harder circles. Everyone on the same colour: fight 12 waves of dark wizards together. Two colours: team battle.'
       : m === 'siege' ? 'Fortress Siege (co-op): everyone defends the egg together. Balloons come down one long, winding path per player. Build walls, domes, lava, drones and spirits (free, refilled every round) and buy turrets with the money you earn, inside the area or along the paths. 100 rounds of fewer but tougher balloons, a boss every third round. Between rounds: rebuild, upgrade, and press Ready.'
       : m === 'swarm' ? 'Swarm (single-player): spawn 5 to 100 enemies that chase you, then try every class’s powers on them. Use Practice alone.'
@@ -19293,7 +19322,7 @@ function renderPhase(){
   const map = {title:'Egg Defense', intro:`Round ${G.round}`, build:`${teamName(G.defender)} builds`, handoff:'Swap players', attack: G.pvp ? (G.mode === 'pain' ? 'Pain' : 'Chaos Arena') : `${teamName(attacker())} attacks`, end:'Round over'};
   if (eggOn()) { eggHud(true); eggHelp(); $('tAct').textContent = G.phase === 'build' && amDefender() ? 'Place' : 'Shoot'; return; }
   if (G.pvp && G.mode === 'tennis') { const help = $('help'); help.style.display = 'block'; help.innerHTML = painHelp() + '<br>🎾 Fling everything over the net: when the clock runs out, the side with fewer things wins. Knocked off the court, it drops back on your side.'; $('phase').innerHTML = '🎾 Pain Tennis<small>Fewer things on your side wins</small>'; $('tAct').textContent = 'Cast'; return; }
-  if (psOn()) { const help = $('help'); help.style.display = 'block'; help.innerHTML = '<b>WASD</b> move · <b>Space</b> jump · <b>Shift</b> run<br><b>Hold E</b> at water: drink through a straw<br><b>Hold Click</b>: piss where you aim. Fuller = farther, harder<br>Over 100%: you waddle · 125%: it all comes out'; $('phase').innerHTML = '💦 Piss Wars'; return; }
+  if (psOn()) { const help = $('help'); help.style.display = 'block'; help.innerHTML = '<b>WASD</b> move · <b>Space</b> jump · <b>Shift</b> run<br><b>Hold E</b> at water: drink through a straw<br><b>Hold Click</b>: piss where you aim<br>No limit: the more you drink, the bigger the arc, until it is a straight beam'; $('phase').innerHTML = '💦 Piss Wars'; return; }
   if (wzOn()) { wzHud(true); const help = $('help'); help.style.display = 'block'; help.innerHTML = '<b>WASD</b> move · <b>Space</b> jump · <b>Shift</b> run<br><b>1–0</b> a spell: the first time, <b>draw its circle</b> on the paper (trace the guide, <b>Enter</b> activates, <b>C</b> clears, <b>G</b> hides the guide for +15%). Drawn once, kept all match: neater = stronger. You stand still while drawing!<br>After that: <b>1–0</b> casts (aimed ones: then <b>Click</b> the marker)<br><b>Click</b> wand bolt'; return; }
   if (G.pvp && G.mode === 'td') { tdHud(); const help = $('help'); help.style.display = 'block'; help.innerHTML = (G.cls === 'bomber' ? bomberHelp() : G.cls === 'sword' ? swordHelp() : G.cls === 'avatar' ? avatarHelp() : G.cls === 'wood' ? woodHelp() : painHelp()) + '<br><b>Enter</b> start the next round · <b>Y</b> turrets (1-5 pick, Click place; aim at one: <b>U</b> upgrade, <b>K</b> sell) · <b>Tab</b> switch class'; $('tAct').textContent = 'Cast'; return; }
   $('phase').innerHTML = map[G.phase] + (G.phase==='build' ? `<small>Place your protection</small>` : G.phase==='attack' ? (G.mode === 'swarm' ? '<small>Swarm mode</small>' : G.pvp ? `<small>First team to ${WIN_SCORE}</small>` : `<small>Break the egg!</small>`) : '');
@@ -19838,7 +19867,7 @@ function frame(now){
     const ty = bp.y + 1.75 + (G.camLiftY || 0);   // the Wood Guardian lifts the camera to its shoulders
     if (!CAM.ok || Math.hypot(bp.x - CAM.px, ty - CAM.py, bp.z - CAM.pz) > 6) { CAM.px = bp.x; CAM.py = ty; CAM.pz = bp.z; CAM.len = -1; CAM.lift = null; CAM.ok = true; }
     else { CAM.px = bp.x; CAM.pz = bp.z; CAM.py += (ty - CAM.py)*(1 - Math.pow(.0004, rdt)); }
-    const piv = tmpL.set(CAM.px, CAM.py, CAM.pz).addScaledVector(right, .75);
+    const piv = tmpL.set(CAM.px, CAM.py, CAM.pz).addScaledVector(right, psOn() ? 1.2 : .75);
     const up = Math.max(0, G.pitch)/PITCH_MAX, upE = up*up*(3 - 2*up);
     G.camZoomK = lerp(G.camZoomK || 1, Math.max(G.t < (G.camZoomUntil || 0) ? 2.7 : 1, G.camZoomTgt || 1), Math.min(1, rdt*3));   // Gate of Babylon: pull back to show the gates
     const dist = (G.phase === 'attack' ? G.camDist*.85 : G.camDist) * (act.fly ? 2.4 : 1) * (1 - .55*upE) * G.camZoomK;

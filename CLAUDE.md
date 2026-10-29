@@ -839,3 +839,15 @@ tube is built through each stream's points every frame (radius .011 + .062*pr: t
 wobble, no random spray). Hit: .1 + .4*pr per point via painHurt + a small push. The player stands side-on (face + .9) while
 pissing so the camera sees it. Network: psState rides on 'st' as ps:[on, dir, pr, drink]. Bots: wander / thirst / drink / hunt,
 piss in bursts with an aim error. First team to PS_WIN 20. Tests: piss1.mjs, piss_side.mjs.
+Piss Wars 2026-10-29.2: NO LIMITS. The bladder has no top (charge c = bl/100); drinking 25 %/s rising to 150 %/s while E is held
+(PS.gulpT); no overflow, no waddle: ONLY the player's Click lets it out (also stopped on any window mouseup / blur / hidden tab).
+Speed psSpeed(c) = 4 + 21*c^0.8 under PS_G 22 (heavy, not floaty): droopy arc -> big arc -> straight beam (sag over 30 m: 184 m
+at 10 %, 0.5 m at 1000 %). psAim: reachable -> the low arc onto the crosshair; else an arc toward it lifted .55/(1 + 1.5c).
+psDmg/psPush/psRad scale with c (capped). Hits are tested in sub-steps (fast points move metres a frame). LIQUID LOOK: the stream
+leaves the body's own front (psEmitter uses P.face; the body turns -.75 toward the camera shoulder, and the shoulder offset is 1.2
+in this mode), inherits the body's motion, is a glossy see-through tube that necks down and BREAKS INTO DROPS after p.br
+(.1 + .28*c s: a dribble at once, a jet late; drops = PST.drops InstancedMesh), lands in splashes (PSS) and leaves puddles lying on
+the slope. Sounds: a quiet low-passed trickle and a soft glug (psGlug), no pops/booms.
+GPU LEAK FIX (all modes): clearRound now disposes the geometries of everything it removes from roundGroup (three re-uploads a
+shared one if it is drawn again); rematches no longer pile up GPU buffers. The "3D graphics are blocked" screen has a button that
+opens the game in a new tab.
